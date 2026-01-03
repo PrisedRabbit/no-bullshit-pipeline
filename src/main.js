@@ -15,6 +15,7 @@ let currentRecordingTags = [];
 const statusIndicator = document.getElementById("status-indicator");
 const timerDisplay = document.getElementById("timer");
 const projectInput = document.getElementById("project-tags");
+// audioSourceSelect removed
 const recordBtn = document.getElementById("record-btn");
 const pauseBtn = document.getElementById("pause-btn");
 const stopBtn = document.getElementById("stop-btn");
@@ -55,7 +56,9 @@ function stopTimer() {
 // ===== RECORDING CONTROLS =====
 async function startRecording() {
   const tags = projectInput.value.split(" ").filter(t => t.length > 0);
+
   try {
+    // Calling backend (which now does dual recording automatically)
     await invoke("start_recording", { tags });
     console.log("Started recording", tags);
 
@@ -64,6 +67,7 @@ async function startRecording() {
     recordBtn.disabled = true;
     pauseBtn.disabled = false;
     stopBtn.disabled = false;
+    // Selector removed
     pauseBtn.innerHTML = "⏸";
     pauseBtn.title = "Pause";
 
@@ -112,6 +116,8 @@ async function stopRecording() {
     recordBtn.disabled = false;
     pauseBtn.disabled = true;
     stopBtn.disabled = true;
+
+    // Selector removed
     pauseBtn.innerHTML = "⏸";
     pauseBtn.title = "Pause";
 

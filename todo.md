@@ -9,12 +9,12 @@
 ### Storage (v0.1)
 
 - [x] Define storage architecture (STORAGE.md)
-- [ ] Implement UUID-based directory creation
-- [ ] Implement metadata.json schema (Rust structs)
-- [ ] Update audio recording to use UUID directories
-- [ ] Implement metadata creation/reading
-- [ ] Build in-memory recording index
-- [ ] Update UI to display recordings from new structure
+- [x] Implement UUID-based directory creation
+- [x] Implement metadata.json schema (Rust structs)
+- [x] Update audio recording to use UUID directories
+- [x] Implement metadata creation/reading
+- [x] Build in-memory recording index
+- [x] Update UI to display recordings from new structure
 
 ## 1. Projects (lightweight)
 
@@ -52,12 +52,12 @@
 **Goal:** the file always exists.
 
 - Permissions:
-  - request microphone access
-  - request system audio access
-  - handle denied state
+- [x] request microphone access
+  - [x] request system audio access
+  - [x] handle denied state
 - On record start:
-  - create recording ID
-  - open audio file immediately
+  - [x] create recording ID
+  - [x] open audio file immediately
 - During capture:
   - write in chunks
   - update metadata

@@ -11,7 +11,14 @@ pub struct RecordingMetadata {
     pub created_at: String,
     pub title: String,
     pub tags: Vec<String>,
-    pub audio: AudioInfo,
+    pub audio: AudioFiles,
+}
+
+/// Audio files (mic + system)
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct AudioFiles {
+    pub mic: Option<AudioInfo>,
+    pub system: Option<AudioInfo>,
 }
 
 /// Audio file information
@@ -19,6 +26,8 @@ pub struct RecordingMetadata {
 pub struct AudioInfo {
     pub file: String,
     pub duration_sec: f64,
+    pub sample_rate: u32,
+    pub channels: u16,
 }
 
 /// Get the data directory path (~/nbp-data/)
@@ -42,9 +51,9 @@ pub fn create_recording(title: String, tags: Vec<String>) -> Result<RecordingMet
         created_at,
         title,
         tags,
-        audio: AudioInfo {
-            file: "raw.wav".to_string(),
-            duration_sec: 0.0, // Will be updated on stop
+        audio: AudioFiles {
+            mic: None,
+            system: None,
         },
     };
     
@@ -151,8 +160,8 @@ mod tests {
         // Verify fields
         assert_eq!(metadata.title, "test recording");
         assert_eq!(metadata.tags, vec!["test", "storage"]);
-        assert_eq!(metadata.audio.file, "raw.wav");
-        assert_eq!(metadata.audio.duration_sec, 0.0);
+        assert!(metadata.audio.mic.is_none());
+        assert!(metadata.audio.system.is_none());
     }
     
     #[test]

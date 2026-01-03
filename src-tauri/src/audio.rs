@@ -11,8 +11,12 @@ type WavWriterHandle = Arc<Mutex<Option<hound::WavWriter<BufWriter<File>>>>>;
 // Structure to hold the audio stream and state
 pub struct AudioState {
     pub is_recording: Mutex<bool>,
-    pub stream: Mutex<Option<cpal::Stream>>,
-    pub writer: Mutex<Option<WavWriterHandle>>,
+    // Microphone (cpal)
+    pub mic_stream: Mutex<Option<cpal::Stream>>,
+    pub mic_writer: Mutex<Option<WavWriterHandle>>,
+    // System Audio (ScreenCaptureKit)
+    pub system_recorder: Mutex<Option<crate::system_audio::SystemAudioRecorder>>,
+    
     pub current_session: Mutex<Option<RecordingMetadata>>,
 }
 
@@ -25,8 +29,9 @@ impl AudioState {
     pub fn new() -> Self {
         Self {
             is_recording: Mutex::new(false),
-            stream: Mutex::new(None),
-            writer: Mutex::new(None),
+            mic_stream: Mutex::new(None),
+            mic_writer: Mutex::new(None),
+            system_recorder: Mutex::new(None),
             current_session: Mutex::new(None),
         }
     }
@@ -39,6 +44,7 @@ pub fn start_recording(state: State<'_, AudioState>, tags: Vec<String>) -> Resul
         return Err("Already recording".to_string());
     }
 
+    // --- Microphone Capture (cpal) ---
     let host = cpal::default_host();
     let device = host.default_input_device().ok_or("No input device available")?;
     let config = device.default_input_config().map_err(|e| e.to_string())?;
@@ -47,8 +53,8 @@ pub fn start_recording(state: State<'_, AudioState>, tags: Vec<String>) -> Resul
     let title = tags.join(" ");
     let metadata = storage::create_recording(title, tags)?;
     
-    // Audio file path
-    let audio_path = storage::get_recording_dir(&metadata.id).join("raw.wav");
+    // Mic Audio file path
+    let mic_audio_path = storage::get_recording_dir(&metadata.id).join("raw_mic.wav");
     let spec = hound::WavSpec {
         channels: config.channels(),
         sample_rate: config.sample_rate().0,
@@ -56,7 +62,7 @@ pub fn start_recording(state: State<'_, AudioState>, tags: Vec<String>) -> Resul
         sample_format: hound::SampleFormat::Int,
     };
     
-    let writer = hound::WavWriter::create(&audio_path, spec).map_err(|e| e.to_string())?;
+    let writer = hound::WavWriter::create(&mic_audio_path, spec).map_err(|e| e.to_string())?;
     let writer_handle = Arc::new(Mutex::new(Some(writer)));
     
     // Store handle for the callback
@@ -99,8 +105,22 @@ pub fn start_recording(state: State<'_, AudioState>, tags: Vec<String>) -> Resul
 
     stream.play().map_err(|e| e.to_string())?;
 
-    *state.stream.lock().map_err(|e| e.to_string())? = Some(stream);
-    *state.writer.lock().map_err(|e| e.to_string())? = Some(writer_handle);
+    // --- Update State ---
+    *state.mic_stream.lock().map_err(|e| e.to_string())? = Some(stream);
+    *state.mic_writer.lock().map_err(|e| e.to_string())? = Some(writer_handle);
+    
+    // --- System Audio ---
+    let system_wav_path = storage::get_recording_dir(&metadata.id).join("raw_system.wav");
+    match crate::system_audio::start_system_capture(system_wav_path) {
+        Ok(recorder) => {
+            *state.system_recorder.lock().map_err(|e| e.to_string())? = Some(recorder);
+        },
+        Err(e) => {
+            println!("System audio capture failed: {}", e);
+            // Proceed with Mic only
+        }
+    }
+    
     *state.current_session.lock().map_err(|e| e.to_string())? = Some(metadata);
     *is_recording = true;
 
@@ -109,19 +129,27 @@ pub fn start_recording(state: State<'_, AudioState>, tags: Vec<String>) -> Resul
 
 #[tauri::command]
 pub fn pause_recording(state: State<'_, AudioState>) -> Result<(), String> {
-    let stream_guard = state.stream.lock().map_err(|e| e.to_string())?;
-    if let Some(stream) = stream_guard.as_ref() {
+    // Pause microphone
+    let mic_guard = state.mic_stream.lock().map_err(|e| e.to_string())?;
+    if let Some(stream) = mic_guard.as_ref() {
         stream.pause().map_err(|e| e.to_string())?;
     }
+    
+    // Pause system audio (TODO: Implement SCK pause)
+    
     Ok(())
 }
 
 #[tauri::command]
 pub fn resume_recording(state: State<'_, AudioState>) -> Result<(), String> {
-    let stream_guard = state.stream.lock().map_err(|e| e.to_string())?;
-    if let Some(stream) = stream_guard.as_ref() {
+    // Resume microphone
+    let mic_guard = state.mic_stream.lock().map_err(|e| e.to_string())?;
+    if let Some(stream) = mic_guard.as_ref() {
         stream.play().map_err(|e| e.to_string())?;
     }
+    
+    // Resume system audio (TODO: Implement SCK resume)
+    
     Ok(())
 }
 
@@ -132,15 +160,15 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<(), String> {
         return Ok(());
     }
 
-    // Drop stream to stop it
+    // --- Stop Microphone ---
     {
-        let mut stream_guard = state.stream.lock().map_err(|e| e.to_string())?;
+        let mut stream_guard = state.mic_stream.lock().map_err(|e| e.to_string())?;
         *stream_guard = None;
     }
     
-    // Finalize writer and update meta
+    // Finalize mic writer
     {
-         let mut writer_guard = state.writer.lock().map_err(|e| e.to_string())?;
+         let mut writer_guard = state.mic_writer.lock().map_err(|e| e.to_string())?;
          if let Some(handle) = writer_guard.take() {
              if let Ok(mut inner_guard) = handle.lock() {
                  if let Some(w) = inner_guard.take() {
@@ -149,22 +177,54 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<(), String> {
              }
          }
     }
+    
+    // --- Stop System Audio ---
+    {
+        let mut system_guard = state.system_recorder.lock().map_err(|e| e.to_string())?;
+        if let Some(mut recorder) = system_guard.take() {
+             recorder.stop();
+        }
+    }
 
-    // Update metadata with final duration
+    // --- Update Metadata ---
     {
         let mut session_guard = state.current_session.lock().map_err(|e| e.to_string())?;
         if let Some(metadata) = session_guard.as_mut() {
-            // Calculate duration from the WAV file
-            let audio_path = storage::get_recording_dir(&metadata.id).join("raw.wav");
-            if let Ok(reader) = hound::WavReader::open(&audio_path) {
+            // Update Mic Info
+            let mic_path = storage::get_recording_dir(&metadata.id).join("raw_mic.wav");
+            if let Ok(reader) = hound::WavReader::open(&mic_path) {
                 let spec = reader.spec();
                 let duration_samples = reader.len();
                 let duration_sec = duration_samples as f64 / (spec.sample_rate as f64 * spec.channels as f64);
-                metadata.audio.duration_sec = duration_sec;
                 
-                // Write updated metadata
-                storage::write_metadata(metadata)?;
+                metadata.audio.mic = Some(storage::AudioInfo {
+                    file: "raw_mic.wav".to_string(),
+                    duration_sec,
+                    sample_rate: spec.sample_rate,
+                    channels: spec.channels,
+                });
             }
+            
+            // Update System Info
+            let system_path = storage::get_recording_dir(&metadata.id).join("raw_system.wav");
+            if system_path.exists() {
+                 if let Ok(reader) = hound::WavReader::open(&system_path) {
+                    let spec = reader.spec();
+                    let duration_samples = reader.len();
+                    if spec.sample_rate > 0 && spec.channels > 0 {
+                         let duration_sec = duration_samples as f64 / (spec.sample_rate as f64 * spec.channels as f64);
+                         metadata.audio.system = Some(storage::AudioInfo {
+                            file: "raw_system.wav".to_string(),
+                            duration_sec,
+                            sample_rate: spec.sample_rate,
+                            channels: spec.channels,
+                        });
+                    }
+                 }
+            }
+            
+            // Write updated metadata
+            storage::write_metadata(metadata)?;
         }
     }
 

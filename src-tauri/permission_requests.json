@@ -1,0 +1,4 @@
+{
+    "NSScreenCaptureUsageDescription": "NBP needs permission to record system audio.",
+    "NSMicrophoneUsageDescription": "NBP needs access to the microphone to record your voice."
+}

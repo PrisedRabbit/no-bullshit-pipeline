@@ -27,4 +27,8 @@ cpal = "0.15"
 chrono = { version = "0.4", features = ["serde"] }
 hound = "3.5"
 uuid = { version = "1.11", features = ["v4", "serde"] }
+# System Audio Capture (Core Audio Taps)
+cidre = { git = "https://github.com/yury/cidre", branch = "main", features = ["av"] }
+ringbuf = "0.4.8"
+anyhow = "1.0"
 
