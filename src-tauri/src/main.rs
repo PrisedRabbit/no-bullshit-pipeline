@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    nbp_inner_lib::run()
+    nbp_lib::run()
 }

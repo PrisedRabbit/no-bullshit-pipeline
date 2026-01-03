@@ -6,6 +6,16 @@
 - Showing List of previous recordings
 - Showing current recording
 
+### Storage (v0.1)
+
+- [x] Define storage architecture (STORAGE.md)
+- [ ] Implement UUID-based directory creation
+- [ ] Implement metadata.json schema (Rust structs)
+- [ ] Update audio recording to use UUID directories
+- [ ] Implement metadata creation/reading
+- [ ] Build in-memory recording index
+- [ ] Update UI to display recordings from new structure
+
 ## 1. Projects (lightweight)
 
 **Goal:** grouping, not management.

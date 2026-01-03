@@ -4,31 +4,102 @@
     <meta charset="UTF-8" />
     <link rel="stylesheet" href="styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri App</title>
+    <title>No Bullshit Pipeline</title>
     <script type="module" src="/main.js" defer></script>
   </head>
 
   <body>
-    <main class="container">
-      <h1>No Bullshit Pipeline</h1>
-
-      <div class="status-panel">
-        <div id="status-indicator" class="status-idle">Idle</div>
-        <div id="timer">00:00:00</div>
+    <!-- Fixed top capture bar -->
+    <header class="capture-bar">
+      <div class="capture-controls">
+        <button id="record-btn" class="record-btn" title="Record">⏺</button>
+        <button id="pause-btn" disabled title="Pause">⏸</button>
+        <button id="stop-btn" disabled title="Stop">⏹</button>
       </div>
+      <div id="timer" class="timer">00:00:00</div>
+      <div id="status-indicator" class="status-idle">Idle</div>
+      <input
+        id="project-tags"
+        class="tags-input"
+        placeholder="tags (space separated)"
+      />
+    </header>
 
-      <div class="control-panel">
-        <input id="project-tags" placeholder="project tags (space separated)" />
-        <div class="buttons">
-          <button id="record-btn">Record</button>
-          <button id="pause-btn" disabled>Pause</button>
-          <button id="stop-btn" disabled>Stop</button>
+    <!-- Main three-column layout -->
+    <main class="app-layout">
+      <!-- Left sidebar: Tag filters -->
+      <aside class="sidebar">
+        <h2>Filters</h2>
+        <div id="tag-filters" class="tag-filters">
+          <div class="filter-item active" data-tag="">All</div>
+          <!-- Dynamic tags rendered here -->
         </div>
-      </div>
+      </aside>
 
-      <div id="recordings-list">
-        <!-- List of recent recordings -->
-      </div>
+      <!-- Center: Recordings list -->
+      <section class="recordings-view">
+        <div id="recordings-list" class="recordings-list">
+          <!-- Recording items rendered here -->
+        </div>
+        <div id="empty-state" class="empty-state" style="display: none">
+          <div class="empty-icon">🎙</div>
+          <p>No recordings yet. Press Record.</p>
+        </div>
+      </section>
+
+      <!-- Right: Detail view (hidden by default) -->
+      <section id="detail-view" class="detail-view" style="display: none">
+        <button class="back-btn" id="back-btn">← Back to list</button>
+
+        <div class="detail-header">
+          <input
+            id="detail-title"
+            class="detail-title"
+            placeholder="Untitled"
+          />
+          <div id="detail-meta" class="detail-meta"></div>
+          <div class="detail-tags-container">
+            <div id="detail-tags-list" class="detail-tags-list">
+              <!-- Tag chips rendered here -->
+            </div>
+            <input
+              id="detail-tags-input"
+              class="detail-tags-input"
+              placeholder="Add tag (press Enter)..."
+            />
+          </div>
+        </div>
+
+        <div class="detail-actions">
+          <button id="play-btn" class="action-btn">▶ Play</button>
+          <button id="process-btn" class="action-btn">▶ Process</button>
+          <button id="open-folder-btn" class="action-btn">
+            📂 Open Folder
+          </button>
+          <button id="delete-btn" class="action-btn danger">🗑 Delete</button>
+        </div>
+
+        <div class="detail-content">
+          <div class="content-section">
+            <h3>Transcript</h3>
+            <div
+              id="transcript-content"
+              class="transcript-content empty-content"
+            >
+              Not processed yet.
+            </div>
+          </div>
+          <div class="content-section">
+            <h3>Structured Data</h3>
+            <pre
+              id="structured-content"
+              class="structured-content empty-content"
+            >
+Not processed yet.</pre
+            >
+          </div>
+        </div>
+      </section>
     </main>
   </body>
 </html>

@@ -2,21 +2,24 @@ use std::sync::{Arc, Mutex};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::fs::File;
 use std::io::BufWriter;
-use std::path::PathBuf;
 use tauri::State;
-use chrono::Local;
+use crate::storage::{self, RecordingMetadata};
+
+// Simplified writer type for readability
+type WavWriterHandle = Arc<Mutex<Option<hound::WavWriter<BufWriter<File>>>>>;
 
 // Structure to hold the audio stream and state
 pub struct AudioState {
     pub is_recording: Mutex<bool>,
-    // We keep the stream in an Option. When defined, it's running (or paused).
-    // cpal Stream is !Send usually, so we might need to handle it carefully.
-    // simpler MVP: just a flag, and the stream runs in a background thread? 
-    // No, stream must be kept alive.
-    // cpal::Stream is Send on some platforms but safe to wrap in Mutex.
     pub stream: Mutex<Option<cpal::Stream>>,
-    pub writer: Mutex<Option<Arc<Mutex<Option<hound::WavWriter<BufWriter<File>>>>>>>,
+    pub writer: Mutex<Option<WavWriterHandle>>,
+    pub current_session: Mutex<Option<RecordingMetadata>>,
 }
+
+// Explicitly implement Send/Sync. Since all fields are wrapped in Mutex, 
+// this is safe for Tauri's multi-threaded runtime.
+unsafe impl Send for AudioState {}
+unsafe impl Sync for AudioState {}
 
 impl AudioState {
     pub fn new() -> Self {
@@ -24,12 +27,13 @@ impl AudioState {
             is_recording: Mutex::new(false),
             stream: Mutex::new(None),
             writer: Mutex::new(None),
+            current_session: Mutex::new(None),
         }
     }
 }
 
 #[tauri::command]
-pub fn start_recording(state: State<'_, AudioState>, app_handle: tauri::AppHandle, tags: Vec<String>) -> Result<(), String> {
+pub fn start_recording(state: State<'_, AudioState>, tags: Vec<String>) -> Result<(), String> {
     let mut is_recording = state.is_recording.lock().map_err(|e| e.to_string())?;
     if *is_recording {
         return Err("Already recording".to_string());
@@ -39,10 +43,12 @@ pub fn start_recording(state: State<'_, AudioState>, app_handle: tauri::AppHandl
     let device = host.default_input_device().ok_or("No input device available")?;
     let config = device.default_input_config().map_err(|e| e.to_string())?;
 
-    // Prepare file path
-    // For MVP, just save to current directory or a 'recordings' folder
-    let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
-    let filename = format!("recording_{}.wav", timestamp); // Using wav for MVP
+    // Create recording metadata with UUID
+    let title = tags.join(" ");
+    let metadata = storage::create_recording(title, tags)?;
+    
+    // Audio file path
+    let audio_path = storage::get_recording_dir(&metadata.id).join("raw.wav");
     let spec = hound::WavSpec {
         channels: config.channels(),
         sample_rate: config.sample_rate().0,
@@ -50,15 +56,11 @@ pub fn start_recording(state: State<'_, AudioState>, app_handle: tauri::AppHandl
         sample_format: hound::SampleFormat::Int,
     };
     
-    // Ensure "recordings" dir exists
-    let _ = std::fs::create_dir("recordings");
-    let path = PathBuf::from("recordings").join(&filename);
+    let writer = hound::WavWriter::create(&audio_path, spec).map_err(|e| e.to_string())?;
+    let writer_handle = Arc::new(Mutex::new(Some(writer)));
     
-    let writer = hound::WavWriter::create(&path, spec).map_err(|e| e.to_string())?;
-    let writer = Arc::new(Mutex::new(Some(writer)));
-    
-    // Store writer for the callback
-    let writer_clone = writer.clone();
+    // Store handle for the callback
+    let callback_writer = writer_handle.clone();
     
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
     
@@ -66,15 +68,28 @@ pub fn start_recording(state: State<'_, AudioState>, app_handle: tauri::AppHandl
         cpal::SampleFormat::I16 => device.build_input_stream(
             &config.into(),
             move |data: &[i16], _: &_| {
-                write_input_data(data, &writer_clone)
+                if let Ok(mut guard) = callback_writer.lock() {
+                    if let Some(w) = guard.as_mut() {
+                        for &sample in data {
+                            let _ = w.write_sample(sample);
+                        }
+                    }
+                }
             },
             err_fn,
-            None // timeout
+            None
         ),
         cpal::SampleFormat::F32 => device.build_input_stream(
             &config.into(),
             move |data: &[f32], _: &_| {
-                write_input_data_f32(data, &writer_clone)
+                if let Ok(mut guard) = callback_writer.lock() {
+                    if let Some(w) = guard.as_mut() {
+                        for &sample in data {
+                            let sample_i16 = (sample * i16::MAX as f32) as i16;
+                            let _ = w.write_sample(sample_i16);
+                        }
+                    }
+                }
             },
             err_fn,
             None
@@ -85,10 +100,9 @@ pub fn start_recording(state: State<'_, AudioState>, app_handle: tauri::AppHandl
     stream.play().map_err(|e| e.to_string())?;
 
     *state.stream.lock().map_err(|e| e.to_string())? = Some(stream);
-    *state.writer.lock().map_err(|e| e.to_string())? = Some(writer);
+    *state.writer.lock().map_err(|e| e.to_string())? = Some(writer_handle);
+    *state.current_session.lock().map_err(|e| e.to_string())? = Some(metadata);
     *is_recording = true;
-
-    // TODO: Save meta.json with tags
 
     Ok(())
 }
@@ -124,38 +138,36 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<(), String> {
         *stream_guard = None;
     }
     
-    // Finalize writer
+    // Finalize writer and update meta
     {
          let mut writer_guard = state.writer.lock().map_err(|e| e.to_string())?;
-         if let Some(arc_writer) = writer_guard.take() {
-             let mut inner_writer = arc_writer.lock().map_err(|e| e.to_string())?;
-             if let Some(w) = inner_writer.take() {
-                 w.finalize().map_err(|e| e.to_string())?;
+         if let Some(handle) = writer_guard.take() {
+             if let Ok(mut inner_guard) = handle.lock() {
+                 if let Some(w) = inner_guard.take() {
+                     w.finalize().map_err(|e| e.to_string())?;
+                 }
              }
          }
     }
 
+    // Update metadata with final duration
+    {
+        let mut session_guard = state.current_session.lock().map_err(|e| e.to_string())?;
+        if let Some(metadata) = session_guard.as_mut() {
+            // Calculate duration from the WAV file
+            let audio_path = storage::get_recording_dir(&metadata.id).join("raw.wav");
+            if let Ok(reader) = hound::WavReader::open(&audio_path) {
+                let spec = reader.spec();
+                let duration_samples = reader.len();
+                let duration_sec = duration_samples as f64 / (spec.sample_rate as f64 * spec.channels as f64);
+                metadata.audio.duration_sec = duration_sec;
+                
+                // Write updated metadata
+                storage::write_metadata(metadata)?;
+            }
+        }
+    }
+
     *is_recording = false;
     Ok(())
-}
-
-fn write_input_data(input: &[i16], writer: &Arc<Mutex<Option<hound::WavWriter<BufWriter<File>>>> >) {
-    if let Ok(mut guard) = writer.lock() {
-        if let Some(w) = guard.as_mut() {
-            for &sample in input.iter() {
-                let _ = w.write_sample(sample);
-            }
-        }
-    }
-}
-
-fn write_input_data_f32(input: &[f32], writer: &Arc<Mutex<Option<hound::WavWriter<BufWriter<File>>>> >) {
-    if let Ok(mut guard) = writer.lock() {
-        if let Some(w) = guard.as_mut() {
-            for &sample in input.iter() {
-                let sample_i16 = (sample * i16::MAX as f32) as i16;
-                let _ = w.write_sample(sample_i16);
-            }
-        }
-    }
 }

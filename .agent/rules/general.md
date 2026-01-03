@@ -49,3 +49,7 @@ Local voice → structured data. Privacy-first. No bullshit.
 ## Rule Zero
 
 If it breaks ownership, locality, or debuggability — don’t do it.
+
+## Misc
+
+- Do not run dev server unless explicitly asked

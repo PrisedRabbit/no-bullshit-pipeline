@@ -19,6 +19,17 @@
       "csp": null
     }
   },
+  "plugins": {
+    "shell": {
+      "scope": [
+        {
+          "name": "open",
+          "cmd": "open",
+          "args": true
+        }
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
