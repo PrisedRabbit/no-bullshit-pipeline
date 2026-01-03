@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tauri App</title>
+    <script type="module" src="/main.js" defer></script>
+  </head>
+
+  <body>
+    <main class="container">
+      <h1>No Bullshit Pipeline</h1>
+
+      <div class="status-panel">
+        <div id="status-indicator" class="status-idle">Idle</div>
+        <div id="timer">00:00:00</div>
+      </div>
+
+      <div class="control-panel">
+        <input id="project-tags" placeholder="project tags (space separated)" />
+        <div class="buttons">
+          <button id="record-btn">Record</button>
+          <button id="pause-btn" disabled>Pause</button>
+          <button id="stop-btn" disabled>Stop</button>
+        </div>
+      </div>
+
+      <div id="recordings-list">
+        <!-- List of recent recordings -->
+      </div>
+    </main>
+  </body>
+</html>
