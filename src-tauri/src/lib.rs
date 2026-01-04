@@ -12,6 +12,11 @@ fn greet(name: &str) -> String {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[tauri::command]
+fn get_app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -19,6 +24,7 @@ pub fn run() {
         .manage(AudioState::new())
         .invoke_handler(tauri::generate_handler![
             greet,
+            get_app_version,
             audio::start_recording,
             audio::stop_recording,
             audio::pause_recording,
@@ -28,6 +34,8 @@ pub fn run() {
             storage::update_tags,
             storage::update_title,
             storage::delete_recording,
+            storage::list_projects,
+            storage::save_projects,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

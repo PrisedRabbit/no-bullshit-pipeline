@@ -14,6 +14,13 @@ pub struct RecordingMetadata {
     pub audio: AudioFiles,
 }
 
+/// Project definition (saved filters)
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Project {
+    pub name: String,
+    pub tags: Vec<String>,
+}
+
 /// Audio files (mic + system)
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AudioFiles {
@@ -145,6 +152,34 @@ pub fn list_recordings() -> Result<Vec<RecordingMetadata>, String> {
     recordings.sort_by(|a, b| b.created_at.cmp(&a.created_at));
     
     Ok(recordings)
+}
+
+/// List all projects
+#[tauri::command]
+pub fn list_projects() -> Result<Vec<Project>, String> {
+    let projects_path = get_data_dir().join("projects.json");
+    
+    if !projects_path.exists() {
+        return Ok(Vec::new());
+    }
+    
+    let file = File::open(projects_path).map_err(|e| e.to_string())?;
+    let projects = serde_json::from_reader(file).map_err(|e| e.to_string())?;
+    Ok(projects)
+}
+
+/// Save projects list
+#[tauri::command]
+pub fn save_projects(projects: Vec<Project>) -> Result<(), String> {
+    let data_dir = get_data_dir();
+    if !data_dir.exists() {
+        fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
+    }
+    
+    let projects_path = data_dir.join("projects.json");
+    let file = File::create(projects_path).map_err(|e| e.to_string())?;
+    serde_json::to_writer_pretty(file, &projects).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[cfg(test)]

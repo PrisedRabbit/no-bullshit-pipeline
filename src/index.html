@@ -2,44 +2,49 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="stylesheet" href="styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>No Bullshit Pipeline</title>
-    <script type="module" src="/main.js" defer></script>
+    <title>no-bullshit-pipeline</title>
+    <link rel="stylesheet" href="styles.css" />
   </head>
-
   <body>
-    <header class="capture-bar">
-      <div class="capture-controls">
-        <button id="record-btn" class="record-btn" title="Record">⏺</button>
-        <button id="pause-btn" disabled title="Pause">⏸</button>
-        <button id="stop-btn" disabled title="Stop">⏹</button>
+    <!-- Main app bar (Capture Controls) -->
+    <header class="app-bar">
+      <div class="app-logo">
+        no-bullshit-pipeline <span id="app-version"></span>
       </div>
-      <div id="timer" class="timer">00:00:00</div>
-      <div id="status-indicator" class="status-idle">Idle</div>
-
-      <input
-        id="project-tags"
-        class="tags-input"
-        placeholder="tags (space separated)"
-      />
+      <div class="capture-section">
+        <div id="status-indicator" class="status-idle"></div>
+        <div id="timer" class="timer">00:00:00</div>
+        <div class="capture-controls">
+          <button
+            id="record-toggle-btn"
+            class="record-btn"
+            title="Start Recording"
+          >
+            ⏺
+          </button>
+        </div>
+      </div>
     </header>
 
-    <!-- Main three-column layout -->
     <main class="app-layout">
-      <!-- Left sidebar: Tag filters -->
+      <!-- Left sidebar -->
       <aside class="sidebar">
-        <h2>Filters</h2>
-        <div id="tag-filters" class="tag-filters">
-          <div class="filter-item active" data-tag="">All</div>
-          <!-- Dynamic tags rendered here -->
+        <div class="sidebar-section">
+          <h2>TAGS</h2>
+          <div id="active-tag-chips" class="tag-filters-chips">
+            <!-- Active filter chips -->
+          </div>
+          <div id="all-tags-list" class="all-tags-sidebar-list">
+            <!-- All available tags rendered as a list -->
+          </div>
         </div>
       </aside>
 
       <!-- Center: Recordings list -->
       <section class="recordings-view">
         <div id="recordings-list" class="recordings-list">
-          <!-- Recording items rendered here -->
+          <!-- List items rendered via JS -->
         </div>
         <div id="empty-state" class="empty-state" style="display: none">
           <div class="empty-icon">🎙</div>
@@ -47,59 +52,140 @@
         </div>
       </section>
 
-      <!-- Right: Detail view (hidden by default) -->
-      <section id="detail-view" class="detail-view" style="display: none">
-        <button class="back-btn" id="back-btn">← Back to list</button>
-
-        <div class="detail-header">
-          <input
-            id="detail-title"
-            class="detail-title"
-            placeholder="Untitled"
-          />
-          <div id="detail-meta" class="detail-meta"></div>
-          <div class="detail-tags-container">
-            <div id="detail-tags-list" class="detail-tags-list">
-              <!-- Tag chips rendered here -->
-            </div>
-            <input
-              id="detail-tags-input"
-              class="detail-tags-input"
-              placeholder="Add tag (press Enter)..."
-            />
-          </div>
-        </div>
-
-        <div class="detail-actions">
-          <button id="play-btn" class="action-btn">▶ Play</button>
-          <button id="process-btn" class="action-btn">▶ Process</button>
-          <button id="open-folder-btn" class="action-btn">
-            📂 Open Folder
+      <!-- Right: Detail view -->
+      <section id="detail-view" class="detail-view">
+        <header class="detail-top-nav">
+          <button class="back-link-btn" id="back-btn">
+            <span class="icon">←</span> Back
           </button>
-          <button id="delete-btn" class="action-btn danger">🗑 Delete</button>
-        </div>
 
-        <div class="detail-content">
-          <div class="content-section">
-            <h3>Transcript</h3>
-            <div
-              id="transcript-content"
-              class="transcript-content empty-content"
-            >
-              Not processed yet.
+          <div class="top-nav-right">
+            <div id="detail-meta" class="detail-meta-text"></div>
+            <div class="top-actions">
+              <button
+                id="open-folder-btn"
+                class="mini-action-btn"
+                title="Open Folder"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+              </button>
+              <button
+                id="delete-btn"
+                class="mini-action-btn danger"
+                title="Delete"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
             </div>
           </div>
-          <div class="content-section">
-            <h3>Structured Data</h3>
-            <pre
-              id="structured-content"
-              class="structured-content empty-content"
-            >
+        </header>
+
+        <div class="detail-scroller">
+          <div class="detail-container">
+            <div class="detail-header-card">
+              <input
+                id="detail-title"
+                class="detail-title-input"
+                placeholder="Untitled Recording"
+              />
+
+              <div class="detail-tags-section">
+                <div id="detail-tags-list" class="detail-tags-list">
+                  <!-- Tag chips -->
+                </div>
+                <div class="tag-input-wrapper">
+                  <input
+                    id="detail-tags-input"
+                    class="detail-tags-add"
+                    placeholder="Add tag..."
+                    autocomplete="off"
+                  />
+                  <div
+                    id="tag-suggestions"
+                    class="tag-suggestions-dropdown"
+                    style="display: none"
+                  ></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="detail-content-grid">
+              <div class="content-block">
+                <div class="block-header">
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    class="block-icon"
+                  >
+                    <path
+                      d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+                    ></path>
+                  </svg>
+                  <h3>Transcript</h3>
+                </div>
+                <div id="transcript-content" class="content-body empty">
+                  Not processed yet.
+                </div>
+              </div>
+
+              <div class="content-block">
+                <div class="block-header">
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    class="block-icon"
+                  >
+                    <polyline points="16 18 22 12 16 6"></polyline>
+                    <polyline points="8 6 2 12 8 18"></polyline>
+                  </svg>
+                  <h3>Structured Data</h3>
+                </div>
+                <pre id="structured-content" class="content-body empty">
 Not processed yet.</pre
-            >
+                >
+              </div>
+            </div>
           </div>
         </div>
       </section>
     </main>
+
+    <script src="main.js" type="module"></script>
   </body>
 </html>
