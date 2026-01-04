@@ -5,6 +5,7 @@ mod system_audio;
 mod mic_audio;
 mod permissions;
 mod config;
+pub mod transcription;
 use audio::AudioState;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -25,10 +26,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AudioState::new())
         .manage(permissions::PermissionsStateCache(std::sync::Arc::new(std::sync::Mutex::new(
-            permissions::PermissionsState {
-                mic: false,
-                system_audio: false,
-            }
+            permissions::PermissionsState::default()
         ))))
         .invoke_handler(tauri::generate_handler![
             greet,
@@ -50,6 +48,11 @@ pub fn run() {
             permissions::open_privacy_settings,
             config::load_settings,
             config::save_settings,
+            transcription::get_whisper_models_info,
+            transcription::download_whisper_model,
+            transcription::delete_whisper_model,
+            transcription::transcribe_recording,
+            transcription::get_transcript,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

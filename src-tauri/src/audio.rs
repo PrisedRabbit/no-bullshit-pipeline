@@ -128,92 +128,109 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<(), String> {
 
     {
         let mut session_guard = state.current_session.lock().map_err(|e| e.to_string())?;
-        if let Some(metadata) = session_guard.as_mut() {
+        if let Some(mut metadata) = session_guard.take() {
+            // 1. Immediate Update: Save wall-clock duration so UI has something valid immediately
+            metadata.status = "processing".to_string();
+            metadata.audio.mic = Some(storage::AudioInfo {
+                file: "raw_mic.ogg".to_string(),
+                duration_sec,
+                sample_rate: 48000, 
+                channels: 2, 
+            });
+            // Assume system exists for now if we were recording, it will be corrected in background
+            metadata.audio.system = Some(storage::AudioInfo {
+                file: "raw_system.ogg".to_string(),
+                duration_sec,
+                sample_rate: 48000,
+                channels: 2,
+            });
             
-            // Check files existence (Mic might have failed, System might have failed)
-            let mic_path = storage::get_recording_dir(&metadata.id).join("raw_mic.ogg");
-            let system_path = storage::get_recording_dir(&metadata.id).join("raw_system.ogg");
-            
-            let mut actual_duration = duration_sec; // Fallback to wall-clock
-            
-            if mic_path.exists() {
-                // Get ACTUAL duration from file
-                let mic_duration = crate::audio_processing::get_ogg_duration(&mic_path)
-                    .unwrap_or(duration_sec);
-                
-                metadata.audio.mic = Some(storage::AudioInfo {
-                    file: "raw_mic.ogg".to_string(),
-                    duration_sec: mic_duration,
-                    sample_rate: 48000, 
-                    channels: 2, 
-                });
-                
-                actual_duration = mic_duration;
-            }
-            
-            if system_path.exists() {
-                // Get ACTUAL duration from file
-                let system_duration = crate::audio_processing::get_ogg_duration(&system_path)
-                    .unwrap_or(duration_sec);
-                
-                metadata.audio.system = Some(storage::AudioInfo {
-                    file: "raw_system.ogg".to_string(),
-                    duration_sec: system_duration,
-                    sample_rate: 48000,
-                    channels: 2,
-                });
-                
-                // Use system duration if available (more accurate for recordings)
-                actual_duration = system_duration;
-            }
-            
-            // Get cleanup threshold from settings
-            let settings = crate::config::load_settings();
-            let threshold = settings.auto_discard_seconds as f64;
-            
-            // Discard if < threshold seconds (use actual duration)
-            if actual_duration < threshold {
-                // Delete recording
-                let _ = storage::delete_recording(&metadata.id);
-                *session_guard = None;
-                *is_recording = false;
-                return Err(format!("Recording discarded (shorter than {} seconds)", threshold));
+            // Save initial state
+            if let Err(e) = storage::write_metadata(&metadata) {
+                 eprintln!("Failed to write initial metadata: {}", e);
             }
 
-            // Write updated metadata
-            storage::write_metadata(metadata)?;
+            // 2. Background Processing
+            // We clone metadata to move into the thread
+            let metadata_clone = metadata.clone();
             
-            // Small delay to ensure encoder threads have finished and flushed files
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            
-            // Mix audio files if both exist
-            if mic_path.exists() && system_path.exists() {
-                println!("Both audio files exist, attempting to mix...");
-                let mix_path = storage::get_recording_dir(&metadata.id).join("audio_mix.ogg");
+            std::thread::spawn(move || {
+                let mut metadata = metadata_clone;
+                let id = metadata.id.clone();
+                let dir = storage::get_recording_dir(&id);
+                let mic_path = dir.join("raw_mic.ogg");
+                let system_path = dir.join("raw_system.ogg");
                 
-                match crate::audio_processing::mix_audio_files(&mic_path, &system_path, &mix_path) {
-                    Ok(_) => {
-                        println!("Successfully mixed audio to {:?}", mix_path);
-                        // Update metadata with mix info
-                        metadata.audio.mix = Some(storage::AudioInfo {
-                            file: "audio_mix.ogg".to_string(),
-                            duration_sec,
-                            sample_rate: 48000,
-                            channels: 2,
-                        });
-                        // Re-write metadata with mix info
-                        if let Err(e) = storage::write_metadata(metadata) {
-                            eprintln!("Failed to update metadata with mix info: {}", e);
+                println!("Background processing for recording: {}", id);
+
+                // Small delay to ensure encoder threads flush their files
+                std::thread::sleep(std::time::Duration::from_millis(500));
+
+                 // A. Refine Durations
+                let mut actual_duration = duration_sec;
+                
+                if mic_path.exists() {
+                     match crate::audio_processing::get_ogg_duration(&mic_path) {
+                        Ok(d) => {
+                            if let Some(ref mut audio) = metadata.audio.mic {
+                                audio.duration_sec = d;
+                            }
+                            actual_duration = d;
                         }
-                    }
-                    Err(e) => {
-                        eprintln!("ERROR: Failed to mix audio files: {:?}", e);
-                        // Don't fail the recording if mixing fails
+                        Err(e) => eprintln!("Failed to get mic duration: {}", e),
+                     }
+                }
+                
+                if system_path.exists() {
+                     match crate::audio_processing::get_ogg_duration(&system_path) {
+                        Ok(d) => {
+                            if let Some(ref mut audio) = metadata.audio.system {
+                                audio.duration_sec = d;
+                            }
+                            // System duration is usually more reliable for 'overall' if it exists
+                            actual_duration = d; 
+                        }
+                        Err(e) => eprintln!("Failed to get system duration: {}", e),
+                     }
+                }
+
+                // B. Auto-Discard
+                let settings = crate::config::load_settings();
+                let threshold = settings.auto_discard_seconds as f64;
+                
+                if actual_duration < threshold {
+                    println!("Discarding recording {} (duration {:.2}s < threshold {:.2}s)", id, actual_duration, threshold);
+                    let _ = storage::delete_recording(&id);
+                    return; // Stop processing
+                }
+
+                // C. Mix
+                if mic_path.exists() && system_path.exists() {
+                    let mix_path = dir.join("audio_mix.ogg");
+                    println!("Mixing audio to {:?}...", mix_path);
+                    
+                    match crate::audio_processing::mix_audio_files(&mic_path, &system_path, &mix_path) {
+                        Ok(_) => {
+                            println!("Mix complete.");
+                            metadata.audio.mix = Some(storage::AudioInfo {
+                                file: "audio_mix.ogg".to_string(),
+                                duration_sec: actual_duration,
+                                sample_rate: 48000,
+                                channels: 2,
+                            });
+                        }
+                        Err(e) => eprintln!("Mixing failed: {}", e),
                     }
                 }
-            } else {
-                println!("Skipping mix: mic_exists={}, system_exists={}", mic_path.exists(), system_path.exists());
-            }
+
+                // D. Final Save
+                metadata.status = "ready".to_string();
+                if let Err(e) = storage::write_metadata(&metadata) {
+                    eprintln!("Failed to save final metadata: {}", e);
+                }
+                
+                println!("Background processing finished for {}", id);
+            });
         }
     }
 

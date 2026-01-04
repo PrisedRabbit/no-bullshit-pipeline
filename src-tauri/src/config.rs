@@ -3,6 +3,41 @@ use std::fs::{self, File};
 use std::path::PathBuf;
 use crate::storage::get_data_dir;
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub enum TranscriptionProvider {
+    LocalWhisper,
+    OpenAI,
+    Google,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub enum WhisperModelSize {
+    Tiny,
+    Base,
+    Small,
+    Medium,
+    Large,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TranscriptionConfig {
+    pub enabled: bool,
+    pub provider: TranscriptionProvider,
+    pub whisper_model: Option<WhisperModelSize>,
+    pub api_key: Option<String>,
+}
+
+impl Default for TranscriptionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: TranscriptionProvider::LocalWhisper,
+            whisper_model: Some(WhisperModelSize::Base),
+            api_key: None,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AppSettings {
     pub storage_path: String,
@@ -10,6 +45,8 @@ pub struct AppSettings {
     pub theme: String,
     #[serde(default)]
     pub onboarding_completed: bool,
+    #[serde(default)]
+    pub transcription: TranscriptionConfig,
 }
 
 impl Default for AppSettings {
@@ -19,6 +56,7 @@ impl Default for AppSettings {
             auto_discard_seconds: 3,
             theme: "neon-purple".to_string(),
             onboarding_completed: false,
+            transcription: TranscriptionConfig::default(),
         }
     }
 }
@@ -30,6 +68,10 @@ pub fn get_config_dir() -> PathBuf {
 
 pub fn get_settings_path() -> PathBuf {
     get_config_dir().join("settings.json")
+}
+
+pub fn get_models_dir() -> PathBuf {
+    get_config_dir().join("models")
 }
 
 #[tauri::command]

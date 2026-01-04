@@ -76,6 +76,10 @@ All your data is stored in `~/nbp-data/` with a clean, transparent hierarchy:
 - **Encryption**: Bring your own encryption or let macOS handle it via FileVault.
 - **Your Keys, Your Choice**: Use local Whisper for 100% on-device AI, or plug in your cloud keys for advanced modularity.
 
+## Unsigned run on mac
+
+Run `xattr -cr /Applications/nbp.app` to remove the Gatekeeper signature.
+
 ## License
 
 Private project - all rights reserved.

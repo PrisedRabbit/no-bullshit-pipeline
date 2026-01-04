@@ -165,7 +165,8 @@ async function stopRecording() {
 // ===== PERMISSIONS =====
 async function updatePermissionStatus() {
   try {
-    permissions = await invoke("check_permissions");
+    const onboardingCompleted = appSettings?.onboarding_completed || false;
+    permissions = await invoke("check_permissions", { onboardingCompleted });
 
     // Update Onboarding UI
     const micItem = document.getElementById("perm-mic-item");
@@ -175,6 +176,10 @@ async function updatePermissionStatus() {
       const btn = micItem.querySelector(".modal-btn");
       btn.style.display = permissions.mic ? 'none' : 'block';
       micItem.querySelector(".perm-status-ok").style.display = permissions.mic ? 'block' : 'none';
+
+      if (!permissions.mic && btn.dataset.requested === "true") {
+        btn.textContent = "Open Settings";
+      }
     }
     if (sysItem) {
       const btn = sysItem.querySelector(".modal-btn");
@@ -204,16 +209,21 @@ async function updatePermissionStatus() {
 
 async function requestMic() {
   const btn = document.getElementById("request-mic-btn");
+  if (btn.textContent === "Open Settings") {
+    await invoke("open_privacy_settings", { pane: "mic" });
+    return;
+  }
 
-  await invoke("request_mic_permission");
+  const success = await invoke("request_mic_permission");
   btn.dataset.requested = "true";
 
-  // Open settings right away to help user find the permission
-  await invoke("open_privacy_settings", { pane: "mic" });
+  if (!success) {
+    btn.textContent = "Open Settings";
+  }
 
-  // Poll a few times for mic
-  for (let i = 0; i < 5; i++) {
-    await new Promise(r => setTimeout(r, 1000));
+  // Poll for status updates every 100ms for fast UI response
+  for (let i = 0; i < 100; i++) {
+    await new Promise(r => setTimeout(r, 100));
     await updatePermissionStatus();
     if (permissions.mic) break;
   }
@@ -226,13 +236,16 @@ async function requestSys() {
     return;
   }
 
-  await invoke("request_system_audio_permission");
+  const success = await invoke("request_system_audio_permission");
   btn.dataset.requested = "true";
 
-  // System audio toggle often happens in settings, 
-  // so we poll for 10 seconds to catch the change.
-  for (let i = 0; i < 10; i++) {
-    await new Promise(r => setTimeout(r, 1000));
+  if (!success) {
+    btn.textContent = "Open Settings";
+  }
+
+  // Poll for status updates every 100ms for fast UI response
+  for (let i = 0; i < 100; i++) {
+    await new Promise(r => setTimeout(r, 100));
     await updatePermissionStatus();
     if (permissions.system_audio) break;
   }
@@ -330,21 +343,26 @@ function renderRecordingsList() {
     return;
   }
   if (emptyStateEl) emptyStateEl.style.display = "none";
-  recordingsListEl.innerHTML = filtered.map(rec => `
-  <div class="recording-item" onclick="showDetailView('${rec.id}')">
-      <div class="recording-item-header">
-        <div class="recording-title">${rec.title || "Untitled"}</div>
-        <div class="recording-meta">
-          <span>${new Date(rec.created_at).toLocaleString(undefined, dateOptions)}</span>
-          <span>·</span>
-          <span>${formatDuration(getDuration(rec))}</span>
+  recordingsListEl.innerHTML = filtered.map(rec => {
+    const isProcessing = rec.status === 'processing';
+    const metaText = isProcessing ? '<span style="color:var(--accent)">Processing...</span>' : formatDuration(getDuration(rec));
+
+    return `
+    <div class="recording-item" onclick="showDetailView('${rec.id}')">
+        <div class="recording-item-header">
+          <div class="recording-title">${rec.title || "Untitled"}</div>
+          <div class="recording-meta">
+            <span>${new Date(rec.created_at).toLocaleString(undefined, dateOptions)}</span>
+            <span>·</span>
+            <span>${metaText}</span>
+          </div>
+        </div>
+        <div class="recording-tags">
+          ${(rec.tags || []).map(tag => `<span class="recording-tag">#${tag}</span>`).join("")}
         </div>
       </div>
-      <div class="recording-tags">
-        ${(rec.tags || []).map(tag => `<span class="recording-tag">#${tag}</span>`).join("")}
-      </div>
-    </div>
-  `).join("");
+    `;
+  }).join("");
 }
 
 function getDuration(rec) {
@@ -372,12 +390,16 @@ window.showDetailView = async (id) => {
 
   if (detailTitleInput) detailTitleInput.value = rec.title || "";
 
+  // Check Status
+  const isProcessing = rec.status === 'processing';
+
   // Update Metadata in the Header
   if (detailMetaHeaderEl) {
-    if (isRecording && id === selectedRecordingId) {
-      // While recording, the capture bar is visible anyway, so this is handled by timer
+    if (isRecording && id === selectedRecordingId && !isProcessing) {
+      // While recording, handled by timer
     } else {
-      detailMetaHeaderEl.textContent = `${new Date(rec.created_at).toLocaleString(undefined, dateOptions)} · ${formatDuration(getDuration(rec))} `;
+      const statusText = isProcessing ? '<span style="color:var(--accent)">Processing...</span>' : formatDuration(getDuration(rec));
+      detailMetaHeaderEl.innerHTML = `${new Date(rec.created_at).toLocaleString(undefined, dateOptions)} · ${statusText} `;
     }
   }
 
@@ -388,10 +410,68 @@ window.showDetailView = async (id) => {
 
   renderTagChips();
 
-  if (detailTranscriptEl) {
-    detailTranscriptEl.textContent = "Not processed yet.";
-    detailTranscriptEl.classList.add('empty');
+  // LOCK BUTTONS if Processing
+  if (deleteBtnHeader) {
+    deleteBtnHeader.style.opacity = isProcessing ? '0.3' : '1';
+    deleteBtnHeader.style.pointerEvents = isProcessing ? 'none' : 'auto';
+    deleteBtnHeader.title = isProcessing ? "Processing audio..." : "Delete";
   }
+  if (openFolderBtnHeader) {
+    openFolderBtnHeader.style.opacity = isProcessing ? '0.3' : '1';
+    openFolderBtnHeader.style.pointerEvents = isProcessing ? 'none' : 'auto';
+    openFolderBtnHeader.title = isProcessing ? "Processing audio..." : "Open Folder";
+  }
+  if (prBtn) {
+    prBtn.disabled = isProcessing;
+    if (isProcessing) {
+      prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Mixing Audio...</span>';
+    } else {
+      prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Transcribe</span>';
+    }
+  }
+
+  // POLLING if processing
+  if (isProcessing) {
+    setTimeout(async () => {
+      if (selectedRecordingId === id) {
+        await loadRecordings();
+        // Only re-call showDetailView if status actually changed to avoid flicker? 
+        // loadRecordings updates allRecordings.
+        const updated = allRecordings.find(r => r.id === id);
+        if (updated && updated.status !== 'processing') {
+          showDetailView(id);
+        } else if (updated) {
+          // Still processing, update timer/visuals if needed, or just poll again
+          // Recursive poll
+          showDetailView(id);
+        }
+      }
+    }, 1000);
+  }
+
+  // Load Transcript if exists
+  if (detailTranscriptEl) {
+    // Only clear if switching recordings? 
+    // Actually, stick to standard behavior:
+    detailTranscriptEl.textContent = "Loading...";
+    detailTranscriptEl.classList.remove('empty');
+
+    try {
+      const transcript = await invoke("get_transcript", { recordingId: id });
+      if (transcript) {
+        detailTranscriptEl.textContent = transcript;
+        detailTranscriptEl.classList.remove('empty');
+      } else {
+        detailTranscriptEl.textContent = "Not processed yet.";
+        detailTranscriptEl.classList.add('empty');
+      }
+    } catch (err) {
+      console.error("Failed to load transcript:", err);
+      detailTranscriptEl.textContent = "Not processed yet.";
+      detailTranscriptEl.classList.add('empty');
+    }
+  }
+
   if (detailStructuredEl) {
     detailStructuredEl.textContent = "Not processed yet.";
     detailStructuredEl.classList.add('empty');
@@ -538,22 +618,122 @@ const openFolderBtnHeader = document.getElementById('open-folder-btn-header');
 if (openFolderBtnHeader) {
   openFolderBtnHeader.addEventListener('click', async () => {
     if (!selectedRecordingId) return;
-    const folderPath = `/ Users / skopanev / nbp - data / ${selectedRecordingId} `;
+    const folderPath = `${appSettings.storage_path}/${selectedRecordingId}`;
     await window.__TAURI_PLUGIN_OPENER__.openPath(folderPath);
   });
 }
 
-const pBtn = document.getElementById('play-btn');
-if (pBtn) pBtn.addEventListener('click', () => alert('Playback coming soon'));
+// Listen for live transcription segments
+if (window.__TAURI__) {
+  const { listen } = window.__TAURI_PLATFORM_EVENT || {
+    listen: (name, cb) => {
+      // Fallback if platform event not accessible directly
+      (async () => {
+        const { listen: tauriListen } = await import('@tauri-apps/api/event');
+        tauriListen(name, cb);
+      })();
+    }
+  };
+
+  // Note: Using window.__TAURI__.event.listen for simplicity if available
+  try {
+    window.__TAURI__.event.listen('transcription_segment', (event) => {
+      const segmentText = event.payload;
+      if (detailTranscriptEl) {
+        if (detailTranscriptEl.classList.contains('empty')) {
+          detailTranscriptEl.textContent = '';
+          detailTranscriptEl.classList.remove('empty');
+        }
+        // Append new segment
+        detailTranscriptEl.textContent += segmentText + ' ';
+
+        // Auto-scroll to bottom of the detail container
+        const scroller = detailTranscriptEl.closest('.detail-scroller');
+        if (scroller) scroller.scrollTop = scroller.scrollHeight;
+      }
+    });
+  } catch (e) {
+    console.error("Failed to setup transcription listener:", e);
+  }
+}
+
 const prBtn = document.getElementById('process-btn');
-if (prBtn) prBtn.addEventListener('click', () => alert('AI Processing coming soon'));
+if (prBtn) {
+  prBtn.addEventListener('click', async () => {
+    if (!selectedRecordingId) return;
+
+    try {
+      // Show loading state
+      prBtn.disabled = true;
+      prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Processing...</span>';
+
+      if (detailTranscriptEl) {
+        detailTranscriptEl.textContent = ''; // Clear for live segments
+        detailTranscriptEl.classList.remove('empty');
+      }
+
+      // Call backend - segments will start arriving via the listener above
+      const transcript = await invoke('transcribe_recording', { recordingId: selectedRecordingId });
+
+      // Final update to ensure everything is matched correctly
+      if (detailTranscriptEl) {
+        detailTranscriptEl.textContent = transcript;
+        detailTranscriptEl.classList.remove('empty');
+      }
+
+      prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Transcribe</span>';
+      prBtn.disabled = false;
+
+    } catch (error) {
+      console.error('Transcription failed:', error);
+      alert(`Transcription failed: ${error}`);
+
+      if (detailTranscriptEl) {
+        detailTranscriptEl.textContent = 'Transcription failed.';
+        detailTranscriptEl.classList.add('empty');
+      }
+
+      prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Transcribe</span>';
+      prBtn.disabled = false;
+    }
+  });
+}
+
+// ===== SETTINGS ELEMENTS =====
+const transcriptionEnabledCheckbox = document.getElementById("settings-transcription-enabled");
+const transcriptionDetailsEl = document.getElementById("transcription-details");
+const transcriptionProviderSelect = document.getElementById("settings-transcription-provider");
+const providerLocalSection = document.getElementById("provider-local-section");
+const providerApiSection = document.getElementById("provider-api-section");
+const whisperModelSelect = document.getElementById("settings-whisper-model");
+const apiKeyInput = document.getElementById("settings-api-key");
+const downloadModelBtn = document.getElementById("download-model-btn");
 
 // ===== SETTINGS =====
 async function loadSettings() {
   try {
     appSettings = await invoke("load_settings");
+    console.log("Loaded settings:", appSettings);
+
     if (storagePathInput) storagePathInput.value = appSettings.storage_path;
     if (cleanupThresholdInput) cleanupThresholdInput.value = appSettings.auto_discard_seconds;
+
+    // Transcription Settings
+    if (appSettings.transcription) {
+      if (transcriptionEnabledCheckbox) {
+        transcriptionEnabledCheckbox.checked = appSettings.transcription.enabled;
+        updateTranscriptionVisibility();
+      }
+      if (transcriptionProviderSelect) transcriptionProviderSelect.value = appSettings.transcription.provider;
+      if (whisperModelSelect) {
+        // Handle Option<WhisperModelSize> which might be null or object
+        // Rust enums serialize as strings usually if unit variants
+        whisperModelSelect.value = appSettings.transcription.whisper_model || "Base";
+      }
+      if (apiKeyInput) apiKeyInput.value = appSettings.transcription.api_key || "";
+
+      updateProviderVisibility();
+    }
 
     applyTheme(appSettings.theme);
   } catch (err) {
@@ -564,6 +744,14 @@ async function loadSettings() {
 async function saveSettings() {
   try {
     appSettings.auto_discard_seconds = parseInt(cleanupThresholdInput.value) || 0;
+
+    if (!appSettings.transcription) appSettings.transcription = {};
+
+    appSettings.transcription.enabled = transcriptionEnabledCheckbox.checked;
+    appSettings.transcription.provider = transcriptionProviderSelect.value;
+    appSettings.transcription.whisper_model = whisperModelSelect.value;
+    appSettings.transcription.api_key = apiKeyInput.value || null;
+
     // storage_path is updated via browse
 
     await invoke("save_settings", { settings: appSettings });
@@ -573,6 +761,193 @@ async function saveSettings() {
   } catch (err) {
     console.error("Failed to save settings:", err);
   }
+}
+
+function updateTranscriptionVisibility() {
+  if (!transcriptionDetailsEl) return;
+  transcriptionDetailsEl.style.display = transcriptionEnabledCheckbox.checked ? 'flex' : 'none';
+}
+
+
+let availableModels = [];
+
+async function updateProviderVisibility() {
+  if (!providerLocalSection || !providerApiSection) return;
+  const provider = transcriptionProviderSelect.value;
+
+  if (provider === "LocalWhisper") {
+    providerLocalSection.style.display = 'flex';
+    providerApiSection.style.display = 'none';
+
+    // Fetch model info when showing this section
+    await loadWhisperModelsAndState();
+  } else {
+    providerLocalSection.style.display = 'none';
+    providerApiSection.style.display = 'flex';
+  }
+}
+
+async function loadWhisperModelsAndState() {
+  if (!whisperModelSelect) return;
+  whisperModelSelect.disabled = true;
+  try {
+    availableModels = await invoke("get_whisper_models_info");
+    const currentVal = appSettings?.transcription?.whisper_model || whisperModelSelect.value || "Base";
+
+    whisperModelSelect.innerHTML = availableModels.map(m => {
+      const sizeStr = m.size_mb ? `(~${m.size_mb} MB)` : '';
+      const statusIcon = m.downloaded ? '✅' : '⬇️';
+
+      let label = `${statusIcon} ${m.size} ${sizeStr}`;
+      if (m.size === 'Base') label += ' (Recommended)';
+      if (m.size === 'Large') label += ' (Best Quality)';
+
+      return `<option value="${m.size}">${label}</option>`;
+    }).join('');
+
+    whisperModelSelect.value = currentVal;
+    updateDownloadButton();
+  } catch (e) {
+    console.error(e);
+  } finally {
+    whisperModelSelect.disabled = false;
+  }
+}
+
+
+
+function updateDownloadButton() {
+  if (!downloadModelBtn || !whisperModelSelect) return;
+
+  // If we are currently downloading, don't reset unless finished
+  if (downloadModelBtn.dataset.downloading === "true") return;
+
+  const selectedSize = whisperModelSelect.value;
+  const model = availableModels.find(m => m.size === selectedSize);
+
+  if (model) {
+    if (model.downloaded) {
+      // Show TRASH / DELETE
+      downloadModelBtn.dataset.action = "delete";
+      downloadModelBtn.title = "Delete Model";
+      downloadModelBtn.classList.remove("mini-action-btn-primary");
+      downloadModelBtn.style.color = "var(--text-danger, #ff4d4d)"; // Red for danger
+      downloadModelBtn.innerHTML = `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+           <polyline points="3 6 5 6 21 6"></polyline>
+           <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        </svg>`;
+    } else {
+      // Show DOWNLOAD
+      downloadModelBtn.dataset.action = "download";
+      downloadModelBtn.title = "Download Model";
+      downloadModelBtn.classList.add("mini-action-btn-primary");
+      downloadModelBtn.style.color = "var(--accent)";
+      downloadModelBtn.innerHTML = `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>`;
+    }
+  }
+}
+
+// Download/Delete Logic
+if (downloadModelBtn) {
+  downloadModelBtn.addEventListener("click", async () => {
+    if (!whisperModelSelect) return;
+    const size = whisperModelSelect.value;
+    const action = downloadModelBtn.dataset.action;
+
+    // Prevent multiple clicks
+    if (downloadModelBtn.dataset.downloading === "true") return;
+
+    if (action === "delete") {
+      if (confirm(`Are you sure you want to delete the ${size} model?`)) {
+        try {
+          await invoke("delete_whisper_model", { size });
+          await loadWhisperModelsAndState(); // Refresh UI
+        } catch (err) {
+          console.error("Delete failed:", err);
+        }
+      }
+      return;
+    }
+
+    // --- DOWNLOAD LOGIC ---
+    downloadModelBtn.dataset.downloading = "true";
+    downloadModelBtn.title = "Downloading...";
+
+    // Replace icon with PIE progress
+    downloadModelBtn.innerHTML = `
+          <svg class="progress-pie" width="24" height="24" viewBox="0 0 24 24">
+             <circle cx="12" cy="12" r="10" stroke="var(--border)" stroke-width="1" fill="none" opacity="0.5"/>
+             <path class="progress-pie__slice" fill="var(--accent)" d="" />
+          </svg>
+        `;
+
+    try {
+      // Listen for progress
+      const unlisten = await window.__TAURI__.event.listen('download_progress', (event) => {
+        const { percent } = event.payload;
+        const slice = downloadModelBtn.querySelector('.progress-pie__slice');
+        if (slice) {
+          const d = getPiePath(12, 12, 10, percent);
+          slice.setAttribute('d', d);
+        } else {
+          console.error("Progress pie slice element missing!");
+        }
+      });
+
+      await invoke("download_whisper_model", { size });
+
+      // Success
+      unlisten();
+      downloadModelBtn.dataset.downloading = "false";
+      // Refresh state
+      await loadWhisperModelsAndState();
+
+
+    } catch (err) {
+      console.error("Download failed:", err);
+      // alert("Download failed: " + err); // Removed per user request
+      downloadModelBtn.dataset.downloading = "false";
+      updateDownloadButton();
+    }
+  });
+}
+
+
+function getPiePath(cx, cy, r, percentage) {
+  if (percentage >= 100) {
+    return `M ${cx}, ${cy} m -${r}, 0 a ${r},${r} 0 1,0 ${r * 2},0 a ${r},${r} 0 1,0 -${r * 2},0`;
+  }
+
+  // Start at top ( -90 deg)
+  const startAngle = -Math.PI / 2;
+  const angle = (percentage / 100) * 2 * Math.PI;
+  const endAngle = startAngle + angle;
+
+  const x1 = cx + r * Math.cos(startAngle);
+  const y1 = cy + r * Math.sin(startAngle);
+
+  const x2 = cx + r * Math.cos(endAngle);
+  const y2 = cy + r * Math.sin(endAngle);
+
+  const largeArc = percentage > 50 ? 1 : 0;
+
+  // Move to center, Line to start, Arc to end, Close path
+  return `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} Z`;
+}
+
+// Add change listener to update button state
+if (whisperModelSelect) {
+  whisperModelSelect.addEventListener('change', () => {
+    updateDownloadButton();
+    // Update settings immediately? Or wait for save?
+    // Wait for save, but update internal state if needed
+  });
 }
 
 function applyTheme(themeName) {
@@ -592,6 +967,16 @@ function applyTheme(themeName) {
 if (settingsBtn) settingsBtn.addEventListener("click", () => ViewManager.showSettings());
 if (settingsBackBtn) settingsBackBtn.addEventListener("click", () => ViewManager.showRecordings());
 if (saveSettingsBtn) saveSettingsBtn.addEventListener("click", saveSettings);
+
+if (transcriptionEnabledCheckbox) {
+  transcriptionEnabledCheckbox.addEventListener("change", updateTranscriptionVisibility);
+}
+
+if (transcriptionProviderSelect) {
+  transcriptionProviderSelect.addEventListener("change", updateProviderVisibility);
+}
+
+
 
 if (browseStorageBtn) {
   browseStorageBtn.addEventListener("click", async () => {

@@ -11,7 +11,13 @@ pub struct RecordingMetadata {
     pub created_at: String,
     pub title: String,
     pub tags: Vec<String>,
+    #[serde(default = "default_status")]
+    pub status: String,
     pub audio: AudioFiles,
+}
+
+fn default_status() -> String {
+    "ready".to_string()
 }
 
 /// Project definition (saved filters)
@@ -72,6 +78,7 @@ pub fn create_recording(title: String, tags: Vec<String>) -> Result<RecordingMet
         created_at,
         title,
         tags,
+        status: "recording".to_string(),
         audio: AudioFiles {
             mic: None,
             system: None,

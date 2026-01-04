@@ -184,6 +184,16 @@
                     ></path>
                   </svg>
                   <h3>Transcript</h3>
+                  <button
+                    id="process-btn"
+                    class="mini-action-btn"
+                    title="Transcribe"
+                    style="margin-left: auto; height: 28px; padding: 0 12px"
+                  >
+                    <span style="font-weight: 600; font-size: 12px"
+                      >Transcribe</span
+                    >
+                  </button>
                 </div>
                 <div id="transcript-content" class="content-body empty">
                   Not processed yet.
@@ -235,6 +245,158 @@ Not processed yet.</pre
             </div>
 
             <div class="settings-grid">
+              <!-- Transcription Configuration (Moved to Top) -->
+              <div class="settings-section">
+                <h3>Transcription</h3>
+                <div class="settings-item">
+                  <div class="settings-info">
+                    <label>Auto-transcribe</label>
+                    <p>Process recordings after stopping</p>
+                  </div>
+                  <div
+                    class="settings-input-group"
+                    style="justify-content: flex-end"
+                  >
+                    <label class="toggle-switch">
+                      <input
+                        type="checkbox"
+                        id="settings-transcription-enabled"
+                      />
+                      <span class="slider round"></span>
+                    </label>
+                  </div>
+                </div>
+
+                <div
+                  id="transcription-details"
+                  style="
+                    display: none;
+                    flex-direction: column;
+                    gap: 12px;
+                    border-top: 1px solid var(--border-color);
+                    padding-top: 12px;
+                    margin-top: 12px;
+                  "
+                >
+                  <div class="settings-item">
+                    <div class="settings-info">
+                      <label>Provider</label>
+                    </div>
+                    <div class="settings-input-group">
+                      <select
+                        id="settings-transcription-provider"
+                        class="settings-select"
+                      >
+                        <option value="LocalWhisper">Local Whisper</option>
+                        <option value="OpenAI">OpenAI Whisper API</option>
+                        <option value="Google">Google Speech-to-Text</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <!-- Local Whisper Options -->
+                  <div
+                    id="provider-local-section"
+                    style="display: none; flex-direction: column; gap: 8px"
+                  >
+                    <div class="settings-item">
+                      <div class="settings-info">
+                        <label>Model Size</label>
+                      </div>
+                      <div
+                        class="settings-input-group"
+                        style="gap: 8px; flex: 1; justify-content: flex-end"
+                      >
+                        <select
+                          id="settings-whisper-model"
+                          class="settings-select"
+                          style="flex: 1; max-width: 280px"
+                        >
+                          <option value="Tiny">Tiny (~39 MB)</option>
+                          <option value="Base">
+                            Base (~74 MB) - Recommended
+                          </option>
+                          <option value="Small">Small (~244 MB)</option>
+                          <option value="Medium">Medium (~769 MB)</option>
+                          <option value="Large">
+                            Large (~1.5 GB) - Best Quality
+                          </option>
+                        </select>
+                        <button
+                          id="download-model-btn"
+                          class="mini-action-btn"
+                          title="Download Model"
+                          style="
+                            width: 38px;
+                            height: 38px;
+                            padding: 0;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                          "
+                        >
+                          <svg
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          >
+                            <path
+                              d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+                            ></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- Path Display -->
+                    <div
+                      class="settings-item"
+                      style="min-height: auto; margin-top: -4px"
+                    >
+                      <div style="flex: 1"></div>
+                      <p
+                        style="
+                          font-size: 0.75rem;
+                          color: var(--text-secondary);
+                          opacity: 0.7;
+                          margin: 0;
+                          text-align: right;
+                        "
+                      >
+                        Location: <span class="mono-font">~/.nbp/models/</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <!-- API Key Options -->
+                  <div
+                    id="provider-api-section"
+                    style="display: none; flex-direction: column; gap: 12px"
+                  >
+                    <div class="settings-item">
+                      <div class="settings-info">
+                        <label>API Key</label>
+                      </div>
+                      <div class="settings-input-group">
+                        <input
+                          id="settings-api-key"
+                          type="password"
+                          placeholder="sk-..."
+                          class="settings-input-text"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <!-- Storage Configuration -->
               <div class="settings-section">
                 <h3>Storage</h3>
