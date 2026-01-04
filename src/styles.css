@@ -39,10 +39,23 @@ body.deep-obsidian {
   --bg-input: #242424;
   --text-primary: #e0e0e0;
   --text-secondary: #888888;
-  --accent: #ffffff;
-  --accent-soft: rgba(255, 255, 255, 0.1);
-  --accent-hover: #f0f0f0;
+  --accent: #cccccc;
+  --accent-soft: rgba(204, 204, 204, 0.1);
+  --accent-hover: #e0e0e0;
   --border: rgba(255, 255, 255, 0.15);
+}
+
+/* Deep Obsidian theme-specific overrides */
+body.deep-obsidian .sidebar-tag-item.active {
+  color: #0a0a0a;
+}
+
+body.deep-obsidian .modal-btn.primary {
+  color: #0a0a0a;
+}
+
+body.deep-obsidian .theme-btn.active {
+  color: #0a0a0a;
 }
 
 * {
@@ -538,14 +551,17 @@ body.settings-open .app-layout {
 .mini-action-btn {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  width: 36px;
-  height: 36px;
+  padding: 0.5rem 1rem;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 10px;
-  font-size: 1rem;
-  color: #ffffff; /* White by default */
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s;
 }
 
 .mini-action-btn.danger {
@@ -861,6 +877,16 @@ body.settings-open #settings-view {
   animation: expandIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Ensure mutual exclusivity: detail-open hides settings */
+body.detail-open #settings-view {
+  display: none !important;
+}
+
+/* Ensure mutual exclusivity: settings-open hides detail */
+body.settings-open .detail-view {
+  display: none !important;
+}
+
 .settings-title {
   margin: 0;
   font-size: 2.2rem;
@@ -980,6 +1006,10 @@ body.settings-open #settings-view {
   padding-top: 2rem;
   display: flex;
   justify-content: flex-end;
+}
+
+.settings-footer .modal-btn {
+  max-width: 200px;
 }
 
 @keyframes fadeIn {

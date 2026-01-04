@@ -1,5 +1,26 @@
 const { invoke } = window.__TAURI__.core;
 
+// ===== VIEW STATE MANAGER =====
+const ViewManager = {
+  closeAll() {
+    document.body.classList.remove('detail-open', 'settings-open');
+  },
+
+  showRecordings() {
+    this.closeAll();
+  },
+
+  showDetail() {
+    this.closeAll();
+    document.body.classList.add('detail-open');
+  },
+
+  showSettings() {
+    this.closeAll();
+    document.body.classList.add('settings-open');
+  }
+};
+
 // ===== STATE =====
 let timerInterval;
 let startTime;
@@ -56,7 +77,7 @@ function formatTime(ms) {
   const h = Math.floor(totalSeconds / 3600).toString().padStart(2, "0");
   const m = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, "0");
   const s = (totalSeconds % 60).toString().padStart(2, "0");
-  return `${h}:${m}:${s}`;
+  return `${h}:${m}:${s} `;
 }
 
 function startTimer() {
@@ -66,7 +87,7 @@ function startTimer() {
     timerDisplay.textContent = formatTime(now - startTime);
 
     if (isRecording && selectedRecordingId && detailViewEl.style.display !== 'none') {
-      detailMetaEl.textContent = `Recording... · ${timerDisplay.textContent}`;
+      detailMetaEl.textContent = `Recording... · ${timerDisplay.textContent} `;
     }
   }, 100);
 }
@@ -86,6 +107,8 @@ async function toggleRecording() {
 }
 
 async function startRecording() {
+  ViewManager.showRecordings();
+
   const tags = [...selectedTags];
   try {
     const metadata = await invoke("start_recording", { tags });
@@ -218,7 +241,10 @@ async function requestSys() {
 if (requestMicBtn) requestMicBtn.addEventListener("click", requestMic);
 if (requestSysBtn) requestSysBtn.addEventListener("click", requestSys);
 if (onboardingContinueBtn) {
-  onboardingContinueBtn.addEventListener("click", () => {
+  onboardingContinueBtn.addEventListener("click", async () => {
+    // Mark onboarding as completed
+    appSettings.onboarding_completed = true;
+    await invoke("save_settings", { settings: appSettings });
     onboardingOverlay.style.display = 'none';
   });
 }
@@ -257,7 +283,7 @@ function renderTags() {
           ${isActive ? '<span class="tag-remove-sidebar">×</span>' : ''}
         </div>
       </div>
-    `;
+  `;
   }).join("");
 }
 
@@ -305,7 +331,7 @@ function renderRecordingsList() {
   }
   if (emptyStateEl) emptyStateEl.style.display = "none";
   recordingsListEl.innerHTML = filtered.map(rec => `
-    <div class="recording-item" onclick="showDetailView('${rec.id}')">
+  <div class="recording-item" onclick="showDetailView('${rec.id}')">
       <div class="recording-item-header">
         <div class="recording-title">${rec.title || "Untitled"}</div>
         <div class="recording-meta">
@@ -329,7 +355,7 @@ function getDuration(rec) {
 function formatDuration(seconds) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
+  return `${m}:${s.toString().padStart(2, "0")} `;
 }
 
 const detailMetaHeaderEl = document.getElementById("detail-meta-header");
@@ -351,12 +377,12 @@ window.showDetailView = async (id) => {
     if (isRecording && id === selectedRecordingId) {
       // While recording, the capture bar is visible anyway, so this is handled by timer
     } else {
-      detailMetaHeaderEl.textContent = `${new Date(rec.created_at).toLocaleString(undefined, dateOptions)} · ${formatDuration(getDuration(rec))}`;
+      detailMetaHeaderEl.textContent = `${new Date(rec.created_at).toLocaleString(undefined, dateOptions)} · ${formatDuration(getDuration(rec))} `;
     }
   }
 
-  // Handle visibility in CSS via .detail-open class on body
-  document.body.classList.add('detail-open');
+  // Handle visibility
+  ViewManager.showDetail();
 
   if (detailControlsEl) detailControlsEl.style.display = 'flex';
 
@@ -374,7 +400,7 @@ window.showDetailView = async (id) => {
 
 function hideDetailView() {
   selectedRecordingId = null;
-  document.body.classList.remove('detail-open');
+  ViewManager.showRecordings();
   if (detailControlsEl) detailControlsEl.style.display = 'none';
 }
 
@@ -383,8 +409,8 @@ function renderTagChips() {
   if (!listEl) return;
   listEl.innerHTML = currentRecordingTags.map(tag => `
     <div class="detail-tag-chip">
-      #${tag}
-      <span class="tag-remove" onclick="removeRecordingTag('${tag}')">×</span>
+    #${tag}
+<span class="tag-remove" onclick="removeRecordingTag('${tag}')">×</span>
     </div>
   `).join('');
 }
@@ -512,7 +538,7 @@ const openFolderBtnHeader = document.getElementById('open-folder-btn-header');
 if (openFolderBtnHeader) {
   openFolderBtnHeader.addEventListener('click', async () => {
     if (!selectedRecordingId) return;
-    const folderPath = `/Users/skopanev/nbp-data/${selectedRecordingId}`;
+    const folderPath = `/ Users / skopanev / nbp - data / ${selectedRecordingId} `;
     await window.__TAURI_PLUGIN_OPENER__.openPath(folderPath);
   });
 }
@@ -541,7 +567,7 @@ async function saveSettings() {
     // storage_path is updated via browse
 
     await invoke("save_settings", { settings: appSettings });
-    hideSettingsView();
+    ViewManager.showRecordings();
     // After changing storage path, we should probably reload recordings
     await loadRecordings();
   } catch (err) {
@@ -562,16 +588,9 @@ function applyTheme(themeName) {
   });
 }
 
-function showSettingsView() {
-  document.body.classList.add("settings-open");
-}
-
-function hideSettingsView() {
-  document.body.classList.remove("settings-open");
-}
-
-if (settingsBtn) settingsBtn.addEventListener("click", showSettingsView);
-if (settingsBackBtn) settingsBackBtn.addEventListener("click", hideSettingsView);
+// ===== SETTINGS EVENT LISTENERS =====
+if (settingsBtn) settingsBtn.addEventListener("click", () => ViewManager.showSettings());
+if (settingsBackBtn) settingsBackBtn.addEventListener("click", () => ViewManager.showRecordings());
 if (saveSettingsBtn) saveSettingsBtn.addEventListener("click", saveSettings);
 
 if (browseStorageBtn) {
@@ -603,13 +622,15 @@ async function init() {
   try {
     const version = await invoke("get_app_version");
     const versionEl = document.getElementById("app-version");
-    if (versionEl) versionEl.textContent = `v${version}`;
+    if (versionEl) versionEl.textContent = `v${version} `;
   } catch (err) {
     console.error("Failed to fetch version:", err);
   }
 
   await updatePermissionStatus();
-  if (!permissions.mic || !permissions.system_audio) {
+
+  // Show onboarding only if not completed AND permissions are missing
+  if (!appSettings.onboarding_completed && (!permissions.mic || !permissions.system_audio)) {
     onboardingOverlay.style.display = 'flex';
   }
 }

@@ -8,6 +8,8 @@ pub struct AppSettings {
     pub storage_path: String,
     pub auto_discard_seconds: u32,
     pub theme: String,
+    #[serde(default)]
+    pub onboarding_completed: bool,
 }
 
 impl Default for AppSettings {
@@ -16,6 +18,7 @@ impl Default for AppSettings {
             storage_path: get_data_dir().to_string_lossy().to_string(),
             auto_discard_seconds: 3,
             theme: "neon-purple".to_string(),
+            onboarding_completed: false,
         }
     }
 }

@@ -16,8 +16,27 @@ pub async fn check_permissions(state: tauri::State<'_, PermissionsStateCache>) -
     let mic_status = av::CaptureDevice::authorization_status_for_media_type(av::MediaType::audio());
     let mic_authorized = matches!(mic_status, Ok(av::AuthorizationStatus::Authorized));
 
-    let cache = state.0.lock().map_err(|e| e.to_string())?;
-    let system_audio_authorized = cache.system_audio;
+    // For system audio: Try to create a tap silently to check permission
+    // This won't show a dialog if permission was already granted
+    let system_audio_authorized = {
+        let mut cache = state.0.lock().map_err(|e| e.to_string())?;
+        
+        // Only check if not already verified
+        if !cache.system_audio {
+            // Try creating a temp tap to verify
+            let temp_path = PathBuf::from("/tmp/nbp-permission-check.ogg");
+            if let Ok(recorder) = crate::system_audio::start_system_capture(temp_path.clone()) {
+                drop(recorder);
+                let _ = std::fs::remove_file(&temp_path);
+                cache.system_audio = true;
+                true
+            } else {
+                false
+            }
+        } else {
+            cache.system_audio
+        }
+    };
     
     Ok(PermissionsState {
         mic: mic_authorized,

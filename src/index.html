@@ -20,9 +20,7 @@
         style="display: none"
       >
         <span class="warning-icon">⚠️</span>
-        <span class="warning-text"
-          >Missing Mic or System Audio permissions.</span
-        >
+        <span class="warning-text">Missing audio permission(s)</span>
         <button id="fix-permissions-btn" class="fix-btn">Fix</button>
       </div>
 
@@ -231,7 +229,9 @@ Not processed yet.</pre
           <div class="detail-container">
             <div class="detail-header-card">
               <h1 class="settings-title">Settings</h1>
-              <p class="settings-subtitle">Configure your local pipeline.</p>
+              <p class="settings-subtitle">
+                Configure storage, processing, and appearance.
+              </p>
             </div>
 
             <div class="settings-grid">
@@ -240,8 +240,8 @@ Not processed yet.</pre
                 <h3>Storage</h3>
                 <div class="settings-item">
                   <div class="settings-info">
-                    <label>Storage Path</label>
-                    <p>Where your recordings and metadata are stored.</p>
+                    <label>Data Directory</label>
+                    <p>Location for recordings and metadata</p>
                   </div>
                   <div class="settings-input-group">
                     <input
@@ -263,7 +263,7 @@ Not processed yet.</pre
                 <div class="settings-item">
                   <div class="settings-info">
                     <label>Auto-discard</label>
-                    <p>Discard recordings shorter than X seconds.</p>
+                    <p>Delete recordings shorter than</p>
                   </div>
                   <div class="settings-input-group">
                     <input
@@ -283,8 +283,8 @@ Not processed yet.</pre
                 <h3>Appearance</h3>
                 <div class="settings-item">
                   <div class="settings-info">
-                    <label>Theme</label>
-                    <p>Choose your UI aesthetic.</p>
+                    <label>Color Theme</label>
+                    <p>Visual style for the interface</p>
                   </div>
                   <div class="theme-toggle-group">
                     <button
@@ -374,6 +374,6 @@ Not processed yet.</pre
       </div>
     </div>
 
-    <script src="main.js" type="module"></script>
+    <script src="main.js"></script>
   </body>
 </html>
