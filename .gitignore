@@ -31,3 +31,9 @@ recordings/
 # System
 .DS_Store
 Thumbs.db
+
+# Build
+builds
+
+#tauri
+src-tauri/target

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "nbp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "com.skopanev.nbp",
   "build": {
     "frontendDist": "../src"
@@ -11,8 +11,8 @@
     "windows": [
       {
         "title": "nbp",
-        "width": 800,
-        "height": 600
+        "width": 960,
+        "height": 720
       }
     ],
     "security": {
@@ -42,7 +42,8 @@
     ],
     "macOS": {
       "minimumSystemVersion": "13.0",
-      "infoPlist": "Info.plist"
+      "infoPlist": "Info.plist",
+      "entitlements": "entitlements.plist"
     }
   }
 }

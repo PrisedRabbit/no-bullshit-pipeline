@@ -3,8 +3,10 @@
 <plist version="1.0">
     <dict>
         <key>NSMicrophoneUsageDescription</key>
-        <string>NBP needs access to the microphone to record your voice.</string>
+        <string>NBP needs access to your microphone to capture your voice during recordings and
+            meetings.</string>
         <key>NSAudioCaptureUsageDescription</key>
-        <string>NBP needs permission to capture system audio.</string>
+        <string>NBP requires system audio access to record audio from your computer, including calls
+            in Zoom, FaceTime, Slack, and other applications.</string>
     </dict>
 </plist>

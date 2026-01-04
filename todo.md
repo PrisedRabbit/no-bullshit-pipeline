@@ -1,117 +1,50 @@
-# v0.1 · PLAN
+# nbp · TODO
 
-## 0. Core
+Local voice → structured data. Privacy-first. No bullshit.
 
-- Minimalist UI
-- Showing List of previous recordings
-- Showing current recording
+## v0.2 · User Experience & Configuration (NEXT)
 
-### Storage (v0.1)
+### 1. Onboarding & Permissions (DONE)
 
-- [x] Define storage architecture (STORAGE.md)
-- [x] Implement UUID-based directory creation
-- [x] Implement metadata.json schema (Rust structs)
-- [x] Update audio recording to use UUID directories
-- [x] Implement metadata creation/reading
-- [x] Build in-memory recording index
-- [x] Update UI to display recordings from new structure
+- [x] **First Launch Window**: Clean, high-contrast modal or overlay explaining why we need Mic & System Audio permissions.
+- [x] **Permission Gate**: Large buttons to trigger "Request Microphone" and "Request Screen Recording" (for system audio).
+- [x] **Interface Warnings**: Subtle indicator (e.g., orange dot or banner) if Mic/S-Audio access is revoked or missing.
+- [x] **Permission Help**: Guide links to System Settings -> Privacy & Security.
 
-## 1. Projects (lightweight)
+### 2. Settings View (DONE)
 
-**Goal:** grouping, not management.
+- [x] **General Settings**:
+  - [x] **Storage Path**: Custom directory for `nbp-data` (default: `~/nbp-data`).
+  - [x] **Clean-up**: Auto-discard recordings shorter than X seconds.
+- [x] **Theme Tweak**: Toggle between "Neon Purple" and "Deep Obsidian" (minimalist).
 
-- `project` = set of tags
-- Tags can be added/removed at any time:
-  - before recording
-  - during recording
-  - after recording
-- Tags are stored on the recording as metadata
-- No hierarchies, no statuses, no rules
+### 3. AI Processing (The "Pipeline")
 
-> Projects are filters, not workflows.
+- [ ] **Local Transcription**:
+  - [ ] Integration with `faster-whisper` or `whisper-rs`.
+  - [ ] One-click download of Whisper models (Tiny/Base/Small) to local disk.
+- [ ] **Cloud API Integrations** (Secure key storage):
+  - [ ] **OpenAI**: Whisper-1 (speech-to-text), GPT-4o (summarization).
+  - [ ] **Google Gemini**: Flash 1.5 for long-context summary.
+  - [ ] **Anthropic Claude**: Sonnet 3.5 for high-quality structured data extraction.
+- [ ] **Structured Outpus**:
+  - [ ] Define templates (Meeting Notes, Brainstorm, Journal).
+  - [ ] Automatic mapping of speech to Markdown/JSON templates.
 
----
+### 4. Audio Control
 
-## 2. Capture Controls (MVP)
+- [ ] **In-App Playback**: Simple, sleek audio player in the detail view.
+- [ ] **Waveform Preview**: Static or dynamic waveform of the recorded audio.
 
-**Goal:** zero thinking while recording.
+## Maintenance
 
-- One primary control:
-  - `Record` → `Pause` → `Resume` → `Stop`
-- Clear states:
-  - idle / recording / paused
-- Minimal UI:
-  - timer
-  - current project/tags
-- No waveforms, no hotkeys (v0.1)
+- [ ] Proper Error Handling for Audio Mix (avoiding drift).
+- [ ] "Entitlements" verification for signed builds.
 
 ---
 
-## 3. Raw Audio Capture (core)
+## 6. Explicit Non-Goals
 
-**Goal:** the file always exists.
-
-- Permissions:
-- [x] request microphone access
-  - [x] request system audio access
-  - [x] handle denied state
-- On record start:
-  - [x] create recording ID
-  - [x] open audio file immediately
-- During capture:
-  - write in chunks
-  - update metadata
-- On stop:
-  - close file safely
-- Errors must not destroy already written data
-
----
-
-## 4. Processing
-
-**Goal:** capture ≠ processing.
-
-- After `Stop`:
-  - recording becomes `ready`
-- Processing:
-  - triggered manually (button)
-  - optional auto-run flag later
-- Each step:
-  - separate artifact
-  - explicit status (`pending / done / failed`)
-
----
-
-## 5. Artifacts (output)
-
-**Goal:** take data and leave.
-
-- Minimal set:
-  - `audio.ogg`
-  - `transcript.md`
-  - `summary.md`
-  - `meta.json`
-- Stable structure
-- Script-friendly, no app required to read
-
----
-
-## 6. Explicit Non-Goals (v0.1)
-
-- text editing
-- workflows / tasks
-- sync / cloud
-- iOS app
-- advanced settings
-
----
-
-## Success Criteria
-
-User can:
-
-1. record
-2. pause / resume
-3. stop
-4. run processing
-5. grab files and move on
+- [ ] Cloud-only storage (Everything must reside locally first).
+- [ ] Team collaboration features (This is a personal tool).
+- [ ] Heavy Electron-like resource usage (Stay lean with Tauri).

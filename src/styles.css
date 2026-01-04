@@ -31,6 +31,20 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Deep Obsidian Theme */
+body.deep-obsidian {
+  --bg-primary: #0a0a0a;
+  --bg-sidebar: #121212;
+  --bg-card: #1a1a1a;
+  --bg-input: #242424;
+  --text-primary: #e0e0e0;
+  --text-secondary: #888888;
+  --accent: #ffffff;
+  --accent-soft: rgba(255, 255, 255, 0.1);
+  --accent-hover: #f0f0f0;
+  --border: rgba(255, 255, 255, 0.15);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -62,20 +76,26 @@ body {
 }
 
 .app-logo {
-  font-weight: 500;
-  letter-spacing: -0.5px;
-  font-size: 1.1rem;
-  color: var(--text-primary);
   display: flex;
   align-items: baseline;
   gap: 8px;
 }
 
+.logo-text {
+  font-weight: 800;
+  letter-spacing: -1px;
+  font-size: 1.4rem;
+  background: linear-gradient(135deg, var(--accent), #f472b6);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
 #app-version {
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   font-weight: 400;
-  opacity: 0.5;
   color: var(--text-secondary);
+  opacity: 0.8;
 }
 
 /* Section Visibility Logic */
@@ -246,7 +266,8 @@ body.detail-open .detail-view {
   }
 }
 
-body.detail-open .app-layout {
+body.detail-open .app-layout,
+body.settings-open .app-layout {
   grid-template-columns: 1fr;
 }
 
@@ -259,6 +280,38 @@ body.detail-open .app-layout {
   padding: 2rem 0;
   gap: 2rem;
   overflow-y: auto;
+  position: relative;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.sidebar-action-btn {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.sidebar-action-btn:hover {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.sidebar-action-btn svg {
+  opacity: 0.7;
 }
 
 .sidebar-section {
@@ -797,6 +850,138 @@ body.detail-open .app-layout {
   filter: brightness(1.2);
 }
 
+/* Settings View */
+body.settings-open .sidebar,
+body.settings-open .recordings-view {
+  display: none !important;
+}
+
+body.settings-open #settings-view {
+  display: flex !important;
+  animation: expandIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.settings-title {
+  margin: 0;
+  font-size: 2.2rem;
+  font-weight: 800;
+}
+
+.settings-subtitle {
+  color: var(--text-secondary);
+  margin: 0.5rem 0 0 0;
+  font-weight: 500;
+}
+
+.settings-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+}
+
+.settings-section h3 {
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 2.5px;
+  color: var(--text-secondary);
+  margin-bottom: 1.25rem;
+}
+
+.settings-item {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  padding: 1.5rem;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.settings-info label {
+  display: block;
+  font-weight: 700;
+  font-size: 1.1rem;
+  margin-bottom: 4px;
+}
+
+.settings-info p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  opacity: 0.8;
+}
+
+.settings-input-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  max-width: 400px;
+}
+
+.settings-input-group input[type="text"] {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.85rem;
+  flex: 1;
+}
+
+.settings-input-group input[type="number"] {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  padding: 0.75rem;
+  border-radius: 10px;
+  color: var(--text-primary);
+  width: 80px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.unit {
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.theme-toggle-group {
+  display: flex;
+  background: var(--bg-input);
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+.theme-btn {
+  padding: 0.6rem 1.25rem;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.theme-btn.active {
+  background: var(--accent);
+  color: var(--bg-primary);
+}
+
+.settings-footer {
+  margin-top: 1rem;
+  border-top: 1px solid var(--border);
+  padding-top: 2rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -808,11 +993,118 @@ body.detail-open .app-layout {
 
 @keyframes modalPop {
   from {
+    transform: scale(0.95) translateY(10px);
     opacity: 0;
-    transform: scale(0.9) translateY(20px);
   }
   to {
-    opacity: 1;
     transform: scale(1) translateY(0);
+    opacity: 1;
   }
+}
+
+/* Onboarding Specifics */
+.onboarding-card {
+  max-width: 500px;
+}
+
+.nbp-logo-large {
+  font-size: 3.5rem;
+  font-weight: 900;
+  letter-spacing: -3px;
+  line-height: 1.1;
+  display: inline-block;
+  background: linear-gradient(135deg, var(--accent), #f472b6);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 0.5rem;
+  padding: 0.2rem 1rem;
+}
+
+.permission-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 2rem 0;
+  text-align: left;
+}
+
+.permission-item {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+
+.permission-item .modal-btn,
+.permission-item .perm-status-ok {
+  flex: 0 0 110px;
+  text-align: center;
+}
+
+.perm-title {
+  font-weight: 700;
+  font-size: 1.1rem;
+  margin-bottom: 4px;
+}
+
+.permission-item p {
+  margin: 0;
+  font-size: 0.9rem;
+  opacity: 0.7;
+}
+
+.perm-status-ok {
+  color: var(--success);
+  font-weight: 700;
+}
+
+.onboarding-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.modal-btn.primary {
+  background: var(--accent);
+  color: white;
+}
+
+.modal-btn.primary:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Permission Banner */
+.permission-warning {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  padding: 6px 16px;
+  border-radius: 100px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #fbbf24;
+}
+
+.fix-btn {
+  background: #fbbf24;
+  color: #000;
+  border: none;
+  padding: 2px 10px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.fix-btn:hover {
+  filter: brightness(1.1);
 }

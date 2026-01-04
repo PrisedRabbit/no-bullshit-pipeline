@@ -1,104 +1,95 @@
 # Storage Architecture
 
-## On-Disk Layout (v0.1)
+## On-Disk Layout (v0.1.0)
+
+Every recording session is a dedicated directory named with a **UUID v4**. This ensures no collisions and clean logical separation.
 
 ```
 ~/nbp-data/
 ├── 550e8400-e29b-41d4-a716-446655440000/
-│   ├── raw.wav              # immutable raw audio
-│   ├── metadata.json        # source of truth
-│   ├── transcript.md        # derived, re-creatable
-│   └── structured.json      # derived, re-creatable
-├── 7c9e6679-7425-40de-944b-e07fc1f90ae7/
-│   ├── raw.wav
-│   ├── metadata.json
-│   ├── transcript.md
-│   └── structured.json
+│   ├── raw_mic.ogg          # Normalized Microphone (Mono/Stereo)
+│   ├── raw_system.ogg       # Normalized System Audio (Stereo Loopback)
+│   ├── audio_mix.ogg        # The combined "Master" Mix (ready for playback)
+│   ├── metadata.json        # Source of truth for session data
+│   ├── transcript.md        # (v0.2) Derived transcription
+│   └── structured.json      # (v0.2) Derived AI intelligence
+├── metadata.projects.json   # (Optional) Global project/filter definitions
 ...
 ```
 
 ## Invariants (Do Not Break)
 
-1. **One recording = one directory**
-2. **`raw.*` is immutable** — never modified after recording stops
-3. **All other files are derived** — can be regenerated from `raw.*`
-4. **`metadata.json` is the only source of truth** for session data
-5. **App can be deleted; data remains usable** — no proprietary formats
-
-## Naming Rules
-
-- **Directory name = UUID v4** (e.g., `550e8400-e29b-41d4-a716-446655440000`)
-- **Machine logic MUST NOT rely on directory names**
-- **File formats are explicit** (`.wav`, `.ogg`, `.md`, `.json`)
-- **Human-readable content is in `metadata.json`** (`title`, `tags`)
+1. **One recording = one directory**: Locality is king.
+2. **Sources are Immutable**: Once `raw_mic.ogg` and `raw_system.ogg` are written and the recording stops, they are never modified.
+3. **Derived Content**: `audio_mix.ogg`, `transcript.md`, and `structured.json` are derived artifacts. They can be deleted and regenerated from the raw sources.
+4. **`metadata.json` is the Authority**: No external database. If the directory exists, it must contain a valid metadata file.
+5. **Universal Formats**: We use `.ogg` (Vorbis), `.json`, and `.md`. Your data is usable on any machine without NBP installed.
 
 ## metadata.json Schema
+
+The metadata file captures technical specifics and user-defined context.
 
 ```json
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
-  "created_at": "2026-01-03T22:15:30Z",
-  "title": "project planning",
-  "tags": ["project", "planning"],
+  "created_at": "2026-01-04T12:00:00Z",
+  "title": "Strategy Session",
+  "tags": ["work", "strategy", "q1"],
   "audio": {
-    "file": "raw.wav",
-    "duration_sec": 152.34
+    "mic": {
+      "file": "raw_mic.ogg",
+      "duration_sec": 305.5,
+      "sample_rate": 48000,
+      "channels": 1
+    },
+    "system": {
+      "file": "raw_system.ogg",
+      "duration_sec": 305.5,
+      "sample_rate": 48000,
+      "channels": 2
+    },
+    "mix": {
+      "file": "audio_mix.ogg",
+      "duration_sec": 305.5,
+      "sample_rate": 48000,
+      "channels": 2
+    }
   }
 }
 ```
 
 ### Field Definitions
 
-| Field                | Type              | Description                                        |
-| -------------------- | ----------------- | -------------------------------------------------- |
-| `id`                 | string (UUID v4)  | Stable, unique identifier matching directory name  |
-| `created_at`         | string (ISO 8601) | UTC timestamp, used for sorting                    |
-| `title`              | string            | Human-readable name (optional, can be empty)       |
-| `tags`               | array of strings  | User-defined tags for filtering/grouping           |
-| `audio.file`         | string            | Filename of raw audio (e.g., `raw.wav`, `raw.ogg`) |
-| `audio.duration_sec` | number            | Recording duration in seconds (supports decimals)  |
+| Field          | Type          | Description                                    |
+| :------------- | :------------ | :--------------------------------------------- |
+| `id`           | UUID          | Must match the directory name.                 |
+| `created_at`   | ISO 8601      | UTC timestamp of recording start.              |
+| `title`        | String        | User-defined title (defaults to Recording #N). |
+| `tags`         | Array<String> | Flat list of labels.                           |
+| `audio.mic`    | Object        | Metadata for the microphone track.             |
+| `audio.system` | Object        | Metadata for the system audio loopback.        |
+| `audio.mix`    | Object        | Metadata for the combined track.               |
 
-## Sorting & Filtering
+## Normalization & Loudness
 
-### Sorting
+All audio captures are normalized to **EBU R128 (-23 LUFS)** standard before or during the encoding process. This ensures that when you playback the mix or separate tracks, the volume levels are consistent and professional.
 
-- **Primary:** `created_at` (descending = newest first)
-- **Never** by directory name or filesystem metadata
+## Performance & Indexing
 
-### Filtering
+On startup, NBP performs a "Parallel Scan":
 
-- **By tags:** Parse all `metadata.json` files, filter by `tags` array
-- **By date range:** Filter by `created_at`
-- **By title:** Full-text search on `title` field
+1. Reads all directories in `~/nbp-data/`.
+2. Rapidly parses `metadata.json` files in parallel.
+3. Builds an in-memory index for instant filtering and sorting.
+4. **Target**: <50ms for 500 recordings.
 
-## In-Memory Index (Performance)
+## Philosophy
 
-On app startup:
+- **Files over databases**: Grep, rsync, and Backup software just work.
+- **Privacy by location**: You know exactly where your data is.
+- **Portability**: Move a directory to another machine, and NBP will pick it up instantly.
+- **Transparency**: No hidden files or binary blobs.
 
-1. Scan `~/nbp-data/` for all UUID directories
-2. Parse each `metadata.json`
-3. Build in-memory index:
-   ```rust
-   struct RecordingIndex {
-       by_id: HashMap<String, RecordingMetadata>, // metadata only, no audio blobs
-       by_tag: HashMap<String, Vec<String>>, // tag -> [id, id, ...]
-       sorted_by_date: Vec<String>, // [id, id, ...] newest first
-   }
-   ```
-4. Rebuild index on:
-   - New recording created
-   - Metadata edited
-   - App restart
+---
 
-**Performance target:** Parse 200 recordings in <50ms.
-
-## Philosophy (Compressed)
-
-- **Files over databases** — grep, jq, rsync work out of the box
-- **Raw over processed** — `raw.*` is immutable truth
-- **Ownership over convenience** — user owns files, app is optional
-- **Locality** — all assets for one recording in one directory
-
-## Rule Zero
-
-**If it breaks ownership, locality, or debuggability — don't do it.**
+**Rule Zero**: If it breaks ownership, locality, or debuggability — don’t do it.

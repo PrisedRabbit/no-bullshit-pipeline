@@ -38,9 +38,22 @@ pub struct AudioInfo {
     pub channels: u16,
 }
 
-/// Get the data directory path (~/nbp-data/)
+/// Get the data directory path
 pub fn get_data_dir() -> PathBuf {
+    // Try to load from settings first
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let settings_path = PathBuf::from(&home).join(".nbp").join("settings.json");
+    
+    if settings_path.exists() {
+        if let Ok(file) = File::open(settings_path) {
+            if let Ok(settings) = serde_json::from_reader::<_, serde_json::Value>(file) {
+                if let Some(path_str) = settings.get("storage_path").and_then(|v| v.as_str()) {
+                    return PathBuf::from(path_str);
+                }
+            }
+        }
+    }
+
     PathBuf::from(home).join("nbp-data")
 }
 

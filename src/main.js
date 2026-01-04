@@ -10,6 +10,9 @@ let selectedTags = []; // Current filter tags
 let selectedRecordingId = null;
 let currentRecordingTags = []; // Tags of the recording being viewed/edited
 
+let permissions = { mic: false, system_audio: false };
+let appSettings = null;
+
 // ===== DOM ELEMENTS =====
 const statusIndicator = document.getElementById("status-indicator");
 const timerDisplay = document.getElementById("timer");
@@ -29,6 +32,23 @@ const detailMetaEl = document.getElementById("detail-meta");
 const detailTagsInput = document.getElementById("detail-tags-input");
 const detailTranscriptEl = document.getElementById("transcript-content");
 const detailStructuredEl = document.getElementById("structured-content");
+
+const onboardingOverlay = document.getElementById("onboarding-overlay");
+const requestMicBtn = document.getElementById("request-mic-btn");
+const requestSysBtn = document.getElementById("request-sys-btn");
+const onboardingContinueBtn = document.getElementById("onboarding-continue-btn");
+const permissionWarning = document.getElementById("permission-warning");
+const fixPermissionsBtn = document.getElementById("fix-permissions-btn");
+
+const settingsViewEl = document.getElementById("settings-view");
+const settingsBtn = document.getElementById("settings-btn");
+const settingsBackBtn = document.getElementById("settings-back-btn");
+const browseStorageBtn = document.getElementById("browse-storage-btn");
+const saveSettingsBtn = document.getElementById("save-settings-btn");
+
+const storagePathInput = document.getElementById("settings-storage-path");
+const cleanupThresholdInput = document.getElementById("settings-cleanup-threshold");
+const themeButtons = document.querySelectorAll(".theme-btn");
 
 // ===== TIMER =====
 function formatTime(ms) {
@@ -117,6 +137,96 @@ async function stopRecording() {
       await loadRecordings();
     }
   }
+}
+
+// ===== PERMISSIONS =====
+async function updatePermissionStatus() {
+  try {
+    permissions = await invoke("check_permissions");
+
+    // Update Onboarding UI
+    const micItem = document.getElementById("perm-mic-item");
+    const sysItem = document.getElementById("perm-sys-item");
+
+    if (micItem) {
+      const btn = micItem.querySelector(".modal-btn");
+      btn.style.display = permissions.mic ? 'none' : 'block';
+      micItem.querySelector(".perm-status-ok").style.display = permissions.mic ? 'block' : 'none';
+    }
+    if (sysItem) {
+      const btn = sysItem.querySelector(".modal-btn");
+      btn.style.display = permissions.system_audio ? 'none' : 'block';
+      sysItem.querySelector(".perm-status-ok").style.display = permissions.system_audio ? 'block' : 'none';
+
+      if (!permissions.system_audio && btn.dataset.requested === "true") {
+        btn.textContent = "Open Settings";
+      }
+    }
+
+    if (onboardingContinueBtn) {
+      onboardingContinueBtn.disabled = false; // Always allow continue
+      const bothMissing = !permissions.mic && !permissions.system_audio;
+      onboardingContinueBtn.textContent = bothMissing ? "I'll do that later" : "Continue";
+    }
+
+    // Update Warning Banner
+    if (permissionWarning) {
+      permissionWarning.style.display = (permissions.mic && permissions.system_audio) ? 'none' : 'flex';
+    }
+
+  } catch (err) {
+    console.error("Failed to check permissions:", err);
+  }
+}
+
+async function requestMic() {
+  const btn = document.getElementById("request-mic-btn");
+
+  await invoke("request_mic_permission");
+  btn.dataset.requested = "true";
+
+  // Open settings right away to help user find the permission
+  await invoke("open_privacy_settings", { pane: "mic" });
+
+  // Poll a few times for mic
+  for (let i = 0; i < 5; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    await updatePermissionStatus();
+    if (permissions.mic) break;
+  }
+}
+
+async function requestSys() {
+  const btn = document.getElementById("request-sys-btn");
+  if (btn.textContent === "Open Settings") {
+    await invoke("open_privacy_settings", { pane: "system_audio" });
+    return;
+  }
+
+  await invoke("request_system_audio_permission");
+  btn.dataset.requested = "true";
+
+  // System audio toggle often happens in settings, 
+  // so we poll for 10 seconds to catch the change.
+  for (let i = 0; i < 10; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    await updatePermissionStatus();
+    if (permissions.system_audio) break;
+  }
+}
+
+if (requestMicBtn) requestMicBtn.addEventListener("click", requestMic);
+if (requestSysBtn) requestSysBtn.addEventListener("click", requestSys);
+if (onboardingContinueBtn) {
+  onboardingContinueBtn.addEventListener("click", () => {
+    onboardingOverlay.style.display = 'none';
+  });
+}
+if (fixPermissionsBtn) {
+  fixPermissionsBtn.addEventListener("click", () => {
+    onboardingOverlay.style.display = 'flex';
+    updatePermissionStatus();
+  });
 }
 
 // ===== TAG FILTERING =====
@@ -412,8 +522,83 @@ if (pBtn) pBtn.addEventListener('click', () => alert('Playback coming soon'));
 const prBtn = document.getElementById('process-btn');
 if (prBtn) prBtn.addEventListener('click', () => alert('AI Processing coming soon'));
 
+// ===== SETTINGS =====
+async function loadSettings() {
+  try {
+    appSettings = await invoke("load_settings");
+    if (storagePathInput) storagePathInput.value = appSettings.storage_path;
+    if (cleanupThresholdInput) cleanupThresholdInput.value = appSettings.auto_discard_seconds;
+
+    applyTheme(appSettings.theme);
+  } catch (err) {
+    console.error("Failed to load settings:", err);
+  }
+}
+
+async function saveSettings() {
+  try {
+    appSettings.auto_discard_seconds = parseInt(cleanupThresholdInput.value) || 0;
+    // storage_path is updated via browse
+
+    await invoke("save_settings", { settings: appSettings });
+    hideSettingsView();
+    // After changing storage path, we should probably reload recordings
+    await loadRecordings();
+  } catch (err) {
+    console.error("Failed to save settings:", err);
+  }
+}
+
+function applyTheme(themeName) {
+  document.body.classList.remove("neon-purple", "deep-obsidian");
+  if (themeName !== "neon-purple") {
+    document.body.classList.add(themeName);
+  }
+
+  appSettings.theme = themeName;
+
+  themeButtons.forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.theme === themeName);
+  });
+}
+
+function showSettingsView() {
+  document.body.classList.add("settings-open");
+}
+
+function hideSettingsView() {
+  document.body.classList.remove("settings-open");
+}
+
+if (settingsBtn) settingsBtn.addEventListener("click", showSettingsView);
+if (settingsBackBtn) settingsBackBtn.addEventListener("click", hideSettingsView);
+if (saveSettingsBtn) saveSettingsBtn.addEventListener("click", saveSettings);
+
+if (browseStorageBtn) {
+  browseStorageBtn.addEventListener("click", async () => {
+    try {
+      const selected = await window.__TAURI__.dialog.open({
+        directory: true,
+        multiple: false,
+        defaultPath: appSettings.storage_path
+      });
+      if (selected) {
+        appSettings.storage_path = selected;
+        storagePathInput.value = selected;
+      }
+    } catch (err) {
+      console.error("Failed to browse:", err);
+    }
+  });
+}
+
+themeButtons.forEach(btn => {
+  btn.addEventListener("click", () => applyTheme(btn.dataset.theme));
+});
+
 // ===== INIT =====
 async function init() {
+  await loadSettings();
   await loadRecordings();
   try {
     const version = await invoke("get_app_version");
@@ -421,6 +606,11 @@ async function init() {
     if (versionEl) versionEl.textContent = `v${version}`;
   } catch (err) {
     console.error("Failed to fetch version:", err);
+  }
+
+  await updatePermissionStatus();
+  if (!permissions.mic || !permissions.system_audio) {
+    onboardingOverlay.style.display = 'flex';
   }
 }
 

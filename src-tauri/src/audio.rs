@@ -167,13 +167,17 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<(), String> {
                 actual_duration = system_duration;
             }
             
-            // Discard if < 3 seconds (use actual duration)
-            if actual_duration < 3.0 {
+            // Get cleanup threshold from settings
+            let settings = crate::config::load_settings();
+            let threshold = settings.auto_discard_seconds as f64;
+            
+            // Discard if < threshold seconds (use actual duration)
+            if actual_duration < threshold {
                 // Delete recording
                 let _ = storage::delete_recording(&metadata.id);
                 *session_guard = None;
                 *is_recording = false;
-                return Err("Recording discarded (shorter than 3 seconds)".to_string());
+                return Err(format!("Recording discarded (shorter than {} seconds)", threshold));
             }
 
             // Write updated metadata
