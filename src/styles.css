@@ -236,6 +236,25 @@ button {
   transform: translateX(4px);
 }
 
+.recording-item.is-recording {
+  border-color: var(--recording);
+  background: rgba(239, 68, 68, 0.1);
+  animation: pulse-border 2s infinite;
+}
+
+@keyframes pulse-border {
+  0% {
+    border-color: rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    border-color: rgba(239, 68, 68, 1);
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.2);
+  }
+  100% {
+    border-color: rgba(239, 68, 68, 0.4);
+  }
+}
+
 .recording-title {
   font-weight: 600;
   font-size: 1.1em;

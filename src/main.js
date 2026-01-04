@@ -5,6 +5,7 @@ let timerInterval;
 let startTime;
 let elapsedPausedTime = 0;
 let isPaused = false;
+let activeRecordingId = null; // Track currently recording item
 
 let allRecordings = [];
 let selectedTags = [];
@@ -225,6 +226,11 @@ async function loadRecordings() {
   }
 }
 
+function getDuration(rec) {
+  if (!rec.audio) return 0;
+  return rec.audio.mic?.duration_sec || rec.audio.system?.duration_sec || 0;
+}
+
 function renderRecordingsList() {
   const filtered = filterRecordings(allRecordings, selectedTags);
 
@@ -236,15 +242,20 @@ function renderRecordingsList() {
 
   emptyStateEl.style.display = "none";
 
-  const html = filtered.map(rec => `
-    <div class="recording-item" data-id="${rec.id}">
-      <div class="recording-title">${rec.title || "Untitled"}</div>
-      <div class="recording-meta">${formatDateTime(rec.created_at)} · ${formatDuration(rec.audio.duration_sec)}</div>
+  const html = filtered.map(rec => {
+    const isActive = rec.id === activeRecordingId;
+    const itemClass = isActive ? "recording-item is-recording" : "recording-item";
+    const duration = getDuration(rec);
+
+    return `
+    <div class="${itemClass}" data-id="${rec.id}">
+      <div class="recording-title">${rec.title || "Untitled"} ${isActive ? '(Recording...)' : ''}</div>
+      <div class="recording-meta">${formatDateTime(rec.created_at)} · ${formatDuration(duration)}</div>
       <div class="recording-tags">
         ${rec.tags.map(tag => `<span class="recording-tag">#${tag}</span>`).join("")}
       </div>
     </div>
-  `).join("");
+  `}).join("");
 
   recordingsListEl.innerHTML = html;
 
@@ -255,6 +266,7 @@ function renderRecordingsList() {
 }
 
 // ===== TAG CHIP MANAGEMENT =====
+// (Unchanged)
 function renderTagChips() {
   const listEl = document.getElementById('detail-tags-list');
   listEl.innerHTML = currentRecordingTags.map(tag => `
@@ -315,9 +327,11 @@ function showDetailView(recordingId) {
   selectedRecordingId = recordingId;
   currentRecordingTags = [...recording.tags];
 
+  const duration = getDuration(recording);
+
   document.getElementById('detail-title').value = recording.title || "";
   document.getElementById('detail-meta').textContent =
-    `${formatDateTime(recording.created_at)} · ${formatDuration(recording.audio.duration_sec)}`;
+    `${formatDateTime(recording.created_at)} · ${formatDuration(duration)}`;
 
   renderTagChips();
   document.getElementById('detail-tags-input').value = "";
@@ -332,6 +346,21 @@ function hideDetailView() {
   detailViewEl.style.display = "none";
   appLayoutEl.classList.remove('detail-open');
 }
+
+// ===== TITLE UPDATE =====
+async function updateTitle(newTitle) {
+  if (!selectedRecordingId) return;
+  try {
+    await invoke('update_title', {
+      recordingId: selectedRecordingId,
+      title: newTitle
+    });
+    await loadRecordings(); // Refresh list to update title there too
+  } catch (err) {
+    console.error("Failed to update title:", err);
+  }
+}
+
 
 // ===== DETAIL VIEW ACTIONS =====
 async function playRecording() {
@@ -349,6 +378,11 @@ async function processRecording() {
 async function openFolder() {
   if (!selectedRecordingId) return;
   try {
+    // Assuming ID is simple string safe for path
+    const dataDir = await window.__TAURI__.path.homeDir();
+    // Path handling might be tricky in pure JS without path API. 
+    // Backend `open_folder` command would be safer.
+    // Using previous implementation logic:
     const folderPath = `/Users/skopanev/nbp-data/${selectedRecordingId}`;
 
     console.log('Opening folder:', folderPath);
@@ -405,6 +439,17 @@ document.getElementById('detail-tags-input').addEventListener('keypress', (e) =>
     const input = e.target;
     addTag(input.value);
     input.value = '';
+  }
+});
+
+// Title listeners
+const titleInput = document.getElementById('detail-title');
+titleInput.addEventListener('blur', (e) => {
+  updateTitle(e.target.value);
+});
+titleInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') {
+    e.target.blur(); // Triggers blur event
   }
 });
 

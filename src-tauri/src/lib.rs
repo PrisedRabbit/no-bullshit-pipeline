@@ -1,6 +1,8 @@
 mod audio;
+pub mod audio_processing;
 mod storage;
 mod system_audio;
+mod mic_audio;
 use audio::AudioState;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -24,8 +26,8 @@ pub fn run() {
             storage::list_recordings,
             storage::read_metadata,
             storage::update_tags,
+            storage::update_title,
             storage::delete_recording,
-
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict>
-    <key>NSScreenCaptureUsageDescription</key>
-    <string>NBP needs permission to record system audio.</string>
-    <key>NSMicrophoneUsageDescription</key>
-    <string>NBP needs access to the microphone to record your voice.</string>
-</dict>
+    <dict>
+        <key>NSMicrophoneUsageDescription</key>
+        <string>NBP needs access to the microphone to record your voice.</string>
+        <key>NSAudioCaptureUsageDescription</key>
+        <string>NBP needs permission to capture system audio.</string>
+    </dict>
 </plist>

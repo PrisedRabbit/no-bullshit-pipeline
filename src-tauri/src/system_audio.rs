@@ -1,15 +1,19 @@
 use anyhow::Result;
 use cidre::{cat, cf, core_audio as ca, os};
-use hound::WavWriter;
 use ringbuf::{
-    traits::{Consumer, Producer, Split},
+    traits::{Consumer, Producer, Split, Observer},
     HeapProd, HeapRb,
 };
+use std::fs::File;
+use std::num::{NonZeroU32, NonZeroU8};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
 use std::thread;
+use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoder};
+
+use crate::audio_processing::LoudnessNormalizer;
 
 pub struct SystemAudioRecorder {
     should_stop: Arc<AtomicBool>,
@@ -49,18 +53,20 @@ pub fn start_system_capture(output_path: std::path::PathBuf) -> Result<SystemAud
     SystemAudioRecorder::new(output_path)
 }
 
-fn run_audio_capture(path: std::path::PathBuf, should_stop: Arc<AtomicBool>) -> Result<()> {
+fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>) -> Result<()> {
+    // Switch extension to .ogg
+    path.set_extension("ogg");
+
     // 1. Get Default Output Device
     let output_device = ca::System::default_output_device()?;
     let output_uid = output_device.uid()?;
 
-    // 2. Create Process Tap (Mono Global Tap)
+    // 2. Create Process Tap (Stereo Global Tap)
     // Note: cidre::ns::Array::new() creates an empty array to exclude NO processes (capture all)
-    let tap_desc = ca::TapDesc::with_mono_global_tap_excluding_processes(&cidre::ns::Array::new());
+    let tap_desc = ca::TapDesc::with_stereo_global_tap_excluding_processes(&cidre::ns::Array::new());
     let tap = tap_desc.create_process_tap()?;
 
     // 3. Create Aggregate Device Descriptor
-    // This virtual device combines the Output Device and the Tap
     let sub_tap = cf::DictionaryOf::with_keys_values(
         &[ca::sub_device_keys::uid()],
         &[tap.uid().unwrap().as_type_ref()],
@@ -69,7 +75,6 @@ fn run_audio_capture(path: std::path::PathBuf, should_stop: Arc<AtomicBool>) -> 
     let agg_desc = cf::DictionaryOf::with_keys_values(
         &[
             ca::aggregate_device_keys::is_private(),
-            // ca::aggregate_device_keys::is_stacked(), // Default false
             ca::aggregate_device_keys::tap_auto_start(),
             ca::aggregate_device_keys::name(),
             ca::aggregate_device_keys::main_sub_device(),
@@ -78,7 +83,6 @@ fn run_audio_capture(path: std::path::PathBuf, should_stop: Arc<AtomicBool>) -> 
         ],
         &[
             cf::Boolean::value_true().as_type_ref(),
-            // cf::Boolean::value_false(),
             cf::Boolean::value_true(),
             cf::str!(c"nbp-audio-tap").as_type_ref(),
             &output_uid,
@@ -91,7 +95,10 @@ fn run_audio_capture(path: std::path::PathBuf, should_stop: Arc<AtomicBool>) -> 
     let agg_device = ca::AggregateDevice::with_desc(&agg_desc)?;
 
     // 5. Setup Ring Buffer
-    let ring_buffer_size = 48000 * 4; // ~4 seconds buffer
+    // 48kHz Stereo float = 48000 * 2 * 4 bytes/sec = 384KB/sec.
+    // 4 seconds buffer = ~1.5MB.
+    // HeapRb holds items (f32). 48000 * 2 * 4 = 384000 items.
+    let ring_buffer_size = 48000 * 2 * 4; 
     let rb = HeapRb::<f32>::new(ring_buffer_size);
     let (producer, mut consumer) = rb.split();
 
@@ -109,15 +116,47 @@ fn run_audio_capture(path: std::path::PathBuf, should_stop: Arc<AtomicBool>) -> 
     ) -> os::Status {
         let ctx = ctx.unwrap();
         
-        // Extract samples
-        // We use av::AudioPcmBuf to wrap the buffer list safely if possible,
-        // or just access raw data manually if needed.
-        // Assuming Float32 format from tap.
-        
+        // Check number of buffers to determine Planar vs Interleaved
+        // input_data.number_buffers is u32
+        let num_buffers = input_data.number_buffers;
         let buffers = &input_data.buffers;
-        if !buffers.is_empty() {
+
+        if num_buffers == 2 {
+            // PLANAR: L in buffer[0], R in buffer[1]
+            // Access buffers[0] safely via slice
+            let buf_l = &buffers[0];
+            
+            // Access buffers[1] using unsafe pointer arithmetic because 
+            // AudioBufList<1> generic limits slice size to 1.
+            let buf_r = unsafe { &*buffers.as_ptr().add(1) };
+            
+            let ptr_l = buf_l.data as *const f32;
+            let ptr_r = buf_r.data as *const f32;
+            let len_l = (buf_l.data_bytes_size as usize) / std::mem::size_of::<f32>();
+            
+            if !ptr_l.is_null() && !ptr_r.is_null() && len_l > 0 {
+                let samples_l = unsafe { std::slice::from_raw_parts(ptr_l, len_l) };
+                let samples_r = unsafe { std::slice::from_raw_parts(ptr_r, len_l) };
+                
+                // Interleave manually: L, R, L, R...
+                let mut interleaved = Vec::with_capacity(len_l * 2);
+                for i in 0..len_l {
+                    interleaved.push(samples_l[i]);
+                    // Safety check if buf_r len is different? Assume audio block alignment.
+                    if i < samples_r.len() {
+                        interleaved.push(samples_r[i]);
+                    } else {
+                        interleaved.push(0.0);
+                    }
+                }
+                ctx.producer.push_slice(&interleaved);
+            }
+        
+        } else if !buffers.is_empty() {
+             // INTERLEAVED (or Mono): All channels in buffer[0]
              let buffer = &buffers[0];
              let ptr = buffer.data as *const f32;
+             // data_bytes_size tells absolute size.
              let len = (buffer.data_bytes_size as usize) / std::mem::size_of::<f32>();
              if !ptr.is_null() && len > 0 {
                  let samples = unsafe { std::slice::from_raw_parts(ptr, len) };
@@ -135,43 +174,206 @@ fn run_audio_capture(path: std::path::PathBuf, should_stop: Arc<AtomicBool>) -> 
     // 8. Start Device
     let _started_device = ca::device_start(agg_device, Some(proc_id))?;
 
-    // 9. Writer Setup
-    // Tap usually gives what is played. Default is often 44100 or 48000.
-    // We can query the tap's ASBD.
+    // 9. Encoder & Normalizer Setup
     let asbd = tap.asbd()?;
     let sample_rate = asbd.sample_rate as u32;
-    // Tap is Mono Global -> 1 channel? 
-    // Wait, the creating function `with_mono_global_tap...` implies mono.
-    // But `asbd.channels_per_frame` will tell.
-    let channels = asbd.channels_per_frame as u16;
+    let channels = asbd.channels_per_frame;
 
-    let spec = hound::WavSpec {
-        channels,
-        sample_rate,
-        bits_per_sample: 32,
-        sample_format: hound::SampleFormat::Float,
-    };
-    let mut writer = WavWriter::create(&path, spec)?;
+    let mut normalizer = LoudnessNormalizer::new(channels, sample_rate)?;
+    
+    // Setup OGG Vorbis Encoder
+    let output_file = File::create(&path)?;
+    
+    // Quality 0.4 is variable bitrate (VBR) target quality (~128kbps)
+    let mut encoder = VorbisEncoder::new(
+        0, // Stream serial (0 for now)
+        [("", ""); 0], // No comments
+        NonZeroU32::new(sample_rate).ok_or(anyhow::anyhow!("Invalid sample rate"))?,
+        NonZeroU8::new(channels as u8).ok_or(anyhow::anyhow!("Invalid channels"))?,
+        VorbisBitrateManagementStrategy::QualityVbr { target_quality: 0.4 },
+        None, // Default page size optimization
+        output_file,
+    )?;
+    
+    // 10. Continuous Timeline Loop
+    // Write audio at exactly 48kHz regardless of whether audio arrives from tap
+    let chunk_size = 4096;
+    let mut buffer = vec![0.0f32; chunk_size];
+    
+    let start_time = std::time::Instant::now();
+    let mut total_frames_written: u64 = 0;
+    
+    // Tick every 10ms to maintain timeline
+    let tick_duration = std::time::Duration::from_millis(10);
 
-    // 10. Loop
     while !should_stop.load(Ordering::Relaxed) {
-        // Pop from ring buffer and write to file
-        let mut buffer = [0.0f32; 1024];
-        let n = consumer.pop_slice(&mut buffer);
-        if n > 0 {
-            for &sample in &buffer[..n] {
-                writer.write_sample(sample)?;
+        // Calculate how many frames SHOULD exist by now
+        let elapsed_secs = start_time.elapsed().as_secs_f64();
+        let expected_frames = (elapsed_secs * sample_rate as f64) as u64;
+        
+        // If we're behind, we need to write frames
+        if total_frames_written < expected_frames {
+            // Write UP TO 100ms at a time to avoid huge blocks, but loop fast
+            let catch_up_limit = (sample_rate as f64 * 0.1) as usize; 
+            let frames_needed = (expected_frames - total_frames_written).min(catch_up_limit as u64) as usize;
+            
+            // Try to get real audio from ring buffer
+            let available = consumer.occupied_len();
+            let mut frames_remaining = frames_needed;
+            
+            // 1. Consume available audio first
+            let audio_frames_available = available / channels as usize;
+            
+            if audio_frames_available > 0 {
+                // Use as much audio as we can, up to what we need
+                let frames_to_read = audio_frames_available.min(frames_remaining);
+                let samples_to_read = frames_to_read * channels as usize;
+                
+                let n = consumer.pop_slice(&mut buffer[..samples_to_read]);
+                
+                if n > 0 {
+                    let raw_samples = &buffer[..n];
+                    let normalized_samples = normalizer.normalize_loudness(raw_samples);
+                    let frames_encoded = normalized_samples.len() / channels as usize;
+                    
+                    let planar_samples = if channels == 2 {
+                        let mut left = Vec::with_capacity(frames_encoded);
+                        let mut right = Vec::with_capacity(frames_encoded);
+                        for chunk in normalized_samples.chunks(2) {
+                            if chunk.len() == 2 {
+                                left.push(chunk[0]);
+                                right.push(chunk[1]);
+                            }
+                        }
+                        vec![left, right]
+                    } else {
+                        vec![normalized_samples]
+                    };
+                    
+                    let slices_ref: Vec<&[f32]> = planar_samples.iter().map(|v| v.as_slice()).collect();
+                    encoder.encode_audio_block(&slices_ref)?;
+                    total_frames_written += frames_encoded as u64;
+                    
+                    // Decrease remaining count
+                    if frames_remaining >= frames_encoded {
+                        frames_remaining -= frames_encoded;
+                    } else {
+                        frames_remaining = 0;
+                    }
+                }
             }
-        } else {
-            thread::sleep(std::time::Duration::from_millis(10));
+            
+            // 2. Fill remainder with silence
+            if frames_remaining > 0 {
+                let silence = vec![0.0f32; frames_remaining];
+                let silence_planar = if channels == 2 {
+                    vec![silence.clone(), silence]
+                } else {
+                    vec![silence]
+                };
+                
+                let slices_ref: Vec<&[f32]> = silence_planar.iter().map(|v| v.as_slice()).collect();
+                encoder.encode_audio_block(&slices_ref)?;
+                total_frames_written += frames_remaining as u64;
+            }
+            
+            // If we still need to catch up (hit limit), continue loop immediately without sleep
+            if total_frames_written < expected_frames {
+                continue;
+            }
+        }
+        
+        // Sleep until next tick if we are caught up
+        thread::sleep(tick_duration);
+    }
+    
+    // STOP THE STREAM NOW so no new data enters buffer during drain
+    drop(_started_device);
+    
+    // Drain any remaining audio from buffer
+    loop {
+        let available = consumer.occupied_len();
+        if available == 0 {
+            break;
+        }
+        
+        let mut to_read = chunk_size.min(available);
+        to_read -= to_read % (channels as usize);
+        
+        if to_read == 0 {
+            break;
+        }
+        
+        let n = consumer.pop_slice(&mut buffer[..to_read]);
+        
+        if n > 0 {
+            let raw_samples = &buffer[..n];
+            let normalized_samples = normalizer.normalize_loudness(raw_samples);
+            let frames = normalized_samples.len() / channels as usize;
+            
+            let planar_samples = if channels == 2 {
+                let mut left = Vec::with_capacity(frames);
+                let mut right = Vec::with_capacity(frames);
+                for chunk in normalized_samples.chunks(2) {
+                    if chunk.len() == 2 {
+                        left.push(chunk[0]);
+                        right.push(chunk[1]);
+                    }
+                }
+                vec![left, right]
+            } else {
+                vec![normalized_samples]
+            };
+            
+            let slices_ref: Vec<&[f32]> = planar_samples.iter().map(|v| v.as_slice()).collect();
+            if let Err(e) = encoder.encode_audio_block(&slices_ref) {
+                eprintln!("Error encoding remaining system audio: {}", e);
+                break;
+            }
+            total_frames_written += frames as u64;
         }
     }
-
-    // Stop device
-    // started_device dropped acts as stop? 
-    // "StartedDevice" RAII usually stops on drop?
-    // Checking cidre docs/source... StartedDevice has Drop impl that calls AudioDeviceStop.
     
-    writer.finalize()?;
+    // FILL SILENCE to match wall-clock duration
+    let elapsed = start_time.elapsed().as_secs_f64();
+    let expected_frames = (elapsed * sample_rate as f64) as u64;
+    
+    println!("System Audio Stop: Timer={:.3}s, Rate={}, Written={}, Expected={}, Diff={}", 
+        elapsed, sample_rate, total_frames_written, expected_frames, expected_frames as i64 - total_frames_written as i64);
+    
+    if total_frames_written < expected_frames {
+        let missing_frames = expected_frames - total_frames_written;
+        println!("System Audio Underrun: Padding with {} frames of silence ({:.2}s)", 
+            missing_frames, missing_frames as f64 / sample_rate as f64);
+            
+        // Create silence block (e.g., 4096 frames at a time)
+        let silence_chunk_size = 4096;
+        let silence_vec = vec![0.0f32; silence_chunk_size];
+        let silence_planar = if channels == 2 {
+            vec![silence_vec.clone(), silence_vec]
+        } else {
+            vec![silence_vec]
+        };
+        let silence_refs: Vec<&[f32]> = silence_planar.iter().map(|v| v.as_slice()).collect();
+        
+        let mut remaining = missing_frames;
+        while remaining > 0 {
+            let chunk = remaining.min(silence_chunk_size as u64);
+            // Slice the silence vectors to match chunk size
+            let partial_refs: Vec<&[f32]> = silence_refs.iter().map(|v| &v[..chunk as usize]).collect();
+            
+            if let Err(e) = encoder.encode_audio_block(&partial_refs) {
+                eprintln!("Error writing silence padding: {}", e);
+                break;
+            }
+            remaining -= chunk;
+        }
+    } else {
+        println!("System Audio: No padding needed (Written >= Expected)");
+    }
+
+    // Finish encoding
+    encoder.finish()?;
+    println!("System Audio: Encoder finished.");
     Ok(())
 }

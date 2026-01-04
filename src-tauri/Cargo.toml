@@ -2,7 +2,7 @@
 name = "nbp"
 version = "0.1.0"
 description = "A Tauri App"
-authors = ["you"]
+authors = ["sk"]
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -31,4 +31,9 @@ uuid = { version = "1.11", features = ["v4", "serde"] }
 cidre = { git = "https://github.com/yury/cidre", branch = "main", features = ["av"] }
 ringbuf = "0.4.8"
 anyhow = "1.0"
+ebur128 = "0.1"
+vorbis_rs = "0.3"
+lewton = "0.10"
+rubato = "0.15"
+log = "0.4"
 

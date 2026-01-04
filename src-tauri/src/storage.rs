@@ -19,6 +19,7 @@ pub struct RecordingMetadata {
 pub struct AudioFiles {
     pub mic: Option<AudioInfo>,
     pub system: Option<AudioInfo>,
+    pub mix: Option<AudioInfo>,
 }
 
 /// Audio file information
@@ -54,6 +55,7 @@ pub fn create_recording(title: String, tags: Vec<String>) -> Result<RecordingMet
         audio: AudioFiles {
             mic: None,
             system: None,
+            mix: None,
         },
     };
     
@@ -80,6 +82,15 @@ pub fn write_metadata(metadata: &RecordingMetadata) -> Result<(), String> {
 pub fn update_tags(recording_id: &str, tags: Vec<String>) -> Result<(), String> {
     let mut metadata = read_metadata(recording_id)?;
     metadata.tags = tags;
+    write_metadata(&metadata)?;
+    Ok(())
+}
+
+/// Update title for a recording
+#[tauri::command]
+pub fn update_title(recording_id: &str, title: String) -> Result<(), String> {
+    let mut metadata = read_metadata(recording_id)?;
+    metadata.title = title;
     write_metadata(&metadata)?;
     Ok(())
 }
