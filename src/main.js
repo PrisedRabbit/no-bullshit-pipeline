@@ -72,6 +72,7 @@ async function startRecording() {
     isRecording = true;
 
     if (statusIndicator) statusIndicator.className = "status-recording";
+    document.body.classList.add("is-recording-active");
     if (recordToggleBtn) {
       recordToggleBtn.innerHTML = "⏹";
       recordToggleBtn.classList.add("is-active");
@@ -96,6 +97,7 @@ async function stopRecording() {
 
     stopTimer();
     if (statusIndicator) statusIndicator.className = "status-idle";
+    document.body.classList.remove("is-recording-active");
     if (recordToggleBtn) {
       recordToggleBtn.innerHTML = "⏺";
       recordToggleBtn.classList.remove("is-active");
@@ -147,22 +149,6 @@ function renderTags() {
       </div>
     `;
   }).join("");
-
-  renderActiveChips();
-}
-
-function renderActiveChips() {
-  if (!activeTagChipsEl) return;
-  if (selectedTags.length === 0) {
-    activeTagChipsEl.innerHTML = "";
-    return;
-  }
-  activeTagChipsEl.innerHTML = selectedTags.map(tag => `
-    <div class="filter-chip">
-      #${tag}
-      <span class="remove" onclick="toggleTagFilter('${tag}')">×</span>
-    </div>
-  `).join("");
 }
 
 window.toggleTagFilter = (tag) => {
@@ -188,6 +174,14 @@ async function loadRecordings() {
   }
 }
 
+const dateOptions = {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit'
+};
+
 function renderRecordingsList() {
   if (!recordingsListEl) return;
   const filtered = selectedTags.length === 0
@@ -205,7 +199,7 @@ function renderRecordingsList() {
       <div class="recording-item-header">
         <div class="recording-title">${rec.title || "Untitled"}</div>
         <div class="recording-meta">
-          <span>${new Date(rec.created_at).toLocaleString()}</span>
+          <span>${new Date(rec.created_at).toLocaleString(undefined, dateOptions)}</span>
           <span>·</span>
           <span>${formatDuration(getDuration(rec))}</span>
         </div>
@@ -228,6 +222,10 @@ function formatDuration(seconds) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+const detailMetaHeaderEl = document.getElementById("detail-meta-header");
+const detailControlsEl = document.getElementById("detail-controls");
+const captureSectionEl = document.getElementById("capture-section");
+
 // ===== DETAIL VIEW =====
 window.showDetailView = async (id) => {
   const rec = allRecordings.find(r => r.id === id);
@@ -238,13 +236,19 @@ window.showDetailView = async (id) => {
 
   if (detailTitleInput) detailTitleInput.value = rec.title || "";
 
-  if (detailMetaEl) {
+  // Update Metadata in the Header
+  if (detailMetaHeaderEl) {
     if (isRecording && id === selectedRecordingId) {
-      detailMetaEl.textContent = `Recording... · ${timerDisplay.textContent}`;
+      // While recording, the capture bar is visible anyway, so this is handled by timer
     } else {
-      detailMetaEl.textContent = `${new Date(rec.created_at).toLocaleString()} · ${formatDuration(getDuration(rec))}`;
+      detailMetaHeaderEl.textContent = `${new Date(rec.created_at).toLocaleString(undefined, dateOptions)} · ${formatDuration(getDuration(rec))}`;
     }
   }
+
+  // Handle visibility in CSS via .detail-open class on body
+  document.body.classList.add('detail-open');
+
+  if (detailControlsEl) detailControlsEl.style.display = 'flex';
 
   renderTagChips();
 
@@ -256,15 +260,12 @@ window.showDetailView = async (id) => {
     detailStructuredEl.textContent = "Not processed yet.";
     detailStructuredEl.classList.add('empty');
   }
-
-  if (appLayoutEl) appLayoutEl.classList.add('detail-open');
-  if (detailViewEl) detailViewEl.style.display = 'flex';
 };
 
 function hideDetailView() {
   selectedRecordingId = null;
-  if (appLayoutEl) appLayoutEl.classList.remove('detail-open');
-  if (detailViewEl) detailViewEl.style.display = 'none';
+  document.body.classList.remove('detail-open');
+  if (detailControlsEl) detailControlsEl.style.display = 'none';
 }
 
 function renderTagChips() {
@@ -362,28 +363,50 @@ if (detailTitleInput) {
   });
 }
 
-const deleteBtn = document.getElementById('delete-btn');
-if (deleteBtn) {
-  deleteBtn.addEventListener('click', async () => {
+const deleteModal = document.getElementById('delete-modal');
+const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
+const cancelDeleteBtn = document.getElementById('cancel-delete-btn');
+
+const deleteBtnHeader = document.getElementById('delete-btn-header');
+if (deleteBtnHeader) {
+  deleteBtnHeader.addEventListener('click', () => {
     if (!selectedRecordingId) return;
-    if (confirm("Delete this recording?")) {
-      await invoke('delete_recording', { recordingId: selectedRecordingId });
-      hideDetailView();
-      await loadRecordings();
-    }
+    deleteModal.style.display = 'flex';
   });
 }
 
-const openFolderBtn = document.getElementById('open-folder-btn');
-if (openFolderBtn) {
-  openFolderBtn.addEventListener('click', async () => {
+if (cancelDeleteBtn) {
+  cancelDeleteBtn.addEventListener('click', () => {
+    deleteModal.style.display = 'none';
+  });
+}
+
+if (confirmDeleteBtn) {
+  confirmDeleteBtn.addEventListener('click', async () => {
+    if (!selectedRecordingId) return;
+    await invoke('delete_recording', { recordingId: selectedRecordingId });
+    deleteModal.style.display = 'none';
+    hideDetailView();
+    await loadRecordings();
+  });
+}
+
+// Close modal when clicking outside the card
+if (deleteModal) {
+  deleteModal.addEventListener('click', (e) => {
+    if (e.target === deleteModal) deleteModal.style.display = 'none';
+  });
+}
+
+const openFolderBtnHeader = document.getElementById('open-folder-btn-header');
+if (openFolderBtnHeader) {
+  openFolderBtnHeader.addEventListener('click', async () => {
     if (!selectedRecordingId) return;
     const folderPath = `/Users/skopanev/nbp-data/${selectedRecordingId}`;
     await window.__TAURI_PLUGIN_OPENER__.openPath(folderPath);
   });
 }
 
-// Play/Process placeholders removed as requested, but keeping listeners safe if elements exist
 const pBtn = document.getElementById('play-btn');
 if (pBtn) pBtn.addEventListener('click', () => alert('Playback coming soon'));
 const prBtn = document.getElementById('process-btn');

@@ -7,12 +7,14 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <!-- Main app bar (Capture Controls) -->
+    <!-- Main app bar (Capture & Detail Controls) -->
     <header class="app-bar">
       <div class="app-logo">
         no-bullshit-pipeline <span id="app-version"></span>
       </div>
-      <div class="capture-section">
+
+      <!-- Section A: Universal Capture Controls -->
+      <div id="capture-section" class="capture-section">
         <div id="status-indicator" class="status-idle"></div>
         <div id="timer" class="timer">00:00:00</div>
         <div class="capture-controls">
@@ -25,6 +27,51 @@
           </button>
         </div>
       </div>
+
+      <!-- Section B: Detail View Context (Meta + Actions) -->
+      <div id="detail-controls" class="detail-controls" style="display: none">
+        <div id="detail-meta-header" class="detail-meta-text"></div>
+        <div class="top-actions">
+          <button
+            id="open-folder-btn-header"
+            class="mini-action-btn"
+            title="Open Folder"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+          </button>
+          <button
+            id="delete-btn-header"
+            class="mini-action-btn danger"
+            title="Delete"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
     </header>
 
     <main class="app-layout">
@@ -32,9 +79,6 @@
       <aside class="sidebar">
         <div class="sidebar-section">
           <h2>TAGS</h2>
-          <div id="active-tag-chips" class="tag-filters-chips">
-            <!-- Active filter chips -->
-          </div>
           <div id="all-tags-list" class="all-tags-sidebar-list">
             <!-- All available tags rendered as a list -->
           </div>
@@ -54,55 +98,11 @@
 
       <!-- Right: Detail view -->
       <section id="detail-view" class="detail-view">
-        <header class="detail-top-nav">
+        <div class="detail-top-nav-simple">
           <button class="back-link-btn" id="back-btn">
             <span class="icon">←</span> Back
           </button>
-
-          <div class="top-nav-right">
-            <div id="detail-meta" class="detail-meta-text"></div>
-            <div class="top-actions">
-              <button
-                id="open-folder-btn"
-                class="mini-action-btn"
-                title="Open Folder"
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <circle cx="11" cy="11" r="8"></circle>
-                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                </svg>
-              </button>
-              <button
-                id="delete-btn"
-                class="mini-action-btn danger"
-                title="Delete"
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <line x1="18" y1="6" x2="6" y2="18"></line>
-                  <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
-              </button>
-            </div>
-          </div>
-        </header>
+        </div>
 
         <div class="detail-scroller">
           <div class="detail-container">
@@ -185,6 +185,23 @@ Not processed yet.</pre
         </div>
       </section>
     </main>
+
+    <!-- Custom Confirmation Modal -->
+    <div id="delete-modal" class="modal-overlay" style="display: none">
+      <div class="modal-card">
+        <div class="modal-icon">⚠️</div>
+        <h3>Delete Recording?</h3>
+        <p>This action cannot be undone. Are you sure?</p>
+        <div class="modal-actions">
+          <button id="cancel-delete-btn" class="modal-btn secondary">
+            Cancel
+          </button>
+          <button id="confirm-delete-btn" class="modal-btn danger">
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
 
     <script src="main.js" type="module"></script>
   </body>

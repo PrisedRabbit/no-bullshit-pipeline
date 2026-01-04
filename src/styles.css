@@ -78,10 +78,54 @@ body {
   color: var(--text-secondary);
 }
 
-.capture-section {
+/* Section Visibility Logic */
+.capture-section,
+.detail-controls {
   display: flex;
   align-items: center;
   gap: 1.5rem;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 1. Default (List View) */
+.detail-controls {
+  opacity: 0;
+  pointer-events: none;
+  display: none !important;
+}
+
+/* 2. Detail View Open + Not Recording -> Show Meta/Actions, Hide Capture */
+body.detail-open:not(.is-recording-active) .capture-section {
+  opacity: 0;
+  pointer-events: none;
+  display: none !important;
+}
+
+body.detail-open:not(.is-recording-active) .detail-controls {
+  opacity: 1;
+  pointer-events: auto;
+  display: flex !important;
+}
+
+/* 3. Recording Active -> Force Capture Section visible */
+body.is-recording-active .capture-section {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  display: flex !important;
+}
+
+body.is-recording-active .detail-controls {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  display: none !important;
+}
+
+.detail-top-nav-simple {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  padding: 0 2rem;
+  margin-bottom: -1rem;
 }
 
 .capture-controls {
@@ -171,13 +215,39 @@ body {
   margin-top: 64px;
 }
 
-.app-layout.detail-open {
-  grid-template-columns: 1fr;
+.detail-view {
+  background: var(--bg-primary);
+  display: none;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  min-height: 0;
 }
 
-.app-layout.detail-open .sidebar,
-.app-layout.detail-open .recordings-view {
-  display: none;
+/* Hard toggle with animation on the target */
+body.detail-open .sidebar,
+body.detail-open .recordings-view {
+  display: none !important;
+}
+
+body.detail-open .detail-view {
+  display: flex !important;
+  animation: expandIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes expandIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+body.detail-open .app-layout {
+  grid-template-columns: 1fr;
 }
 
 /* ===== SIDEBAR ===== */
@@ -339,6 +409,12 @@ body {
   background: var(--bg-input);
   transform: translateY(-2px);
   box-shadow: 0 8px 30px -10px rgba(0, 0, 0, 0.6);
+}
+
+.recording-item:active {
+  transform: scale(0.97) translateY(0);
+  background: var(--accent-soft);
+  transition: all 0.05s;
 }
 
 .recording-title {
@@ -649,6 +725,94 @@ body {
   background: var(--border);
   border-radius: 10px;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: var(--accent);
+/* ===== MODAL ===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  animation: fadeIn 0.2s ease;
+}
+
+.modal-card {
+  background: var(--bg-card);
+  border: 2px solid var(--border);
+  border-radius: 24px;
+  padding: 2.5rem;
+  max-width: 400px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.8);
+  animation: modalPop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.modal-card h3 {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.modal-card p {
+  color: var(--text-secondary);
+  margin-bottom: 2rem;
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 1rem;
+}
+
+.modal-btn {
+  flex: 1;
+  padding: 12px;
+  border-radius: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+.modal-btn.secondary {
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+.modal-btn.danger {
+  background: var(--danger);
+  color: white;
+}
+
+.modal-btn:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.2);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modalPop {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
