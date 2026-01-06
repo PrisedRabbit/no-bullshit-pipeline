@@ -49,7 +49,7 @@ const appLayoutEl = document.querySelector(".app-layout");
 const backBtn = document.getElementById("back-btn");
 
 const detailTitleInput = document.getElementById("detail-title");
-const detailMetaEl = document.getElementById("detail-meta");
+const detailMetaHeaderEl = document.getElementById("detail-meta-header");
 const detailTagsInput = document.getElementById("detail-tags-input");
 const detailTranscriptEl = document.getElementById("transcript-content");
 const detailStructuredEl = document.getElementById("structured-content");
@@ -71,6 +71,9 @@ const storagePathInput = document.getElementById("settings-storage-path");
 const cleanupThresholdInput = document.getElementById("settings-cleanup-threshold");
 const themeButtons = document.querySelectorAll(".theme-btn");
 
+const detailControlsEl = document.getElementById("detail-controls");
+const captureSectionEl = document.getElementById("capture-section");
+
 // ===== TIMER =====
 function formatTime(ms) {
   const totalSeconds = Math.floor(ms / 1000);
@@ -87,7 +90,9 @@ function startTimer() {
     timerDisplay.textContent = formatTime(now - startTime);
 
     if (isRecording && selectedRecordingId && detailViewEl.style.display !== 'none') {
-      detailMetaEl.textContent = `Recording... · ${timerDisplay.textContent} `;
+      if (detailMetaHeaderEl) {
+        detailMetaHeaderEl.textContent = `Recording... · ${timerDisplay.textContent}`;
+      }
     }
   }, 100);
 }
@@ -135,6 +140,12 @@ async function startRecording() {
 async function stopRecording() {
   try {
     const currentId = selectedRecordingId;
+
+    // Explicitly sync title before stopping
+    if (detailTitleInput && selectedRecordingId) {
+      await invoke('update_title', { recordingId: selectedRecordingId, title: detailTitleInput.value });
+    }
+
     await invoke("stop_recording");
     isRecording = false;
 
@@ -345,12 +356,13 @@ function renderRecordingsList() {
   if (emptyStateEl) emptyStateEl.style.display = "none";
   recordingsListEl.innerHTML = filtered.map(rec => {
     const isProcessing = rec.status === 'processing';
+    const isCurrentlyRecording = isRecording && selectedRecordingId === rec.id;
     const metaText = isProcessing ? '<span style="color:var(--accent)">Processing...</span>' : formatDuration(getDuration(rec));
 
     return `
-    <div class="recording-item" onclick="showDetailView('${rec.id}')">
+    <div class="recording-item ${isCurrentlyRecording ? 'recording-active' : ''}" onclick="showDetailView('${rec.id}')">
         <div class="recording-item-header">
-          <div class="recording-title">${rec.title || "Untitled"}</div>
+          <div class="recording-title">${rec.title || "Untitled"}${isCurrentlyRecording ? ' <span style="color:var(--accent)">●</span>' : ''}</div>
           <div class="recording-meta">
             <span>${new Date(rec.created_at).toLocaleString(undefined, dateOptions)}</span>
             <span>·</span>
@@ -376,9 +388,7 @@ function formatDuration(seconds) {
   return `${m}:${s.toString().padStart(2, "0")} `;
 }
 
-const detailMetaHeaderEl = document.getElementById("detail-meta-header");
-const detailControlsEl = document.getElementById("detail-controls");
-const captureSectionEl = document.getElementById("capture-section");
+
 
 // ===== DETAIL VIEW =====
 window.showDetailView = async (id) => {
@@ -449,10 +459,13 @@ window.showDetailView = async (id) => {
     }, 1000);
   }
 
-  // Load Transcript if exists
-  if (detailTranscriptEl) {
-    // Only clear if switching recordings? 
-    // Actually, stick to standard behavior:
+  // Hide transcript/structured sections if currently recording or processing
+  const hideContent = isRecording || isProcessing;
+  const contentGrid = document.getElementById('detail-content-grid');
+  if (contentGrid) contentGrid.style.display = hideContent ? 'none' : 'flex';
+
+  // Load Transcript only if not recording/processing
+  if (!hideContent && detailTranscriptEl) {
     detailTranscriptEl.textContent = "Loading...";
     detailTranscriptEl.classList.remove('empty');
 
@@ -472,7 +485,7 @@ window.showDetailView = async (id) => {
     }
   }
 
-  if (detailStructuredEl) {
+  if (!hideContent && detailStructuredEl) {
     detailStructuredEl.textContent = "Not processed yet.";
     detailStructuredEl.classList.add('empty');
   }
@@ -572,10 +585,22 @@ if (recordToggleBtn) recordToggleBtn.addEventListener("click", toggleRecording);
 if (backBtn) backBtn.addEventListener("click", hideDetailView);
 
 if (detailTitleInput) {
+  // Save title immediately on blur (even during recording)
   detailTitleInput.addEventListener('blur', async (e) => {
     if (!selectedRecordingId) return;
-    await invoke('update_title', { recordingId: selectedRecordingId, title: e.target.value });
-    await loadRecordings();
+    try {
+      await invoke('update_title', { recordingId: selectedRecordingId, title: e.target.value });
+      await loadRecordings();
+    } catch (err) {
+      console.error('Failed to update title:', err);
+    }
+  });
+
+  // Also save on Enter key
+  detailTitleInput.addEventListener('keypress', async (e) => {
+    if (e.key === 'Enter') {
+      e.target.blur(); // Trigger blur event which saves
+    }
   });
 }
 

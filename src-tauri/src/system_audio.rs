@@ -225,8 +225,10 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>)
             let audio_frames_available = available / channels as usize;
             
             if audio_frames_available > 0 {
-                // Use as much audio as we can, up to what we need
-                let frames_to_read = audio_frames_available.min(frames_remaining);
+                // Ensure we don't exceed buffer capacity
+                let max_frames_in_buffer = chunk_size / channels as usize;
+                // Use as much audio as we can, up to what we need, but limited by buffer
+                let frames_to_read = audio_frames_available.min(frames_remaining).min(max_frames_in_buffer);
                 let samples_to_read = frames_to_read * channels as usize;
                 
                 let n = consumer.pop_slice(&mut buffer[..samples_to_read]);

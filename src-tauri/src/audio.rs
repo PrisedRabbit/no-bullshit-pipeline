@@ -11,6 +11,9 @@ pub struct AudioState {
     pub mic_recorder: Mutex<Option<crate::mic_audio::MicAudioRecorder>>,
     pub system_recorder: Mutex<Option<crate::system_audio::SystemAudioRecorder>>,
     
+   // Real-time mixer
+    pub realtime_mixer: Mutex<Option<crate::audio_processing::RealtimeMixer>>,
+    
     pub current_session: Mutex<Option<RecordingMetadata>>,
     pub start_timestamp: Mutex<Option<SystemTime>>,
 }
@@ -25,6 +28,7 @@ impl AudioState {
             is_recording: Mutex::new(false),
             mic_recorder: Mutex::new(None),
             system_recorder: Mutex::new(None),
+            realtime_mixer: Mutex::new(None),
             current_session: Mutex::new(None),
             start_timestamp: Mutex::new(None),
         }
@@ -68,6 +72,23 @@ pub fn start_recording(state: State<'_, AudioState>, tags: Vec<String>) -> Resul
         }
     }
     
+    // --- Real-time Mixer ---
+    // Start mixer to create audio_mix.ogg during recording
+    let mix_path = storage::get_recording_dir(&metadata.id).join("audio_mix.ogg");
+    let mic_path_for_mixer = storage::get_recording_dir(&metadata.id).join("raw_mic.ogg");
+    let system_path_for_mixer = storage::get_recording_dir(&metadata.id).join("raw_system.ogg");
+    
+    match crate::audio_processing::RealtimeMixer::new(mic_path_for_mixer, system_path_for_mixer, mix_path) {
+        Ok(mixer) => {
+            *state.realtime_mixer.lock().map_err(|e| e.to_string())? = Some(mixer);
+            println!("Real-time mixer started");
+        },
+        Err(e) => {
+            println!("Real-time mixer failed to start: {}", e);
+            // Continue without mixer - will fall back to post-processing
+        }
+    }
+    
     // Capture start time
     *state.start_timestamp.lock().map_err(|e| e.to_string())? = Some(std::time::SystemTime::now());
     
@@ -98,6 +119,15 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<(), String> {
     let mut is_recording = state.is_recording.lock().map_err(|e| e.to_string())?;
     if !*is_recording {
         return Ok(());
+    }
+
+    // --- Stop Real-time Mixer First ---
+    {
+        let mut mixer_guard = state.realtime_mixer.lock().map_err(|e| e.to_string())?;
+        if let Some(mut mixer) = mixer_guard.take() {
+            mixer.stop();
+            println!("Real-time mixer stopped");
+        }
     }
 
     // --- Stop Microphone ---

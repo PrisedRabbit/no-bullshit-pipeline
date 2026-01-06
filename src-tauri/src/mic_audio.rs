@@ -26,6 +26,8 @@ impl MicAudioRecorder {
     pub fn new(output_path: std::path::PathBuf) -> Result<Self> {
         let host = cpal::default_host();
         let device = host.default_input_device().ok_or(anyhow::anyhow!("No input device available"))?;
+        
+        // Use device's default config (native sample rate)
         let config = device.default_input_config()?;
         let sample_rate = config.sample_rate().0;
         let channels = config.channels();

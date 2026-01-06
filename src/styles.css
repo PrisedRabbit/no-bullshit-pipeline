@@ -518,6 +518,12 @@ body.settings-open .app-layout {
   border: 1px solid var(--border);
 }
 
+.recording-item.recording-active {
+  border-color: var(--accent);
+  background: var(--bg-input);
+  box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
+}
+
 /* ===== DETAIL VIEW ===== */
 .detail-view {
   background: var(--bg-primary);
