@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "ui-ux-pro-max-skill": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@anthropic/ui-ux-pro-max-skill@latest"
+      ],
+      "env": {}
+    }
+  }
+}
