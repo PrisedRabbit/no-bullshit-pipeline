@@ -1,50 +1,42 @@
 use anyhow::Result;
-use lewton::inside_ogg::OggStreamReader;
-use std::collections::VecDeque;
 use std::fs::File;
-use std::io::BufReader;
 use std::num::{NonZeroU32, NonZeroU8};
 use std::path::PathBuf;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoder};
 
-/// Real-time mixer that reads from growing raw files during recording
+use super::{MIC_BUFFER, SYSTEM_BUFFER};
+
+/// Real-time mixer that reads from shared buffers and writes mixed output
 pub struct RealtimeMixer {
     should_stop: Arc<AtomicBool>,
     handle: Option<thread::JoinHandle<()>>,
 }
 
 impl RealtimeMixer {
-    pub fn new(
-        mic_path: PathBuf,
-        sys_path: PathBuf,
-        output_path: PathBuf,
-    ) -> Result<Self> {
+    pub fn new(output_path: PathBuf) -> Result<Self> {
+        // Clear buffers before starting
+        MIC_BUFFER.clear();
+        SYSTEM_BUFFER.clear();
+
         let should_stop = Arc::new(AtomicBool::new(false));
         let should_stop_clone = should_stop.clone();
-        
+
         let handle = thread::spawn(move || {
-            if let Err(e) = run_realtime_mixer(
-                mic_path,
-                sys_path,
-                output_path,
-                should_stop_clone,
-            ) {
+            if let Err(e) = run_realtime_mixer(output_path, should_stop_clone) {
                 eprintln!("Real-time mixer error: {:?}", e);
             }
         });
-        
+
         Ok(Self {
             should_stop,
             handle: Some(handle),
         })
     }
-    
+
     pub fn stop(&mut self) {
         self.should_stop.store(true, Ordering::Relaxed);
         if let Some(handle) = self.handle.take() {
@@ -53,182 +45,178 @@ impl RealtimeMixer {
     }
 }
 
-fn run_realtime_mixer(
-    mic_path: PathBuf,
-    sys_path: PathBuf,
-    output_path: PathBuf,
-    should_stop: Arc<AtomicBool>,
-) -> Result<()> {
-    // Wait a bit for files to be created and have some data
-    thread::sleep(Duration::from_millis(500));
-    
-    println!("Real-time mixer: Starting");
-    
-    // Open files
-    let mic_file = File::open(&mic_path)?;
-    let sys_file = File::open(&sys_path)?;
-    
-    let mut mic_reader = OggStreamReader::new(BufReader::new(mic_file))?;
-    let mut sys_reader = OggStreamReader::new(BufReader::new(sys_file))?;
-    
-    let mic_sample_rate = mic_reader.ident_hdr.audio_sample_rate;
-    let sys_sample_rate = sys_reader.ident_hdr.audio_sample_rate;
-    let channels = mic_reader.ident_hdr.audio_channels;
-    
-    // Always output at 48kHz (standard sample rate)
-    let output_sample_rate = 48000;
-    
-    println!("Real-time mixer: Mic {}Hz, Sys {}Hz -> Output {}Hz", 
-        mic_sample_rate, sys_sample_rate, output_sample_rate);
-    
+fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Result<()> {
+    println!("Real-time mixer: Starting (buffer-based, continuous timeline)");
+
+    // Output format: 48kHz stereo
+    let sample_rate = 48000u32;
+    let channels = 2u8;
+
     let output_file = File::create(&output_path)?;
     let mut encoder = VorbisEncoder::new(
         0,
         [("", ""); 0],
-        NonZeroU32::new(output_sample_rate).ok_or(anyhow::anyhow!("Invalid sample rate"))?,
+        NonZeroU32::new(sample_rate).ok_or(anyhow::anyhow!("Invalid sample rate"))?,
         NonZeroU8::new(channels).ok_or(anyhow::anyhow!("Invalid channels"))?,
         VorbisBitrateManagementStrategy::QualityVbr { target_quality: 0.5 },
         None,
-       output_file,
+        output_file,
     )?;
-    
-    let mic_needs_resample = mic_sample_rate != output_sample_rate;
-    let sys_needs_resample = sys_sample_rate != output_sample_rate;
-    
-    let mut mic_buffers: Vec<VecDeque<f32>> = vec![VecDeque::new(); channels as usize];
-    let mut sys_buffers: Vec<VecDeque<f32>> = vec![VecDeque::new(); channels as usize];
-    
-    let block_size = 4096;
-    let mut encoded_blocks = 0;
-    
-    loop {
-        if should_stop.load(Ordering::Relaxed) {
-            break;
-        }
-        
-        // Read mic packets
-        while mic_buffers[0].len() < block_size {
-            match mic_reader.read_dec_packet_generic::<Vec<Vec<f32>>>() {
-                Ok(Some(packet)) => {
-                    if packet.is_empty() { break; }
-                    
-                    let processed = if mic_needs_resample {
-                        resample_linear(&packet, mic_sample_rate as f64, output_sample_rate as f64)
-                    } else {
-                        packet
-                    };
-                    
-                    for (ch_idx, samples) in processed.iter().enumerate() {
-                        if ch_idx < mic_buffers.len() {
-                            mic_buffers[ch_idx].extend(samples.iter().cloned());
-                        }
+
+    // Continuous timeline tracking (like mic/system recorders)
+    let start_time = std::time::Instant::now();
+    let mut total_frames_written: u64 = 0;
+
+    // Tick every 10ms to maintain timeline
+    let tick_duration = Duration::from_millis(10);
+
+    // Wait a bit for buffers to start filling
+    thread::sleep(Duration::from_millis(50));
+
+    while !should_stop.load(Ordering::Relaxed) {
+        // Calculate how many frames SHOULD exist by now
+        let elapsed_secs = start_time.elapsed().as_secs_f64();
+        let expected_frames = (elapsed_secs * sample_rate as f64) as u64;
+
+        // If we're behind, we need to write frames
+        if total_frames_written < expected_frames {
+            // Write up to 100ms at a time to avoid huge blocks
+            let catch_up_limit = (sample_rate as f64 * 0.1) as usize;
+            let frames_needed = (expected_frames - total_frames_written).min(catch_up_limit as u64) as usize;
+
+            let mic_avail = MIC_BUFFER.available();
+            let sys_avail = SYSTEM_BUFFER.available();
+
+            let mut frames_remaining = frames_needed;
+
+            // 1. Process available audio from buffers
+            let audio_frames_available = mic_avail.max(sys_avail);
+
+            if audio_frames_available > 0 {
+                let frames_to_process = audio_frames_available.min(frames_remaining);
+
+                // Pop from both buffers
+                let (mic_left, mic_right) = MIC_BUFFER.pop(frames_to_process);
+                let (sys_left, sys_right) = SYSTEM_BUFFER.pop(frames_to_process);
+
+                // Mix
+                let frame_count = mic_left.len().max(sys_left.len());
+                if frame_count > 0 {
+                    let mut mixed_left = Vec::with_capacity(frame_count);
+                    let mut mixed_right = Vec::with_capacity(frame_count);
+
+                    for i in 0..frame_count {
+                        let ml = mic_left.get(i).copied().unwrap_or(0.0);
+                        let mr = mic_right.get(i).copied().unwrap_or(0.0);
+                        let sl = sys_left.get(i).copied().unwrap_or(0.0);
+                        let sr = sys_right.get(i).copied().unwrap_or(0.0);
+
+                        // Mix with soft clipping
+                        mixed_left.push(soft_clip(ml + sl));
+                        mixed_right.push(soft_clip(mr + sr));
                     }
-                },
-                Ok(None) | Err(_) => break,
-            }
-        }
-        
-        // Read system packets
-        while sys_buffers[0].len() < block_size {
-            match sys_reader.read_dec_packet_generic::<Vec<Vec<f32>>>() {
-                Ok(Some(packet)) => {
-                    if packet.is_empty() { break; }
-                    
-                    let processed = if sys_needs_resample {
-                        resample_linear(&packet, sys_sample_rate as f64, output_sample_rate as f64)
+
+                    let slices: Vec<&[f32]> = vec![&mixed_left, &mixed_right];
+                    encoder.encode_audio_block(&slices)?;
+                    total_frames_written += frame_count as u64;
+
+                    if frames_remaining >= frame_count {
+                        frames_remaining -= frame_count;
                     } else {
-                        packet
-                    };
-                    
-                    for (ch_idx, samples) in processed.iter().enumerate() {
-                        if ch_idx < sys_buffers.len() {
-                            sys_buffers[ch_idx].extend(samples.iter().cloned());
-                        }
+                        frames_remaining = 0;
                     }
-                },
-                Ok(None) | Err(_) => break,
+                }
+            }
+
+            // 2. Fill remainder with silence to maintain timeline
+            if frames_remaining > 0 {
+                let silence = vec![0.0f32; frames_remaining];
+                let slices: Vec<&[f32]> = vec![&silence, &silence];
+                encoder.encode_audio_block(&slices)?;
+                total_frames_written += frames_remaining as u64;
+            }
+
+            // Continue immediately if we still need to catch up
+            if total_frames_written < expected_frames {
+                continue;
             }
         }
-        
-        // Mix available samples
-        let mic_avail = mic_buffers[0].len();
-        let sys_avail = sys_buffers[0].len();
-        
-        if mic_avail == 0 && sys_avail == 0 {
-            // No data yet, wait a bit
-            thread::sleep(Duration::from_millis(100));
-            continue;
-        }
-        
-        let max_avail = mic_avail.max(sys_avail);
-        let process_count = block_size.min(max_avail);
-        
-        if process_count == 0 {
-            thread::sleep(Duration::from_millis(50));
-            continue;
-        }
-        
-        // Mix
-        let mut mixed_channels: Vec<Vec<f32>> = vec![Vec::with_capacity(process_count); channels as usize];
-        
-        for ch in 0..channels as usize {
-            for _ in 0..process_count {
-                let m = mic_buffers[ch].pop_front().unwrap_or(0.0);
-                let s = sys_buffers[ch].pop_front().unwrap_or(0.0);
-                
-                let sum = m + s;
-                let clipped = if sum.abs() > 1.0 {
-                    sum.signum() * sum.abs().tanh()
-                } else {
-                    sum
-                };
-                mixed_channels[ch].push(clipped);
-            }
-        }
-        
-        // Encode
-        let slices: Vec<&[f32]> = mixed_channels.iter().map(|v| v.as_slice()).collect();
-        encoder.encode_audio_block(&slices)?;
-        encoded_blocks += 1;
+
+        // Sleep until next tick if caught up
+        thread::sleep(tick_duration);
     }
-    
+
+    // Drain remaining samples from buffers
+    drain_and_encode(&mut encoder, 4096)?;
+
+    // Final padding to match wall-clock duration
+    let elapsed = start_time.elapsed().as_secs_f64();
+    let expected_frames = (elapsed * sample_rate as f64) as u64;
+
+    if total_frames_written < expected_frames {
+        let missing_frames = expected_frames - total_frames_written;
+        let silence_chunk = 4096;
+        let silence = vec![0.0f32; silence_chunk];
+
+        let mut remaining = missing_frames;
+        while remaining > 0 {
+            let chunk = remaining.min(silence_chunk as u64) as usize;
+            let slices: Vec<&[f32]> = vec![&silence[..chunk], &silence[..chunk]];
+            encoder.encode_audio_block(&slices)?;
+            remaining -= chunk as u64;
+        }
+    }
+
     encoder.finish()?;
-    println!("Real-time mixer: Finished. Encoded {} blocks", encoded_blocks);
+    println!("Real-time mixer: Finished. Wrote {} frames ({:.2}s)",
+        total_frames_written, total_frames_written as f64 / sample_rate as f64);
     Ok(())
 }
 
-/// Simple linear interpolation resampler
-fn resample_linear(input: &[Vec<f32>], input_rate: f64, output_rate: f64) -> Vec<Vec<f32>> {
-    if input.is_empty() || input[0].is_empty() {
-        return input.to_vec();
-    }
-    
-    let ratio = output_rate / input_rate;
-    let input_len = input[0].len();
-    let output_len = (input_len as f64 * ratio).ceil() as usize;
-    let channels = input.len();
-    
-    let mut output = vec![Vec::with_capacity(output_len); channels];
-    
-    for ch in 0..channels {
-        for i in 0..output_len {
-            let src_pos = i as f64 / ratio;
-            let src_idx = src_pos.floor() as usize;
-            let frac = src_pos - src_idx as f64;
-            
-            let sample = if src_idx + 1 < input_len {
-                let a = input[ch][src_idx];
-                let b = input[ch][src_idx + 1];
-                a + (b - a) * frac as f32
-            } else if src_idx < input_len {
-                input[ch][src_idx]
-            } else {
-                0.0
-            };
-            
-            output[ch].push(sample);
+/// Drain remaining samples from buffers
+fn drain_and_encode(encoder: &mut VorbisEncoder<File>, block_size: usize) -> Result<()> {
+    loop {
+        let mic_avail = MIC_BUFFER.available();
+        let sys_avail = SYSTEM_BUFFER.available();
+
+        if mic_avail == 0 && sys_avail == 0 {
+            break;
         }
+
+        let process_count = mic_avail.max(sys_avail).min(block_size);
+        let (mic_left, mic_right) = MIC_BUFFER.pop(process_count);
+        let (sys_left, sys_right) = SYSTEM_BUFFER.pop(process_count);
+
+        let frame_count = mic_left.len().max(sys_left.len());
+        if frame_count == 0 {
+            break;
+        }
+
+        let mut mixed_left = Vec::with_capacity(frame_count);
+        let mut mixed_right = Vec::with_capacity(frame_count);
+
+        for i in 0..frame_count {
+            let ml = mic_left.get(i).copied().unwrap_or(0.0);
+            let mr = mic_right.get(i).copied().unwrap_or(0.0);
+            let sl = sys_left.get(i).copied().unwrap_or(0.0);
+            let sr = sys_right.get(i).copied().unwrap_or(0.0);
+
+            mixed_left.push(soft_clip(ml + sl));
+            mixed_right.push(soft_clip(mr + sr));
+        }
+
+        let slices: Vec<&[f32]> = vec![&mixed_left, &mixed_right];
+        encoder.encode_audio_block(&slices)?;
     }
-    
-    output
+    Ok(())
+}
+
+/// Soft clipping to prevent harsh distortion
+#[inline]
+fn soft_clip(x: f32) -> f32 {
+    if x.abs() <= 1.0 {
+        x
+    } else {
+        x.signum() * (1.0 - (-x.abs() + 1.0).exp().min(1.0))
+    }
 }

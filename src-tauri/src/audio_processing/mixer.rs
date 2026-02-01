@@ -5,6 +5,7 @@ use lewton::inside_ogg::OggStreamReader;
 use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoder};
 use std::num::{NonZeroU32, NonZeroU8};
 use std::collections::VecDeque;
+// Note: rubato available for high-quality resampling if needed
 
 
 /// Mix two OGG Vorbis files (mic + system) into a single output OGG file.

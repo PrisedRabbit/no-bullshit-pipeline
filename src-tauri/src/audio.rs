@@ -72,20 +72,15 @@ pub fn start_recording(state: State<'_, AudioState>, tags: Vec<String>) -> Resul
         }
     }
     
-    // --- Real-time Mixer ---
-    // Start mixer to create audio_mix.ogg during recording
+    // Start real-time mixer (reads from shared buffers, not files)
     let mix_path = storage::get_recording_dir(&metadata.id).join("audio_mix.ogg");
-    let mic_path_for_mixer = storage::get_recording_dir(&metadata.id).join("raw_mic.ogg");
-    let system_path_for_mixer = storage::get_recording_dir(&metadata.id).join("raw_system.ogg");
-    
-    match crate::audio_processing::RealtimeMixer::new(mic_path_for_mixer, system_path_for_mixer, mix_path) {
+    match crate::audio_processing::RealtimeMixer::new(mix_path) {
         Ok(mixer) => {
             *state.realtime_mixer.lock().map_err(|e| e.to_string())? = Some(mixer);
-            println!("Real-time mixer started");
+            println!("Real-time mixer started (buffer-based)");
         },
         Err(e) => {
-            println!("Real-time mixer failed to start: {}", e);
-            // Continue without mixer - will fall back to post-processing
+            println!("Real-time mixer failed: {}", e);
         }
     }
     
@@ -234,23 +229,48 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<(), String> {
                     println!("  Real-time mix exists, skipping post-mix");
                 }
 
-                // D. FINAL SAVE: Reload metadata to get latest user edits (title/tags)
+                // D. FINAL SAVE: Reload metadata and update with ACTUAL file info
                 match storage::read_metadata(&id) {
                     Ok(mut latest_metadata) => {
                         latest_metadata.status = "ready".to_string();
-                        
-                        // Update audio info with wall-clock durations (already set at stop time)
-                        // No changes needed - durations were set correctly in initial metadata save
-                        
-                        if mix_exists {
-                            latest_metadata.audio.mix = Some(storage::AudioInfo {
-                                file: "audio_mix.ogg".to_string(),
-                                duration_sec: actual_duration,
-                                sample_rate: 48000,
-                                channels: 2,
-                            });
+
+                        // Get actual file info from OGG files (correct duration/sample_rate)
+                        if mic_path.exists() {
+                            if let Ok(info) = crate::waveform::get_ogg_file_info(&mic_path) {
+                                latest_metadata.audio.mic = Some(storage::AudioInfo {
+                                    file: "raw_mic.ogg".to_string(),
+                                    duration_sec: info.duration_sec,
+                                    sample_rate: info.sample_rate,
+                                    channels: info.channels,
+                                });
+                                println!("  Mic: {:.2}s @ {}Hz {}ch", info.duration_sec, info.sample_rate, info.channels);
+                            }
                         }
-                        
+
+                        if system_path.exists() {
+                            if let Ok(info) = crate::waveform::get_ogg_file_info(&system_path) {
+                                latest_metadata.audio.system = Some(storage::AudioInfo {
+                                    file: "raw_system.ogg".to_string(),
+                                    duration_sec: info.duration_sec,
+                                    sample_rate: info.sample_rate,
+                                    channels: info.channels,
+                                });
+                                println!("  System: {:.2}s @ {}Hz {}ch", info.duration_sec, info.sample_rate, info.channels);
+                            }
+                        }
+
+                        if mix_exists {
+                            if let Ok(info) = crate::waveform::get_ogg_file_info(&mix_path) {
+                                latest_metadata.audio.mix = Some(storage::AudioInfo {
+                                    file: "audio_mix.ogg".to_string(),
+                                    duration_sec: info.duration_sec,
+                                    sample_rate: info.sample_rate,
+                                    channels: info.channels,
+                                });
+                                println!("  Mix: {:.2}s @ {}Hz {}ch", info.duration_sec, info.sample_rate, info.channels);
+                            }
+                        }
+
                         if let Err(e) = storage::write_metadata(&latest_metadata) {
                             eprintln!("Failed to save final metadata for {}: {}", id, e);
                         }

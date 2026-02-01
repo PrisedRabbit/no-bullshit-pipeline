@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
-use crate::config::{WhisperModelSize, get_models_dir, load_settings};
+use crate::config::{WhisperModelSize, TranscriptionProvider, get_models_dir, load_settings};
 use crate::storage::get_data_dir;
+use crate::cloud_ai;
 use tauri::Emitter;
 
 const BASE_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
@@ -150,39 +151,183 @@ pub async fn transcribe_recording(
     if !settings.transcription.enabled {
         return Err("Transcription is disabled in settings".to_string());
     }
-    
-    let model_size = settings.transcription.whisper_model.ok_or("No whisper model selected")?;
-    let url = get_model_url(&model_size);
-    let filename = url.split('/').last().unwrap();
-    let model_path = get_models_dir().join(filename);
-    
-    if !model_path.exists() {
-        return Err(format!("Model not downloaded: {:?}", model_size));
-    }
-    
+
     let recording_dir = get_data_dir().join(&recording_id);
     let mut audio_path = recording_dir.join("audio_mix.ogg");
     if !audio_path.exists() {
-        audio_path = recording_dir.join("mic.ogg");
+        audio_path = recording_dir.join("raw_mic.ogg");
     }
-    
+
     if !audio_path.exists() {
         return Err("Audio file not found".to_string());
     }
-    
-    let wav_path = recording_dir.join("temp_transcription.wav");
-    convert_ogg_to_wav(&audio_path, &wav_path)?;
-    
-    let model_p = model_path.clone();
-    let wav_p = wav_path.clone();
-    
-    let result = tokio::task::spawn_blocking(move || {
-        run_whisper_transcription(&model_p, &wav_p)
-    }).await.map_err(|e| e.to_string())??;
-    
-    let _ = std::fs::remove_file(&wav_path);
+
+    let result = match settings.transcription.provider {
+        TranscriptionProvider::LocalWhisper => {
+            // Local Whisper transcription
+            let model_size = settings.transcription.whisper_model.ok_or("No whisper model selected")?;
+            let url = get_model_url(&model_size);
+            let filename = url.split('/').last().unwrap();
+            let model_path = get_models_dir().join(filename);
+
+            if !model_path.exists() {
+                return Err(format!("Model not downloaded: {:?}", model_size));
+            }
+
+            let wav_path = recording_dir.join("temp_transcription.wav");
+            convert_ogg_to_wav(&audio_path, &wav_path)?;
+
+            let model_p = model_path.clone();
+            let wav_p = wav_path.clone();
+
+            let transcript = tokio::task::spawn_blocking(move || {
+                run_whisper_transcription(&model_p, &wav_p)
+            }).await.map_err(|e| e.to_string())??;
+
+            let _ = std::fs::remove_file(&wav_path);
+            transcript
+        },
+        TranscriptionProvider::OpenAI => {
+            // OpenAI Whisper-1 API
+            let api_key = settings.transcription.api_keys.openai
+                .ok_or("OpenAI API key not configured")?;
+
+            cloud_ai::transcribe_with_whisper(&api_key, &audio_path).await?
+        },
+        TranscriptionProvider::Google => {
+            // Google doesn't do transcription directly, but Gemini can process audio
+            // For now, we need a transcript first, so fall back to error
+            return Err("Google provider requires a transcript first. Use Local Whisper or OpenAI for transcription, then use Google for summarization.".to_string());
+        },
+        TranscriptionProvider::Anthropic => {
+            // Anthropic doesn't do audio transcription
+            return Err("Anthropic provider doesn't support audio transcription. Use Local Whisper or OpenAI for transcription, then use Anthropic for structured extraction.".to_string());
+        },
+    };
+
     std::fs::write(recording_dir.join("transcript.md"), &result).map_err(|e| e.to_string())?;
-    
+
+    Ok(result)
+}
+
+/// Summarize a recording's transcript using the configured AI provider
+#[tauri::command]
+pub async fn summarize_recording(
+    recording_id: String,
+    provider: Option<String>,
+) -> Result<String, String> {
+    let settings = load_settings();
+    let recording_dir = get_data_dir().join(&recording_id);
+    let transcript_path = recording_dir.join("transcript.md");
+
+    if !transcript_path.exists() {
+        return Err("No transcript found. Please transcribe the recording first.".to_string());
+    }
+
+    let transcript = std::fs::read_to_string(&transcript_path)
+        .map_err(|e| format!("Failed to read transcript: {}", e))?;
+
+    // Determine which provider to use
+    let use_provider = provider
+        .map(|p| match p.as_str() {
+            "OpenAI" => TranscriptionProvider::OpenAI,
+            "Google" => TranscriptionProvider::Google,
+            "Anthropic" => TranscriptionProvider::Anthropic,
+            _ => settings.transcription.provider.clone(),
+        })
+        .unwrap_or(settings.transcription.provider.clone());
+
+    let summary = match use_provider {
+        TranscriptionProvider::OpenAI => {
+            let api_key = settings.transcription.api_keys.openai
+                .ok_or("OpenAI API key not configured")?;
+            cloud_ai::summarize_with_gpt4o(&api_key, &transcript, None).await?
+        },
+        TranscriptionProvider::Google => {
+            let api_key = settings.transcription.api_keys.google
+                .ok_or("Google API key not configured")?;
+            cloud_ai::summarize_with_gemini(&api_key, &transcript).await?
+        },
+        TranscriptionProvider::Anthropic => {
+            let api_key = settings.transcription.api_keys.anthropic
+                .ok_or("Anthropic API key not configured")?;
+            cloud_ai::process_with_claude(&api_key,
+                "Create a comprehensive summary of this transcript. Include main topics, key points, decisions, and action items.\n\nTranscript:\n{transcript}",
+                &transcript
+            ).await?
+        },
+        TranscriptionProvider::LocalWhisper => {
+            return Err("Local Whisper cannot generate summaries. Please configure a cloud AI provider (OpenAI, Google, or Anthropic).".to_string());
+        },
+    };
+
+    // Save summary
+    std::fs::write(recording_dir.join("summary.md"), &summary)
+        .map_err(|e| format!("Failed to save summary: {}", e))?;
+
+    Ok(summary)
+}
+
+/// Process a transcript with a specific template
+#[tauri::command]
+pub async fn process_with_template(
+    recording_id: String,
+    template_name: String,
+    provider: Option<String>,
+) -> Result<String, String> {
+    let settings = load_settings();
+    let recording_dir = get_data_dir().join(&recording_id);
+    let transcript_path = recording_dir.join("transcript.md");
+
+    if !transcript_path.exists() {
+        return Err("No transcript found. Please transcribe the recording first.".to_string());
+    }
+
+    let transcript = std::fs::read_to_string(&transcript_path)
+        .map_err(|e| format!("Failed to read transcript: {}", e))?;
+
+    // Load template
+    let template = crate::templates::get_template_internal(&template_name)?;
+
+    // Determine provider
+    let use_provider = provider
+        .map(|p| match p.as_str() {
+            "OpenAI" => TranscriptionProvider::OpenAI,
+            "Google" => TranscriptionProvider::Google,
+            "Anthropic" => TranscriptionProvider::Anthropic,
+            _ => settings.transcription.provider.clone(),
+        })
+        .unwrap_or(settings.transcription.provider.clone());
+
+    let result = match use_provider {
+        TranscriptionProvider::OpenAI => {
+            let api_key = settings.transcription.api_keys.openai
+                .ok_or("OpenAI API key not configured")?;
+            cloud_ai::process_with_gpt4o(&api_key, &template.prompt, &transcript).await?
+        },
+        TranscriptionProvider::Google => {
+            let api_key = settings.transcription.api_keys.google
+                .ok_or("Google API key not configured")?;
+            cloud_ai::process_with_gemini(&api_key, &template.prompt, &transcript).await?
+        },
+        TranscriptionProvider::Anthropic => {
+            let api_key = settings.transcription.api_keys.anthropic
+                .ok_or("Anthropic API key not configured")?;
+            cloud_ai::process_with_claude(&api_key, &template.prompt, &transcript).await?
+        },
+        TranscriptionProvider::LocalWhisper => {
+            return Err("Local Whisper cannot process templates. Please configure a cloud AI provider.".to_string());
+        },
+    };
+
+    // Save result based on output format
+    let filename = match template.output_format.as_str() {
+        "json" => format!("{}.json", template_name),
+        _ => format!("{}.md", template_name),
+    };
+    std::fs::write(recording_dir.join(&filename), &result)
+        .map_err(|e| format!("Failed to save result: {}", e))?;
+
     Ok(result)
 }
 

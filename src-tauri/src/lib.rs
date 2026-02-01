@@ -6,6 +6,10 @@ mod mic_audio;
 mod permissions;
 mod config;
 pub mod transcription;
+mod cloud_ai;
+mod templates;
+mod playback;
+mod waveform;
 use audio::AudioState;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -53,6 +57,17 @@ pub fn run() {
             transcription::delete_whisper_model,
             transcription::transcribe_recording,
             transcription::get_transcript,
+            transcription::summarize_recording,
+            transcription::process_with_template,
+            templates::list_templates,
+            templates::get_template,
+            playback::play_audio,
+            playback::pause_audio,
+            playback::resume_audio,
+            playback::stop_audio,
+            playback::seek_audio,
+            playback::get_playback_state,
+            waveform::get_waveform_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

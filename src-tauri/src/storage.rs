@@ -14,6 +14,8 @@ pub struct RecordingMetadata {
     #[serde(default = "default_status")]
     pub status: String,
     pub audio: AudioFiles,
+    #[serde(default)]
+    pub health: Option<RecordingHealth>,
 }
 
 fn default_status() -> String {
@@ -42,6 +44,23 @@ pub struct AudioInfo {
     pub duration_sec: f64,
     pub sample_rate: u32,
     pub channels: u16,
+}
+
+/// Recording health issue
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct RecordingIssue {
+    #[serde(rename = "type")]
+    pub issue_type: String,  // "drift", "source_lost", "error"
+    pub timestamp_ms: u64,
+    pub message: Option<String>,
+}
+
+/// Recording health status
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct RecordingHealth {
+    pub status: String,  // "ok", "warning", "error"
+    #[serde(default)]
+    pub issues: Vec<RecordingIssue>,
 }
 
 /// Get the data directory path
@@ -84,6 +103,10 @@ pub fn create_recording(title: String, tags: Vec<String>) -> Result<RecordingMet
             system: None,
             mix: None,
         },
+        health: Some(RecordingHealth {
+            status: "ok".to_string(),
+            issues: vec![],
+        }),
     };
     
     // Create the recording directory

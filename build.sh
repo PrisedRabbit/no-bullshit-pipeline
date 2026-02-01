@@ -27,6 +27,30 @@ fi
 if [ -n "$DMG_PATH" ]; then
   TARGET_FILENAME="${NAME}_v${VERSION}.dmg"
   cp "$DMG_PATH" "builds/$TARGET_FILENAME"
+
+  # 5. Find and verify the .app bundle
+  APP_PATH=$(find "$SEARCH_PATH" -name "*.app" -type d | head -n 1)
+
+  if [ -n "$APP_PATH" ]; then
+    echo ""
+    echo "🔐 Verifying code signature and entitlements..."
+    echo ""
+
+    # Show signature info
+    echo "Signature:"
+    codesign -dvvv "$APP_PATH" 2>&1 | grep -E "(Authority|Identifier|TeamIdentifier)" || echo "  (unsigned or ad-hoc signed)"
+    echo ""
+
+    # Show entitlements
+    echo "Entitlements:"
+    codesign -d --entitlements :- "$APP_PATH" 2>&1 || echo "  (no entitlements or unsigned)"
+    echo ""
+
+    # Check Gatekeeper (if signed)
+    echo "Gatekeeper check:"
+    spctl -a -vvv "$APP_PATH" 2>&1 || echo "  (Gatekeeper check skipped - may need proper signing)"
+  fi
+
   echo "--------------------------------------------------"
   echo "✅ BUILD COMPLETE!"
   echo "📦 Artifact: builds/$TARGET_FILENAME"

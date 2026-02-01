@@ -36,8 +36,11 @@ vorbis_rs = "0.3"
 lewton = "0.10"
 rubato = "0.15"
 log = "0.4"
-reqwest = { version = "0.12", features = ["json", "blocking", "rustls-tls", "stream"] }
+reqwest = { version = "0.12", features = ["json", "blocking", "rustls-tls", "stream", "multipart"] }
 futures-util = "0.3.31"
 tokio = { version = "1.49.0", features = ["fs", "io-util"] }
 whisper-rs = { version = "0.12", features = ["metal"] }
+opener = "0.7"
+rodio = { version = "0.19", features = ["vorbis"] }
+lazy_static = "1.5"
 

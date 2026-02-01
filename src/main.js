@@ -359,10 +359,14 @@ function renderRecordingsList() {
     const isCurrentlyRecording = isRecording && selectedRecordingId === rec.id;
     const metaText = isProcessing ? '<span style="color:var(--accent)">Processing...</span>' : formatDuration(getDuration(rec));
 
+    // Health indicator
+    const hasIssues = rec.health && rec.health.status !== 'ok';
+    const healthIcon = hasIssues ? '<span class="health-warning" title="Issues occurred during recording">⚠️</span>' : '';
+
     return `
     <div class="recording-item ${isCurrentlyRecording ? 'recording-active' : ''}" onclick="showDetailView('${rec.id}')">
         <div class="recording-item-header">
-          <div class="recording-title">${rec.title || "Untitled"}${isCurrentlyRecording ? ' <span style="color:var(--accent)">●</span>' : ''}</div>
+          <div class="recording-title">${healthIcon}${rec.title || "Untitled"}${isCurrentlyRecording ? ' <span style="color:var(--accent)">●</span>' : ''}</div>
           <div class="recording-meta">
             <span>${new Date(rec.created_at).toLocaleString(undefined, dateOptions)}</span>
             <span>·</span>
@@ -488,6 +492,24 @@ window.showDetailView = async (id) => {
   if (!hideContent && detailStructuredEl) {
     detailStructuredEl.textContent = "Not processed yet.";
     detailStructuredEl.classList.add('empty');
+
+    // Try to load summary if exists
+    try {
+      const summaryPath = `${appSettings.storage_path}/${id}/summary.md`;
+      // We'd need a backend call to read this - for now just show placeholder
+    } catch (err) {
+      // Ignore
+    }
+  }
+
+  // Reset audio player
+  if (!hideContent) {
+    loadAudioDuration(id);
+    isPlaying = false;
+    if (playPauseBtn) {
+      playPauseBtn.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
+    }
+    if (currentTimeEl) currentTimeEl.textContent = '0:00';
   }
 };
 
@@ -724,6 +746,129 @@ if (prBtn) {
   });
 }
 
+// ===== SUMMARIZE & TEMPLATE PROCESSING =====
+const summarizeBtn = document.getElementById('summarize-btn');
+const extractBtn = document.getElementById('extract-btn');
+const templateSelect = document.getElementById('template-select');
+
+if (templateSelect) {
+  templateSelect.addEventListener('change', () => {
+    if (extractBtn) {
+      extractBtn.disabled = !templateSelect.value;
+    }
+  });
+}
+
+if (summarizeBtn) {
+  summarizeBtn.addEventListener('click', async () => {
+    if (!selectedRecordingId) return;
+
+    try {
+      summarizeBtn.disabled = true;
+      summarizeBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Summarizing...</span>';
+
+      const summary = await invoke('summarize_recording', {
+        recordingId: selectedRecordingId,
+        provider: null
+      });
+
+      if (detailStructuredEl) {
+        detailStructuredEl.textContent = summary;
+        detailStructuredEl.classList.remove('empty');
+      }
+
+      summarizeBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Summarize</span>';
+      summarizeBtn.disabled = false;
+    } catch (error) {
+      console.error('Summarization failed:', error);
+      alert(`Summarization failed: ${error}`);
+      summarizeBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Summarize</span>';
+      summarizeBtn.disabled = false;
+    }
+  });
+}
+
+if (extractBtn) {
+  extractBtn.addEventListener('click', async () => {
+    if (!selectedRecordingId || !templateSelect.value) return;
+
+    try {
+      extractBtn.disabled = true;
+      extractBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Extracting...</span>';
+
+      const result = await invoke('process_with_template', {
+        recordingId: selectedRecordingId,
+        templateName: templateSelect.value,
+        provider: null
+      });
+
+      if (detailStructuredEl) {
+        detailStructuredEl.textContent = result;
+        detailStructuredEl.classList.remove('empty');
+      }
+
+      extractBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Extract</span>';
+      extractBtn.disabled = !templateSelect.value;
+    } catch (error) {
+      console.error('Extraction failed:', error);
+      alert(`Extraction failed: ${error}`);
+      extractBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Extract</span>';
+      extractBtn.disabled = !templateSelect.value;
+    }
+  });
+}
+
+// ===== SIMPLE AUDIO PLAYER =====
+const playPauseBtn = document.getElementById('play-pause-btn');
+const currentTimeEl = document.getElementById('current-time');
+const totalTimeEl = document.getElementById('total-time');
+let isPlaying = false;
+let audioDurationMs = 0;
+
+function formatDurationShort(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+async function loadAudioDuration(recordingId) {
+  try {
+    // Get duration from recording metadata
+    const recordings = await invoke('list_recordings');
+    const rec = recordings.find(r => r.id === recordingId);
+    if (rec) {
+      const duration = rec.audio?.mix?.duration_sec || rec.audio?.mic?.duration_sec || 0;
+      audioDurationMs = duration * 1000;
+      if (totalTimeEl) {
+        totalTimeEl.textContent = formatDurationShort(duration);
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load audio info:', err);
+  }
+}
+
+// Play/Pause button
+if (playPauseBtn) {
+  playPauseBtn.addEventListener('click', async () => {
+    if (!selectedRecordingId) return;
+
+    try {
+      if (isPlaying) {
+        await invoke('pause_audio');
+        isPlaying = false;
+        playPauseBtn.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
+      } else {
+        await invoke('play_audio', { recordingId: selectedRecordingId });
+        isPlaying = true;
+        playPauseBtn.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>';
+      }
+    } catch (err) {
+      console.error('Playback error:', err);
+    }
+  });
+}
+
 // ===== SETTINGS ELEMENTS =====
 const transcriptionEnabledCheckbox = document.getElementById("settings-transcription-enabled");
 const transcriptionDetailsEl = document.getElementById("transcription-details");
@@ -731,8 +876,22 @@ const transcriptionProviderSelect = document.getElementById("settings-transcript
 const providerLocalSection = document.getElementById("provider-local-section");
 const providerApiSection = document.getElementById("provider-api-section");
 const whisperModelSelect = document.getElementById("settings-whisper-model");
-const apiKeyInput = document.getElementById("settings-api-key");
+const apiKeyInputOpenAI = document.getElementById("settings-api-key-openai");
+const apiKeyInputGoogle = document.getElementById("settings-api-key-google");
+const apiKeyInputAnthropic = document.getElementById("settings-api-key-anthropic");
 const downloadModelBtn = document.getElementById("download-model-btn");
+const recordingNotificationCheckbox = document.getElementById("settings-recording-notification");
+
+// Helper to mask API keys (show last 4 chars)
+function maskApiKey(key) {
+  if (!key || key.length < 8) return key || "";
+  return "•".repeat(key.length - 4) + key.slice(-4);
+}
+
+// Helper to unmask API key if it was already masked
+function isKeyMasked(value) {
+  return value && value.includes("•");
+}
 
 // ===== SETTINGS =====
 async function loadSettings() {
@@ -751,13 +910,30 @@ async function loadSettings() {
       }
       if (transcriptionProviderSelect) transcriptionProviderSelect.value = appSettings.transcription.provider;
       if (whisperModelSelect) {
-        // Handle Option<WhisperModelSize> which might be null or object
-        // Rust enums serialize as strings usually if unit variants
         whisperModelSelect.value = appSettings.transcription.whisper_model || "Base";
       }
-      if (apiKeyInput) apiKeyInput.value = appSettings.transcription.api_key || "";
+
+      // Load API keys (masked for display)
+      const apiKeys = appSettings.transcription.api_keys || {};
+      if (apiKeyInputOpenAI) {
+        apiKeyInputOpenAI.value = maskApiKey(apiKeys.openai);
+        apiKeyInputOpenAI.dataset.originalKey = apiKeys.openai || "";
+      }
+      if (apiKeyInputGoogle) {
+        apiKeyInputGoogle.value = maskApiKey(apiKeys.google);
+        apiKeyInputGoogle.dataset.originalKey = apiKeys.google || "";
+      }
+      if (apiKeyInputAnthropic) {
+        apiKeyInputAnthropic.value = maskApiKey(apiKeys.anthropic);
+        apiKeyInputAnthropic.dataset.originalKey = apiKeys.anthropic || "";
+      }
 
       updateProviderVisibility();
+    }
+
+    // Recording notification setting
+    if (recordingNotificationCheckbox) {
+      recordingNotificationCheckbox.checked = appSettings.show_recording_notification !== false;
     }
 
     applyTheme(appSettings.theme);
@@ -775,13 +951,30 @@ async function saveSettings() {
     appSettings.transcription.enabled = transcriptionEnabledCheckbox.checked;
     appSettings.transcription.provider = transcriptionProviderSelect.value;
     appSettings.transcription.whisper_model = whisperModelSelect.value;
-    appSettings.transcription.api_key = apiKeyInput.value || null;
 
-    // storage_path is updated via browse
+    // Handle API keys - only update if user changed them (not masked)
+    if (!appSettings.transcription.api_keys) appSettings.transcription.api_keys = {};
+
+    // OpenAI key
+    if (apiKeyInputOpenAI && !isKeyMasked(apiKeyInputOpenAI.value)) {
+      appSettings.transcription.api_keys.openai = apiKeyInputOpenAI.value || null;
+    }
+    // Google key
+    if (apiKeyInputGoogle && !isKeyMasked(apiKeyInputGoogle.value)) {
+      appSettings.transcription.api_keys.google = apiKeyInputGoogle.value || null;
+    }
+    // Anthropic key
+    if (apiKeyInputAnthropic && !isKeyMasked(apiKeyInputAnthropic.value)) {
+      appSettings.transcription.api_keys.anthropic = apiKeyInputAnthropic.value || null;
+    }
+
+    // Recording notification
+    if (recordingNotificationCheckbox) {
+      appSettings.show_recording_notification = recordingNotificationCheckbox.checked;
+    }
 
     await invoke("save_settings", { settings: appSettings });
     ViewManager.showRecordings();
-    // After changing storage path, we should probably reload recordings
     await loadRecordings();
   } catch (err) {
     console.error("Failed to save settings:", err);
@@ -1025,10 +1218,24 @@ themeButtons.forEach(btn => {
   btn.addEventListener("click", () => applyTheme(btn.dataset.theme));
 });
 
+// ===== LOAD TEMPLATES =====
+async function loadTemplates() {
+  if (!templateSelect) return;
+
+  try {
+    const templates = await invoke('list_templates');
+    templateSelect.innerHTML = '<option value="">Select template...</option>' +
+      templates.map(t => `<option value="${t.name}">${t.description}</option>`).join('');
+  } catch (err) {
+    console.error('Failed to load templates:', err);
+  }
+}
+
 // ===== INIT =====
 async function init() {
   await loadSettings();
   await loadRecordings();
+  await loadTemplates();
   try {
     const version = await invoke("get_app_version");
     const versionEl = document.getElementById("app-version");

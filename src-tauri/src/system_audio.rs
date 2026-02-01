@@ -252,10 +252,18 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>)
                         vec![normalized_samples]
                     };
                     
+                    // Push to shared buffer for real-time mixing
+                    if planar_samples.len() >= 2 {
+                        crate::audio_processing::SYSTEM_BUFFER.push_planar(&planar_samples[0], &planar_samples[1]);
+                    } else if planar_samples.len() == 1 {
+                        // Mono - push same to both channels
+                        crate::audio_processing::SYSTEM_BUFFER.push_planar(&planar_samples[0], &planar_samples[0]);
+                    }
+
                     let slices_ref: Vec<&[f32]> = planar_samples.iter().map(|v| v.as_slice()).collect();
                     encoder.encode_audio_block(&slices_ref)?;
                     total_frames_written += frames_encoded as u64;
-                    
+
                     // Decrease remaining count
                     if frames_remaining >= frames_encoded {
                         frames_remaining -= frames_encoded;

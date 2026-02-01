@@ -220,6 +220,11 @@ fn run_audio_processing(
                          vec![left, right]
                     };
 
+                    // Push to shared buffer for real-time mixing
+                    if planar_slices.len() >= 2 {
+                        crate::audio_processing::MIC_BUFFER.push_planar(&planar_slices[0], &planar_slices[1]);
+                    }
+
                     let slices_ref: Vec<&[f32]> = planar_slices.iter().map(|v| v.as_slice()).collect();
                     encoder.encode_audio_block(&slices_ref)?;
                     total_frames_written += frames_encoded as u64;
