@@ -1,0 +1,71 @@
+# generated: 2026-02-01
+# project: nbp
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-02-01
+project: nbp
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # Epic 1: Cloud AI Integration
+  epic-1: backlog
+  1-1-secure-api-key-storage: backlog
+  1-2-openai-whisper-1-transcription: backlog
+  1-3-gpt-4o-summarization: backlog
+  1-4-google-gemini-integration: backlog
+  1-5-anthropic-claude-integration: backlog
+  epic-1-retrospective: optional
+
+  # Epic 2: Structured Output Templates
+  epic-2: backlog
+  2-1-template-system-core: backlog
+  2-2-meeting-notes-template: backlog
+  2-3-brainstorm-template: backlog
+  2-4-journal-template: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3: Audio Playback & Visualization
+  epic-3: backlog
+  3-1-in-app-audio-playback: backlog
+  3-2-waveform-preview: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4: Quality & Polish
+  epic-4: backlog
+  4-1-audio-mix-error-handling: backlog
+  4-2-signed-build-entitlements: backlog
+  4-3-recording-notification: backlog
+  epic-4-retrospective: optional

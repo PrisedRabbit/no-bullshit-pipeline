@@ -37,3 +37,6 @@ builds
 
 #tauri
 src-tauri/target
+.claude/commands
+.cursor/commands
+_bmad

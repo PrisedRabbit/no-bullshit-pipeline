@@ -158,8 +158,16 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<(), String> {
 
     {
         let mut session_guard = state.current_session.lock().map_err(|e| e.to_string())?;
-        if let Some(mut metadata) = session_guard.take() {
-            // 1. Immediate Update: Save wall-clock duration so UI has something valid immediately
+        if let Some(in_memory_metadata) = session_guard.take() {
+            let id = in_memory_metadata.id.clone();
+            
+            // Re-load from disk to get latest title/tags edited during recording
+            let mut metadata = match storage::read_metadata(&id) {
+                Ok(m) => m,
+                Err(_) => in_memory_metadata // Fallback to in-memory if disk read fails
+            };
+
+            // 1. Immediate Update: Save wall-clock duration
             metadata.status = "processing".to_string();
             metadata.audio.mic = Some(storage::AudioInfo {
                 file: "raw_mic.ogg".to_string(),
@@ -167,7 +175,6 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<(), String> {
                 sample_rate: 48000, 
                 channels: 2, 
             });
-            // Assume system exists for now if we were recording, it will be corrected in background
             metadata.audio.system = Some(storage::AudioInfo {
                 file: "raw_system.ogg".to_string(),
                 duration_sec,
@@ -175,54 +182,33 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<(), String> {
                 channels: 2,
             });
             
-            // Save initial state
+            // Save state as 'processing'
             if let Err(e) = storage::write_metadata(&metadata) {
                  eprintln!("Failed to write initial metadata: {}", e);
             }
 
             // 2. Background Processing
-            // We clone metadata to move into the thread
-            let metadata_clone = metadata.clone();
+            // We pass ONLY the ID and initial duration to avoid stale metadata issues
+            let id = metadata.id.clone();
             
             std::thread::spawn(move || {
-                let mut metadata = metadata_clone;
-                let id = metadata.id.clone();
+                use std::time::Instant;
+                let overall_start = Instant::now();
+                let start_time = chrono::Local::now().format("%H:%M:%S%.3f").to_string();
+                
                 let dir = storage::get_recording_dir(&id);
                 let mic_path = dir.join("raw_mic.ogg");
                 let system_path = dir.join("raw_system.ogg");
+                let mix_path = dir.join("audio_mix.ogg");
                 
-                println!("Background processing for recording: {}", id);
+                println!("[{}] Finalizing recording session: {}", start_time, id);
 
                 // Small delay to ensure encoder threads flush their files
                 std::thread::sleep(std::time::Duration::from_millis(500));
 
-                 // A. Refine Durations
-                let mut actual_duration = duration_sec;
-                
-                if mic_path.exists() {
-                     match crate::audio_processing::get_ogg_duration(&mic_path) {
-                        Ok(d) => {
-                            if let Some(ref mut audio) = metadata.audio.mic {
-                                audio.duration_sec = d;
-                            }
-                            actual_duration = d;
-                        }
-                        Err(e) => eprintln!("Failed to get mic duration: {}", e),
-                     }
-                }
-                
-                if system_path.exists() {
-                     match crate::audio_processing::get_ogg_duration(&system_path) {
-                        Ok(d) => {
-                            if let Some(ref mut audio) = metadata.audio.system {
-                                audio.duration_sec = d;
-                            }
-                            // System duration is usually more reliable for 'overall' if it exists
-                            actual_duration = d; 
-                        }
-                        Err(e) => eprintln!("Failed to get system duration: {}", e),
-                     }
-                }
+                // A. Use wall-clock duration (already accurate, instant)
+                let actual_duration = duration_sec;
+                println!("  Using wall-clock duration: {:.2}s", actual_duration);
 
                 // B. Auto-Discard
                 let settings = crate::config::load_settings();
@@ -231,35 +217,50 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<(), String> {
                 if actual_duration < threshold {
                     println!("Discarding recording {} (duration {:.2}s < threshold {:.2}s)", id, actual_duration, threshold);
                     let _ = storage::delete_recording(&id);
-                    return; // Stop processing
+                    return;
                 }
 
-                // C. Mix
-                if mic_path.exists() && system_path.exists() {
-                    let mix_path = dir.join("audio_mix.ogg");
-                    println!("Mixing audio to {:?}...", mix_path);
-                    
-                    match crate::audio_processing::mix_audio_files(&mic_path, &system_path, &mix_path) {
-                        Ok(_) => {
-                            println!("Mix complete.");
-                            metadata.audio.mix = Some(storage::AudioInfo {
+                // C. Mix (if not already done by realtime_mixer)
+                let mut mix_exists = mix_path.exists();
+                
+                if !mix_exists && mic_path.exists() && system_path.exists() {
+                    let step_start = Instant::now();
+                    println!("Real-time mix missing, falling back to post-mix for {}...", id);
+                    if let Ok(_) = crate::audio_processing::mix_audio_files(&mic_path, &system_path, &mix_path) {
+                        mix_exists = true;
+                        println!("  [TIMING] Post-processing mix: {:.3}s", step_start.elapsed().as_secs_f64());
+                    }
+                } else if mix_exists {
+                    println!("  Real-time mix exists, skipping post-mix");
+                }
+
+                // D. FINAL SAVE: Reload metadata to get latest user edits (title/tags)
+                match storage::read_metadata(&id) {
+                    Ok(mut latest_metadata) => {
+                        latest_metadata.status = "ready".to_string();
+                        
+                        // Update audio info with wall-clock durations (already set at stop time)
+                        // No changes needed - durations were set correctly in initial metadata save
+                        
+                        if mix_exists {
+                            latest_metadata.audio.mix = Some(storage::AudioInfo {
                                 file: "audio_mix.ogg".to_string(),
                                 duration_sec: actual_duration,
                                 sample_rate: 48000,
                                 channels: 2,
                             });
                         }
-                        Err(e) => eprintln!("Mixing failed: {}", e),
-                    }
-                }
-
-                // D. Final Save
-                metadata.status = "ready".to_string();
-                if let Err(e) = storage::write_metadata(&metadata) {
-                    eprintln!("Failed to save final metadata: {}", e);
+                        
+                        if let Err(e) = storage::write_metadata(&latest_metadata) {
+                            eprintln!("Failed to save final metadata for {}: {}", id, e);
+                        }
+                    },
+                    Err(e) => eprintln!("Failed to reload metadata for background process {}: {}", id, e),
                 }
                 
-                println!("Background processing finished for {}", id);
+                let total_time = overall_start.elapsed().as_secs_f64();
+                let end_time = chrono::Local::now().format("%H:%M:%S%.3f").to_string();
+                println!("[{}] Recording session finalized: {} (TOTAL: {:.3}s)", end_time, id, total_time);
             });
         }
     }
