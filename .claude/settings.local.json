@@ -41,7 +41,6 @@
       "Bash(git pull:*)",
       "Bash(ls:*)",
       "WebFetch(*)",
-      "Bash(node -e:*)",
       "WebSearch",
       "Bash(xargs:*)",
       "Bash(find:*)",
@@ -59,8 +58,7 @@
       "Bash(codesign:*)",
       "Bash(screencapture:*)",
       "Bash(osascript:*)",
-      "Bash(npx playwright --version)",
-      "Bash(node test-ui.mjs:*)",
+      "Bash(node:*)",
       "Bash(pkill:*)",
       "Bash(ffmpeg:*)",
       "Bash(pgrep:*)",
@@ -69,7 +67,10 @@
       "Bash(/Users/skopanev/Projects/nbp/src-tauri/target/release/bundle/macos/nbp.app/Contents/MacOS/nbp:*)",
       "Bash(npm update:*)",
       "Bash(npm outdated:*)",
-      "Bash(ncu -u:*)"
+      "Bash(ncu -u:*)",
+      "Bash(gh repo view:*)",
+      "Bash(claude mcp add ui-ux-pro-max-skill -- npx -y @anthropic/ui-ux-pro-max-skill@latest)",
+      "Bash(claude mcp add:*)"
     ]
   }
 }
