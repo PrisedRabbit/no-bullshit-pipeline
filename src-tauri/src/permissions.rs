@@ -36,7 +36,7 @@ pub async fn check_permissions(
             drop(cache); // Release lock before test
             
             let temp_path = PathBuf::from("/tmp/nbp-startup-permission-check.ogg");
-            let verified = if let Ok(mut recorder) = crate::system_audio::start_system_capture(temp_path.clone()) {
+            let verified = if let Ok(mut recorder) = crate::system_audio::start_system_capture(temp_path.clone(), false) {
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 recorder.stop();
                 let exists = temp_path.exists();
@@ -82,7 +82,7 @@ pub async fn request_mic_permission(state: tauri::State<'_, PermissionsStateCach
     // This will trigger the macOS microphone permission dialog.
     let temp_path = std::path::PathBuf::from("/tmp/nbp-mic-permission-check.ogg");
     
-    match crate::mic_audio::start_mic_capture(temp_path.clone()) {
+    match crate::mic_audio::start_mic_capture(temp_path.clone(), None, false) {
         Ok(mut recorder) => {
             println!("✅ Mic capture started");
             
@@ -122,7 +122,7 @@ pub fn request_system_audio_permission(state: tauri::State<'_, PermissionsStateC
     let temp_path = PathBuf::from("/tmp/nbp-permission-test.ogg");
     
     // Start system audio capture (this triggers the permission dialog)
-    let mut recorder = match crate::system_audio::start_system_capture(temp_path.clone()) {
+    let mut recorder = match crate::system_audio::start_system_capture(temp_path.clone(), false) {
         Ok(r) => {
             println!("✅ System audio recorder created");
             r

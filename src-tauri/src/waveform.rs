@@ -7,6 +7,7 @@ const WAVEFORM_SAMPLES: usize = 1000;
 
 /// Audio file metadata from actual OGG file
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct OggFileInfo {
     pub duration_sec: f64,
     pub sample_rate: u32,

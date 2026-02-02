@@ -1,0 +1,44 @@
+# FSM - Machine Contract
+# CONSTANT. Never updated at runtime.
+# Human edit only (version bump = new release)
+
+phases:
+  idle:
+    transitions:
+      - to: planning
+        trigger: new_project
+      - to: planning
+        trigger: update
+
+  planning:
+    allowed_agents: [pm, analyst, ux]
+    transitions:
+      - to: solutioning
+
+  solutioning:
+    allowed_agents: [architect]
+    transitions:
+      - to: readiness
+
+  readiness:
+    allowed_agents: []  # gate only, no agents
+    transitions:
+      - to: implementation
+        condition: pass
+      - to: solutioning
+        condition: fail
+
+  implementation:
+    allowed_agents: [dev, tea, reviewer]
+    # NO self-loop. Story/epic progression is internal (step-based), not FSM.
+    transitions:
+      - to: retro
+        trigger: all_done
+
+  retro:
+    allowed_agents: []  # system only
+    transitions:
+      - to: idle
+
+# Validation rule:
+# Any transition not listed here → STOP

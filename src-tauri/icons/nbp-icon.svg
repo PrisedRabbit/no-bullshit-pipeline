@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Background rounded square -->
+  <rect x="0" y="0" width="1024" height="1024" rx="224" fill="#1d4ed8"/>
+
+  <!-- Pipeline flow: Input → Process → Output -->
+
+  <!-- Input circle (microphone/audio source) -->
+  <circle cx="240" cy="512" r="96" fill="#ffffff"/>
+  <circle cx="240" cy="512" r="56" fill="#3b82f6"/>
+
+  <!-- Connection line 1 -->
+  <rect x="336" y="496" width="80" height="32" rx="16" fill="#ffffff" fill-opacity="0.85"/>
+
+  <!-- Processing block (center) with audio bars -->
+  <rect x="416" y="400" width="240" height="224" rx="32" fill="#ffffff"/>
+
+  <!-- Audio waveform bars inside processing block -->
+  <rect x="456" y="472" width="28" height="80" rx="6" fill="#3b82f6"/>
+  <rect x="500" y="440" width="28" height="144" rx="6" fill="#3b82f6"/>
+  <rect x="544" y="456" width="28" height="112" rx="6" fill="#3b82f6"/>
+  <rect x="588" y="448" width="28" height="128" rx="6" fill="#3b82f6"/>
+
+  <!-- Connection line 2 -->
+  <rect x="656" y="496" width="80" height="32" rx="16" fill="#ffffff" fill-opacity="0.85"/>
+
+  <!-- Output arrow -->
+  <polygon points="736,512 816,512 816,464 896,512 816,560 816,512" fill="#ffffff"/>
+</svg>

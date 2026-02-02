@@ -7,13 +7,39 @@ use ringbuf::{
 use std::fs::File;
 use std::num::{NonZeroU32, NonZeroU8};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU32, Ordering},
     Arc,
 };
 use std::thread;
 use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoder};
 
 use crate::audio_processing::LoudnessNormalizer;
+
+// System audio level for visualization
+lazy_static::lazy_static! {
+    static ref SYSTEM_AUDIO_LEVEL: AtomicU32 = AtomicU32::new(0);
+}
+
+fn set_system_audio_level(level: f32) {
+    let level_u32 = level.clamp(0.0, 1.0).to_bits();
+    SYSTEM_AUDIO_LEVEL.store(level_u32, Ordering::Relaxed);
+}
+
+pub fn get_system_audio_level() -> f32 {
+    f32::from_bits(SYSTEM_AUDIO_LEVEL.load(Ordering::Relaxed))
+}
+
+pub fn reset_system_audio_level() {
+    SYSTEM_AUDIO_LEVEL.store(0, Ordering::Relaxed);
+}
+
+fn calculate_rms(samples: &[f32]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let sum_sq: f32 = samples.iter().map(|s| s * s).sum();
+    (sum_sq / samples.len() as f32).sqrt()
+}
 
 pub struct SystemAudioRecorder {
     should_stop: Arc<AtomicBool>,
@@ -25,12 +51,12 @@ struct AudioContext {
 }
 
 impl SystemAudioRecorder {
-    pub fn new(output_path: std::path::PathBuf) -> Result<Self> {
+    pub fn new(output_path: std::path::PathBuf, skip_file: bool) -> Result<Self> {
         let should_stop = Arc::new(AtomicBool::new(false));
         let should_stop_clone = should_stop.clone();
 
         let handle = thread::spawn(move || {
-            if let Err(e) = run_audio_capture(output_path, should_stop_clone) {
+            if let Err(e) = run_audio_capture(output_path, should_stop_clone, skip_file) {
                 eprintln!("System audio capture error: {:?}", e);
             }
         });
@@ -49,11 +75,11 @@ impl SystemAudioRecorder {
     }
 }
 
-pub fn start_system_capture(output_path: std::path::PathBuf) -> Result<SystemAudioRecorder> {
-    SystemAudioRecorder::new(output_path)
+pub fn start_system_capture(output_path: std::path::PathBuf, skip_file: bool) -> Result<SystemAudioRecorder> {
+    SystemAudioRecorder::new(output_path, skip_file)
 }
 
-fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>) -> Result<()> {
+fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>, skip_file: bool) -> Result<()> {
     // Switch extension to .ogg
     path.set_extension("ogg");
 
@@ -180,20 +206,24 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>)
     let channels = asbd.channels_per_frame;
 
     let mut normalizer = LoudnessNormalizer::new(channels, sample_rate)?;
-    
-    // Setup OGG Vorbis Encoder
-    let output_file = File::create(&path)?;
-    
-    // Quality 0.4 is variable bitrate (VBR) target quality (~128kbps)
-    let mut encoder = VorbisEncoder::new(
-        0, // Stream serial (0 for now)
-        [("", ""); 0], // No comments
-        NonZeroU32::new(sample_rate).ok_or(anyhow::anyhow!("Invalid sample rate"))?,
-        NonZeroU8::new(channels as u8).ok_or(anyhow::anyhow!("Invalid channels"))?,
-        VorbisBitrateManagementStrategy::QualityVbr { target_quality: 0.4 },
-        None, // Default page size optimization
-        output_file,
-    )?;
+
+    // Setup OGG Vorbis Encoder (only if not skipping file output)
+    let mut encoder: Option<VorbisEncoder<File>> = if !skip_file {
+        let output_file = File::create(&path)?;
+        // Quality 0.4 is variable bitrate (VBR) target quality (~128kbps)
+        Some(VorbisEncoder::new(
+            0, // Stream serial (0 for now)
+            [("", ""); 0], // No comments
+            NonZeroU32::new(sample_rate).ok_or(anyhow::anyhow!("Invalid sample rate"))?,
+            NonZeroU8::new(channels as u8).ok_or(anyhow::anyhow!("Invalid channels"))?,
+            VorbisBitrateManagementStrategy::QualityVbr { target_quality: 0.4 },
+            None, // Default page size optimization
+            output_file,
+        )?)
+    } else {
+        println!("System: Skipping file output (mix-only mode)");
+        None
+    };
     
     // 10. Continuous Timeline Loop
     // Write audio at exactly 48kHz regardless of whether audio arrives from tap
@@ -235,6 +265,14 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>)
                 
                 if n > 0 {
                     let raw_samples = &buffer[..n];
+
+                    // Update audio level for visualization (dynamic scaling)
+                    let rms = calculate_rms(raw_samples);
+                    // Soft compression: sqrt provides natural curve that boosts quiet signals
+                    // while preventing loud signals from clipping
+                    let scaled = (rms * 4.0).sqrt().min(1.0);
+                    set_system_audio_level(scaled);
+
                     let normalized_samples = normalizer.normalize_loudness(raw_samples);
                     let frames_encoded = normalized_samples.len() / channels as usize;
                     
@@ -260,8 +298,11 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>)
                         crate::audio_processing::SYSTEM_BUFFER.push_planar(&planar_samples[0], &planar_samples[0]);
                     }
 
-                    let slices_ref: Vec<&[f32]> = planar_samples.iter().map(|v| v.as_slice()).collect();
-                    encoder.encode_audio_block(&slices_ref)?;
+                    // Encode to file (if not skipping)
+                    if let Some(ref mut enc) = encoder {
+                        let slices_ref: Vec<&[f32]> = planar_samples.iter().map(|v| v.as_slice()).collect();
+                        enc.encode_audio_block(&slices_ref)?;
+                    }
                     total_frames_written += frames_encoded as u64;
 
                     // Decrease remaining count
@@ -273,17 +314,19 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>)
                 }
             }
             
-            // 2. Fill remainder with silence
+            // 2. Fill remainder with silence (only if encoding to file)
             if frames_remaining > 0 {
-                let silence = vec![0.0f32; frames_remaining];
-                let silence_planar = if channels == 2 {
-                    vec![silence.clone(), silence]
-                } else {
-                    vec![silence]
-                };
-                
-                let slices_ref: Vec<&[f32]> = silence_planar.iter().map(|v| v.as_slice()).collect();
-                encoder.encode_audio_block(&slices_ref)?;
+                if let Some(ref mut enc) = encoder {
+                    let silence = vec![0.0f32; frames_remaining];
+                    let silence_planar = if channels == 2 {
+                        vec![silence.clone(), silence]
+                    } else {
+                        vec![silence]
+                    };
+
+                    let slices_ref: Vec<&[f32]> = silence_planar.iter().map(|v| v.as_slice()).collect();
+                    enc.encode_audio_block(&slices_ref)?;
+                }
                 total_frames_written += frames_remaining as u64;
             }
             
@@ -335,55 +378,60 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>)
                 vec![normalized_samples]
             };
             
-            let slices_ref: Vec<&[f32]> = planar_samples.iter().map(|v| v.as_slice()).collect();
-            if let Err(e) = encoder.encode_audio_block(&slices_ref) {
-                eprintln!("Error encoding remaining system audio: {}", e);
-                break;
+            if let Some(ref mut enc) = encoder {
+                let slices_ref: Vec<&[f32]> = planar_samples.iter().map(|v| v.as_slice()).collect();
+                if let Err(e) = enc.encode_audio_block(&slices_ref) {
+                    eprintln!("Error encoding remaining system audio: {}", e);
+                    break;
+                }
             }
             total_frames_written += frames as u64;
         }
     }
     
-    // FILL SILENCE to match wall-clock duration
-    let elapsed = start_time.elapsed().as_secs_f64();
-    let expected_frames = (elapsed * sample_rate as f64) as u64;
-    
-    println!("System Audio Stop: Timer={:.3}s, Rate={}, Written={}, Expected={}, Diff={}", 
-        elapsed, sample_rate, total_frames_written, expected_frames, expected_frames as i64 - total_frames_written as i64);
-    
-    if total_frames_written < expected_frames {
-        let missing_frames = expected_frames - total_frames_written;
-        println!("System Audio Underrun: Padding with {} frames of silence ({:.2}s)", 
-            missing_frames, missing_frames as f64 / sample_rate as f64);
-            
-        // Create silence block (e.g., 4096 frames at a time)
-        let silence_chunk_size = 4096;
-        let silence_vec = vec![0.0f32; silence_chunk_size];
-        let silence_planar = if channels == 2 {
-            vec![silence_vec.clone(), silence_vec]
-        } else {
-            vec![silence_vec]
-        };
-        let silence_refs: Vec<&[f32]> = silence_planar.iter().map(|v| v.as_slice()).collect();
-        
-        let mut remaining = missing_frames;
-        while remaining > 0 {
-            let chunk = remaining.min(silence_chunk_size as u64);
-            // Slice the silence vectors to match chunk size
-            let partial_refs: Vec<&[f32]> = silence_refs.iter().map(|v| &v[..chunk as usize]).collect();
-            
-            if let Err(e) = encoder.encode_audio_block(&partial_refs) {
-                eprintln!("Error writing silence padding: {}", e);
-                break;
+    // FILL SILENCE and finish (only if encoding to file)
+    if let Some(mut enc) = encoder {
+        let elapsed = start_time.elapsed().as_secs_f64();
+        let expected_frames = (elapsed * sample_rate as f64) as u64;
+
+        println!("System Audio Stop: Timer={:.3}s, Rate={}, Written={}, Expected={}, Diff={}",
+            elapsed, sample_rate, total_frames_written, expected_frames, expected_frames as i64 - total_frames_written as i64);
+
+        if total_frames_written < expected_frames {
+            let missing_frames = expected_frames - total_frames_written;
+            println!("System Audio Underrun: Padding with {} frames of silence ({:.2}s)",
+                missing_frames, missing_frames as f64 / sample_rate as f64);
+
+            // Create silence block (e.g., 4096 frames at a time)
+            let silence_chunk_size = 4096;
+            let silence_vec = vec![0.0f32; silence_chunk_size];
+            let silence_planar = if channels == 2 {
+                vec![silence_vec.clone(), silence_vec]
+            } else {
+                vec![silence_vec]
+            };
+            let silence_refs: Vec<&[f32]> = silence_planar.iter().map(|v| v.as_slice()).collect();
+
+            let mut remaining = missing_frames;
+            while remaining > 0 {
+                let chunk = remaining.min(silence_chunk_size as u64);
+                // Slice the silence vectors to match chunk size
+                let partial_refs: Vec<&[f32]> = silence_refs.iter().map(|v| &v[..chunk as usize]).collect();
+
+                if let Err(e) = enc.encode_audio_block(&partial_refs) {
+                    eprintln!("Error writing silence padding: {}", e);
+                    break;
+                }
+                remaining -= chunk;
             }
-            remaining -= chunk;
+        } else {
+            println!("System Audio: No padding needed (Written >= Expected)");
         }
-    } else {
-        println!("System Audio: No padding needed (Written >= Expected)");
+
+        // Finish encoding
+        enc.finish()?;
+        println!("System Audio: Encoder finished.");
     }
 
-    // Finish encoding
-    encoder.finish()?;
-    println!("System Audio: Encoder finished.");
     Ok(())
 }

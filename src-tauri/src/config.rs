@@ -67,6 +67,13 @@ pub struct AppSettings {
     pub transcription: TranscriptionConfig,
     #[serde(default)]
     pub show_recording_notification: bool,
+    /// Save only the mixed audio file (default: true)
+    #[serde(default = "default_true")]
+    pub save_mix_only: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for AppSettings {
@@ -78,6 +85,7 @@ impl Default for AppSettings {
             onboarding_completed: false,
             transcription: TranscriptionConfig::default(),
             show_recording_notification: true,
+            save_mix_only: true,
         }
     }
 }

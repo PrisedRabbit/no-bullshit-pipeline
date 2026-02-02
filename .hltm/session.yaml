@@ -1,0 +1,10 @@
+phase: idle
+epic: null
+story: null
+step: null
+attempt: 0
+recovery_used: false
+last_completed:
+  epic: epic-13-app-polish
+  story: 13.3-about-menu
+  timestamp: 2026-02-02

@@ -86,11 +86,14 @@ NBP (No Bullshit Pipeline) is a Tauri 2 desktop application that captures microp
 |--------|------|------------|---------|
 | Mic Audio | `mic_audio.rs` | cpal | Cross-platform microphone capture |
 | System Audio | `system_audio.rs` | cidre (Core Audio) | macOS system audio loopback via Process Taps |
+| Device Enumeration | `devices.rs` | cpal | Input device listing and selection |
 
 **Key Design Decisions:**
 - Uses ring buffers (`ringbuf`) for lock-free audio streaming
 - Continuous timeline tracking ensures accurate duration
 - Silence padding fills gaps to maintain sync
+- Device selection by name (cpal device IDs are unstable)
+- Automatic resampling for non-48kHz devices (Bluetooth at 16kHz)
 
 ### Audio Processing
 
@@ -176,9 +179,11 @@ let appSettings = null;
 ### View State (CSS)
 
 ```css
-body.detail-open    /* Detail view visible */
-body.settings-open  /* Settings view visible */
-body.is-recording-active /* Recording in progress */
+body.detail-open           /* Detail view visible */
+body.settings-open         /* Settings view visible */
+body.is-recording-active   /* Recording in progress */
+body.deep-blue             /* Deep Blue theme applied */
+body.deep-obsidian         /* Deep Obsidian theme applied */
 ```
 
 ## IPC Commands
@@ -215,6 +220,10 @@ body.is-recording-active /* Recording in progress */
 - `request_system_audio_permission()` → `bool`
 - `open_privacy_settings(pane)` → `()`
 
+### Audio Devices
+- `get_input_devices()` → `Vec<AudioDeviceInfo>`
+- `get_audio_level()` → `f32`
+
 ## Configuration
 
 ### App Settings (`~/.nbp/settings.json`)
@@ -225,6 +234,7 @@ body.is-recording-active /* Recording in progress */
   "auto_discard_seconds": 3,
   "theme": "neon-purple",
   "onboarding_completed": true,
+  "selected_microphone": null,
   "transcription": {
     "enabled": false,
     "provider": "LocalWhisper",
@@ -237,7 +247,7 @@ body.is-recording-active /* Recording in progress */
 ### Tauri Config (`src-tauri/tauri.conf.json`)
 
 - Product: `nbp`
-- Version: `0.3.0`
+- Version: `0.4.0`
 - Identifier: `com.skopanev.nbp`
 - Min macOS: `13.0`
 - Plugins: `dialog`, `opener`

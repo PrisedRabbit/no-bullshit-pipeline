@@ -102,6 +102,87 @@ function stopTimer() {
   timerDisplay.textContent = "00:00:00";
 }
 
+// ===== RECORDING WAVEFORM (SPECTRUM STYLE) =====
+let waveformInterval = null;
+const NUM_BARS = 5;
+let displayLevel = 0; // What we show (with slow decay)
+
+function getWaveformCanvas() {
+  return document.getElementById("recording-waveform-canvas");
+}
+
+function startWaveformAnimation() {
+  const canvas = getWaveformCanvas();
+  const ctx = canvas ? canvas.getContext("2d") : null;
+  if (!canvas || !ctx) return;
+
+  displayLevel = 0;
+
+  waveformInterval = setInterval(async () => {
+    try {
+      const level = await invoke("get_audio_level");
+      // Amplify input (RMS is naturally low)
+      const amplified = Math.min(1.0, level * 6);
+
+      // Instant attack, medium decay
+      if (amplified > displayLevel) {
+        // Jump up instantly
+        displayLevel = amplified;
+      } else {
+        // Fall at medium speed (~0.5 sec from full)
+        displayLevel = Math.max(0, displayLevel - 0.06);
+      }
+
+      drawSpectrum();
+    } catch (e) {
+      // Ignore errors
+    }
+  }, 30); // ~33fps for smoother animation
+}
+
+function stopWaveformAnimation() {
+  if (waveformInterval) {
+    clearInterval(waveformInterval);
+    waveformInterval = null;
+  }
+  displayLevel = 0;
+  const canvas = getWaveformCanvas();
+  const ctx = canvas ? canvas.getContext("2d") : null;
+  if (ctx && canvas) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+}
+
+function drawSpectrum() {
+  const canvas = getWaveformCanvas();
+  const ctx = canvas ? canvas.getContext("2d") : null;
+  if (!ctx || !canvas) return;
+
+  const width = canvas.width;
+  const height = canvas.height;
+  const barWidth = Math.floor(width / NUM_BARS) - 2;
+  const gap = 2;
+
+  // Get computed accent color
+  const accentColor = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#a855f7";
+
+  ctx.clearRect(0, 0, width, height);
+
+  // Spectrum-like distribution: center bars taller, edges shorter
+  const barMultipliers = [0.6, 0.9, 1.0, 0.9, 0.6];
+
+  for (let i = 0; i < NUM_BARS; i++) {
+    const multiplier = barMultipliers[i];
+    const barLevel = displayLevel * multiplier;
+    const barHeight = Math.max(3, barLevel * height * 0.9);
+    const x = i * (barWidth + gap) + gap;
+    const y = (height - barHeight) / 2;
+
+    ctx.fillStyle = accentColor;
+    ctx.fillRect(x, y, barWidth, barHeight);
+  }
+}
+
 // ===== RECORDING CONTROLS =====
 async function toggleRecording() {
   if (isRecording) {
@@ -115,8 +196,9 @@ async function startRecording() {
   ViewManager.showRecordings();
 
   const tags = [...selectedTags];
+  const saveMixOnly = appSettings?.save_mix_only !== false; // default true
   try {
-    const metadata = await invoke("start_recording", { tags });
+    const metadata = await invoke("start_recording", { tags, saveMixOnly });
     isRecording = true;
 
     if (statusIndicator) statusIndicator.className = "status-recording";
@@ -129,6 +211,7 @@ async function startRecording() {
 
     await loadRecordings();
     startTimer();
+    startWaveformAnimation();
     showDetailView(metadata.id);
 
   } catch (error) {
@@ -150,6 +233,7 @@ async function stopRecording() {
     isRecording = false;
 
     stopTimer();
+    stopWaveformAnimation();
     if (statusIndicator) statusIndicator.className = "status-idle";
     document.body.classList.remove("is-recording-active");
     if (recordToggleBtn) {
@@ -824,6 +908,7 @@ const currentTimeEl = document.getElementById('current-time');
 const totalTimeEl = document.getElementById('total-time');
 let isPlaying = false;
 let audioDurationMs = 0;
+let playbackPollInterval = null;
 
 function formatDurationShort(seconds) {
   const m = Math.floor(seconds / 60);
@@ -848,6 +933,51 @@ async function loadAudioDuration(recordingId) {
   }
 }
 
+/**
+ * Start polling playback state to detect when playback finishes
+ */
+function startPlaybackPolling() {
+  if (playbackPollInterval) return;
+
+  playbackPollInterval = setInterval(async () => {
+    if (!isPlaying) {
+      stopPlaybackPolling();
+      return;
+    }
+
+    try {
+      const state = await invoke('get_playback_state');
+
+      // Update current time display
+      if (currentTimeEl && state.current_position_ms) {
+        currentTimeEl.textContent = formatDurationShort(state.current_position_ms / 1000);
+      }
+
+      // Check if playback finished (status is "Stopped")
+      if (state.status === 'Stopped' && isPlaying) {
+        isPlaying = false;
+        if (playPauseBtn) {
+          playPauseBtn.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
+        }
+        if (currentTimeEl) currentTimeEl.textContent = '0:00';
+        stopPlaybackPolling();
+      }
+    } catch (err) {
+      // Ignore polling errors
+    }
+  }, 250); // Poll every 250ms
+}
+
+/**
+ * Stop polling playback state
+ */
+function stopPlaybackPolling() {
+  if (playbackPollInterval) {
+    clearInterval(playbackPollInterval);
+    playbackPollInterval = null;
+  }
+}
+
 // Play/Pause button
 if (playPauseBtn) {
   playPauseBtn.addEventListener('click', async () => {
@@ -858,10 +988,12 @@ if (playPauseBtn) {
         await invoke('pause_audio');
         isPlaying = false;
         playPauseBtn.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
+        stopPlaybackPolling();
       } else {
         await invoke('play_audio', { recordingId: selectedRecordingId });
         isPlaying = true;
         playPauseBtn.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>';
+        startPlaybackPolling();
       }
     } catch (err) {
       console.error('Playback error:', err);
@@ -881,6 +1013,7 @@ const apiKeyInputGoogle = document.getElementById("settings-api-key-google");
 const apiKeyInputAnthropic = document.getElementById("settings-api-key-anthropic");
 const downloadModelBtn = document.getElementById("download-model-btn");
 const recordingNotificationCheckbox = document.getElementById("settings-recording-notification");
+const saveMixOnlyCheckbox = document.getElementById("settings-save-mix-only");
 
 // Helper to mask API keys (show last 4 chars)
 function maskApiKey(key) {
@@ -936,6 +1069,11 @@ async function loadSettings() {
       recordingNotificationCheckbox.checked = appSettings.show_recording_notification !== false;
     }
 
+    // Save mix only setting
+    if (saveMixOnlyCheckbox) {
+      saveMixOnlyCheckbox.checked = appSettings.save_mix_only !== false; // default true
+    }
+
     applyTheme(appSettings.theme);
   } catch (err) {
     console.error("Failed to load settings:", err);
@@ -971,6 +1109,11 @@ async function saveSettings() {
     // Recording notification
     if (recordingNotificationCheckbox) {
       appSettings.show_recording_notification = recordingNotificationCheckbox.checked;
+    }
+
+    // Save mix only setting
+    if (saveMixOnlyCheckbox) {
+      appSettings.save_mix_only = saveMixOnlyCheckbox.checked;
     }
 
     await invoke("save_settings", { settings: appSettings });
@@ -1169,7 +1312,7 @@ if (whisperModelSelect) {
 }
 
 function applyTheme(themeName) {
-  document.body.classList.remove("neon-purple", "deep-obsidian");
+  document.body.classList.remove("neon-purple", "deep-obsidian", "deep-blue", "light-pastel");
   if (themeName !== "neon-purple") {
     document.body.classList.add(themeName);
   }
@@ -1182,8 +1325,12 @@ function applyTheme(themeName) {
 }
 
 // ===== SETTINGS EVENT LISTENERS =====
-if (settingsBtn) settingsBtn.addEventListener("click", () => ViewManager.showSettings());
-if (settingsBackBtn) settingsBackBtn.addEventListener("click", () => ViewManager.showRecordings());
+if (settingsBtn) settingsBtn.addEventListener("click", () => {
+  ViewManager.showSettings();
+});
+if (settingsBackBtn) settingsBackBtn.addEventListener("click", () => {
+  ViewManager.showRecordings();
+});
 if (saveSettingsBtn) saveSettingsBtn.addEventListener("click", saveSettings);
 
 if (transcriptionEnabledCheckbox) {

@@ -39,6 +39,7 @@
       "Bash(git branch:*)",
       "Bash(git checkout:*)",
       "Bash(git pull:*)",
+      "Bash(git -C:*)",
       "Bash(ls:*)",
       "WebFetch(*)",
       "WebSearch",
@@ -69,8 +70,22 @@
       "Bash(npm outdated:*)",
       "Bash(ncu -u:*)",
       "Bash(gh repo view:*)",
-      "Bash(claude mcp add ui-ux-pro-max-skill -- npx -y @anthropic/ui-ux-pro-max-skill@latest)",
-      "Bash(claude mcp add:*)"
+      "Bash(claude mcp add:*)",
+      "Bash(npm install:*)",
+      "Bash(uipro init:*)",
+      "Read(.hltm/**)",
+      "Write(.hltm/**)",
+      "Edit(.hltm/**)",
+      "Bash(test:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__query-docs",
+      "Bash(yes:*)",
+      "Bash(./scripts/cleanup.sh:*)",
+      "Bash(./.claude/skills/hltm-retro/scripts/cleanup.sh:*)",
+      "Bash(python3:*)",
+      "Bash(convert:*)",
+      "Bash(magick:*)",
+      "Bash(# Stop current dev server pkill -f \"\"target/debug/nbp\"\" || true echo \"\"Building production app with new icon...\"\" cargo tauri build 2>&1)"
     ]
   }
 }

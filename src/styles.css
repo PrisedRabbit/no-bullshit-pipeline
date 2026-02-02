@@ -58,6 +58,129 @@ body.deep-obsidian .theme-btn.active {
   color: #0a0a0a;
 }
 
+/* Deep Blue Theme - Modern audio-focused palette */
+body.deep-blue {
+  --bg-primary: #0a1628;
+  --bg-sidebar: #0f1d32;
+  --bg-card: #152238;
+  --bg-input: #1c2d45;
+  --text-primary: #e8f0ff;
+  --text-secondary: #8ba3c7;
+  --accent: #3b82f6;
+  --accent-soft: rgba(59, 130, 246, 0.15);
+  --accent-hover: #60a5fa;
+  --recording: #ef4444;
+  --border: rgba(59, 130, 246, 0.25);
+  --success: #22c55e;
+  --danger: #f87171;
+}
+
+/* Deep Blue theme-specific overrides */
+body.deep-blue .sidebar-tag-item.active {
+  color: #ffffff;
+}
+
+body.deep-blue .modal-btn.primary {
+  color: #ffffff;
+}
+
+body.deep-blue .theme-btn.active {
+  color: #ffffff;
+}
+
+body.deep-blue .logo-text {
+  background: linear-gradient(135deg, #3b82f6, #60a5fa);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+/* Light Pastel Theme - Blue and pastel green */
+body.light-pastel {
+  --bg-primary: #f8fafc;
+  --bg-sidebar: #f1f5f9;
+  --bg-card: #ffffff;
+  --bg-input: #e2e8f0;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --accent: #3b82f6;
+  --accent-soft: rgba(59, 130, 246, 0.12);
+  --accent-hover: #2563eb;
+  --recording: #ef4444;
+  --border: rgba(59, 130, 246, 0.2);
+  --success: #22c55e;
+  --danger: #ef4444;
+}
+
+/* Light Pastel theme-specific overrides */
+body.light-pastel .sidebar-tag-item.active {
+  color: #ffffff;
+}
+
+body.light-pastel .modal-btn.primary {
+  color: #ffffff;
+}
+
+body.light-pastel .theme-btn.active {
+  color: #ffffff;
+}
+
+body.light-pastel .logo-text {
+  background: linear-gradient(135deg, #3b82f6, #86efac);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+body.light-pastel .app-bar {
+  background: rgba(248, 250, 252, 0.9);
+}
+
+body.light-pastel .recording-tag {
+  color: #3b82f6;
+}
+
+body.light-pastel .detail-tag-chip {
+  color: #1e293b;
+}
+
+body.light-pastel .nbp-logo-large {
+  background: linear-gradient(135deg, #3b82f6, #86efac);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+/* ===== DESIGN SYSTEM VARIABLES ===== */
+:root {
+  /* Transitions */
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.2s ease;
+  --transition-smooth: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Border radius scale */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+}
+
+/* ===== ACCESSIBILITY: FOCUS STATES ===== */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -116,7 +239,7 @@ body {
 .detail-controls {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
+  gap: 0.75rem;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -164,22 +287,22 @@ body.is-recording-active .detail-controls {
 
 .capture-controls {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.25rem;
   background: var(--bg-card);
-  padding: 4px;
-  border-radius: 12px;
+  padding: 3px;
+  border-radius: 10px;
   border: 1px solid var(--border);
 }
 
 .capture-controls button {
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
-  font-size: 1.25rem;
+  border-radius: 6px;
+  font-size: 1rem;
   background: transparent;
   color: var(--text-secondary);
   border: none;
@@ -202,15 +325,15 @@ body.is-recording-active .detail-controls {
 
 .timer {
   font-family: "JetBrains Mono", monospace;
-  font-size: 1.1rem;
+  font-size: 0.9rem;
   font-weight: 500;
   color: var(--text-primary);
-  min-width: 80px;
+  min-width: 70px;
 }
 
 #status-indicator {
-  width: 12px;
-  height: 12px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -519,9 +642,37 @@ body.settings-open .app-layout {
 }
 
 .recording-item.recording-active {
-  border-color: var(--accent);
+  border-color: var(--recording);
   background: var(--bg-input);
-  box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
+  box-shadow: 0 0 0 2px var(--recording), 0 0 20px rgba(239, 68, 68, 0.3);
+  animation: recording-item-pulse 2s ease-in-out infinite;
+  position: relative;
+}
+
+.recording-item.recording-active::before {
+  content: "";
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 10px;
+  height: 10px;
+  background: var(--recording);
+  border-radius: 50%;
+  animation: recording-dot-blink 1s ease-in-out infinite;
+}
+
+@keyframes recording-item-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 2px var(--recording), 0 0 15px rgba(239, 68, 68, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 0 2px var(--recording), 0 0 25px rgba(239, 68, 68, 0.4);
+  }
+}
+
+@keyframes recording-dot-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 
 /* ===== DETAIL VIEW ===== */
@@ -1356,4 +1507,77 @@ pre.content-body {
 /* Health Warning */
 .health-warning {
   margin-right: 6px;
+}
+
+/* ===== RECORDING STATE: HIDE AUDIO PLAYER ===== */
+body.is-recording-active .audio-player-section {
+  display: none !important;
+}
+
+/* ===== RECORDING WAVEFORM VISUALIZATION ===== */
+.recording-waveform {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+}
+
+body.is-recording-active .recording-waveform {
+  display: flex;
+}
+
+.recording-waveform-canvas {
+  width: 40px;
+  height: 20px;
+  border-radius: 4px;
+  background: var(--bg-input);
+}
+
+/* Waveform bars animation fallback (if canvas not used) */
+.waveform-bars {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+}
+
+.waveform-bar {
+  width: 3px;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: waveform-pulse 0.5s ease-in-out infinite;
+}
+
+.waveform-bar:nth-child(1) { animation-delay: 0s; }
+.waveform-bar:nth-child(2) { animation-delay: 0.1s; }
+.waveform-bar:nth-child(3) { animation-delay: 0.2s; }
+.waveform-bar:nth-child(4) { animation-delay: 0.3s; }
+.waveform-bar:nth-child(5) { animation-delay: 0.4s; }
+.waveform-bar:nth-child(6) { animation-delay: 0.5s; }
+.waveform-bar:nth-child(7) { animation-delay: 0.6s; }
+.waveform-bar:nth-child(8) { animation-delay: 0.7s; }
+
+@keyframes waveform-pulse {
+  0%, 100% {
+    height: 8px;
+    opacity: 0.5;
+  }
+  50% {
+    height: 24px;
+    opacity: 1;
+  }
+}
+
+/* Recording indicator glow */
+body.is-recording-active .record-btn {
+  animation: recording-glow 1.5s ease-in-out infinite;
+}
+
+@keyframes recording-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(255, 45, 85, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(255, 45, 85, 0.7);
+  }
 }
