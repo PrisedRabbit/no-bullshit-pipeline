@@ -21,13 +21,7 @@
   },
   "plugins": {
     "shell": {
-      "scope": [
-        {
-          "name": "open",
-          "cmd": "open",
-          "args": true
-        }
-      ]
+      "open": true
     }
   },
   "bundle": {
