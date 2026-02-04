@@ -559,6 +559,96 @@ Not processed yet.</pre
                 </div>
               </div>
 
+              <!-- Prompt Templates -->
+              <div class="settings-section">
+                <h3>Prompt Templates</h3>
+                <div class="settings-item" style="flex-direction: column; align-items: stretch;">
+                  <div id="prompt-templates-list" class="prompt-templates-list">
+                    <!-- Rendered via JS -->
+                  </div>
+                  <button id="add-prompt-template-btn" class="mini-action-btn" style="align-self: flex-start; margin-top: 8px; height: 32px; padding: 0 14px;">
+                    <span style="font-weight: 600; font-size: 12px;">+ New Template</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Pipeline Editor Modal -->
+              <div id="prompt-template-editor" class="inline-editor" style="display: none;">
+                <div class="inline-editor-header">
+                  <h4 id="prompt-editor-title">New Prompt Template</h4>
+                  <button id="close-prompt-editor" class="mini-action-btn" title="Close">&times;</button>
+                </div>
+                <div class="inline-editor-body">
+                  <div class="editor-field">
+                    <label>Name</label>
+                    <input id="prompt-editor-name" type="text" class="settings-input-text" placeholder="e.g. meeting-notes" />
+                  </div>
+                  <div class="editor-field">
+                    <label>Description</label>
+                    <input id="prompt-editor-desc" type="text" class="settings-input-text" placeholder="What this template does..." />
+                  </div>
+                  <div class="editor-field">
+                    <label>Prompt Text</label>
+                    <textarea id="prompt-editor-text" class="settings-textarea" rows="8" placeholder="Enter your prompt. Use {transcript} for the transcript content."></textarea>
+                  </div>
+                  <div class="editor-actions">
+                    <button id="save-prompt-template-btn" class="modal-btn primary" style="font-size: 13px; padding: 6px 20px;">Save</button>
+                    <button id="delete-prompt-template-btn" class="modal-btn danger" style="font-size: 13px; padding: 6px 20px; display: none;">Delete</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Pipeline Definitions -->
+              <div class="settings-section">
+                <h3>Pipelines</h3>
+                <div class="settings-item" style="flex-direction: column; align-items: stretch;">
+                  <div id="pipeline-defs-list" class="pipeline-defs-list">
+                    <!-- Rendered via JS -->
+                  </div>
+                  <button id="add-pipeline-def-btn" class="mini-action-btn" style="align-self: flex-start; margin-top: 8px; height: 32px; padding: 0 14px;">
+                    <span style="font-weight: 600; font-size: 12px;">+ New Pipeline</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Pipeline Editor -->
+              <div id="pipeline-editor" class="inline-editor" style="display: none;">
+                <div class="inline-editor-header">
+                  <h4 id="pipeline-editor-title">New Pipeline</h4>
+                  <button id="close-pipeline-editor" class="mini-action-btn" title="Close">&times;</button>
+                </div>
+                <div class="inline-editor-body">
+                  <div class="editor-field">
+                    <label>Name</label>
+                    <input id="pipeline-editor-name" type="text" class="settings-input-text" placeholder="e.g. team-meeting" />
+                  </div>
+                  <div class="editor-field">
+                    <label>Description</label>
+                    <input id="pipeline-editor-desc" type="text" class="settings-input-text" placeholder="What this pipeline does..." />
+                  </div>
+                  <div class="editor-field">
+                    <label>Steps</label>
+                    <div id="pipeline-steps-list" class="pipeline-steps-list">
+                      <!-- Steps rendered via JS, drag-and-drop sortable -->
+                    </div>
+                    <button id="add-pipeline-step-btn" class="mini-action-btn" style="margin-top: 8px; height: 32px; padding: 0 14px;">
+                      <span style="font-weight: 600; font-size: 12px;">+ Add Step</span>
+                    </button>
+                  </div>
+                  <!-- Pipeline Preview -->
+                  <div class="editor-field">
+                    <label>Preview</label>
+                    <div id="pipeline-preview" class="pipeline-preview">
+                      <!-- Visual chain rendered via JS -->
+                    </div>
+                  </div>
+                  <div class="editor-actions">
+                    <button id="save-pipeline-def-btn" class="modal-btn primary" style="font-size: 13px; padding: 6px 20px;">Save</button>
+                    <button id="delete-pipeline-def-btn" class="modal-btn danger" style="font-size: 13px; padding: 6px 20px; display: none;">Delete</button>
+                  </div>
+                </div>
+              </div>
+
               <!-- Theme Configuration -->
               <div class="settings-section">
                 <h3>Appearance</h3>

@@ -43,4 +43,9 @@ whisper-rs = { version = "0.12", features = ["metal"] }
 opener = "0.7"
 rodio = { version = "0.19", features = ["vorbis"] }
 lazy_static = "1.5"
+serde_yaml = "0.9"
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
 

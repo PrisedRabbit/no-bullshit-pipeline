@@ -140,7 +140,7 @@ async function testUI() {
   });
 
   await test('Waveform canvas exists', async () => {
-    const canvas = await page.$('#waveform-canvas');
+    const canvas = await page.$('#recording-waveform-canvas');
     if (!canvas) throw new Error('Waveform canvas not found');
   });
 

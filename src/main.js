@@ -1365,6 +1365,499 @@ themeButtons.forEach(btn => {
   btn.addEventListener("click", () => applyTheme(btn.dataset.theme));
 });
 
+// ===== PROMPT TEMPLATE MANAGEMENT =====
+let allPromptTemplates = [];
+let editingPromptTemplate = null; // null = new, string = editing name
+
+const promptTemplatesListEl = document.getElementById('prompt-templates-list');
+const addPromptTemplateBtn = document.getElementById('add-prompt-template-btn');
+const promptTemplateEditor = document.getElementById('prompt-template-editor');
+const promptEditorTitle = document.getElementById('prompt-editor-title');
+const promptEditorName = document.getElementById('prompt-editor-name');
+const promptEditorDesc = document.getElementById('prompt-editor-desc');
+const promptEditorText = document.getElementById('prompt-editor-text');
+const savePromptTemplateBtn = document.getElementById('save-prompt-template-btn');
+const deletePromptTemplateBtn = document.getElementById('delete-prompt-template-btn');
+const closePromptEditorBtn = document.getElementById('close-prompt-editor');
+
+async function loadPromptTemplates() {
+  try {
+    allPromptTemplates = await invoke('list_prompt_templates');
+    renderPromptTemplatesList();
+  } catch (err) {
+    console.error('Failed to load prompt templates:', err);
+  }
+}
+
+function renderPromptTemplatesList() {
+  if (!promptTemplatesListEl) return;
+  if (allPromptTemplates.length === 0) {
+    promptTemplatesListEl.innerHTML = '<div style="color: var(--text-secondary); opacity: 0.6; font-size: 0.85rem;">No templates yet.</div>';
+    return;
+  }
+  promptTemplatesListEl.innerHTML = allPromptTemplates.map(t => `
+    <div class="template-item" data-name="${t.name}">
+      <div class="template-item-info">
+        <div class="template-item-name">${t.name}</div>
+        <div class="template-item-desc">${t.description || ''}</div>
+        <div class="template-item-preview">${(t.prompt || '').substring(0, 80)}${t.prompt && t.prompt.length > 80 ? '...' : ''}</div>
+      </div>
+    </div>
+  `).join('');
+
+  promptTemplatesListEl.querySelectorAll('.template-item').forEach(el => {
+    el.addEventListener('click', () => openPromptEditor(el.dataset.name));
+  });
+}
+
+function openPromptEditor(name) {
+  if (!promptTemplateEditor) return;
+  if (name) {
+    const t = allPromptTemplates.find(t => t.name === name);
+    if (!t) return;
+    editingPromptTemplate = name;
+    promptEditorTitle.textContent = 'Edit Prompt Template';
+    promptEditorName.value = t.name;
+    promptEditorDesc.value = t.description || '';
+    promptEditorText.value = t.prompt || '';
+    if (deletePromptTemplateBtn) deletePromptTemplateBtn.style.display = 'inline-block';
+  } else {
+    editingPromptTemplate = null;
+    promptEditorTitle.textContent = 'New Prompt Template';
+    promptEditorName.value = '';
+    promptEditorDesc.value = '';
+    promptEditorText.value = '';
+    if (deletePromptTemplateBtn) deletePromptTemplateBtn.style.display = 'none';
+  }
+  promptTemplateEditor.style.display = 'block';
+  promptEditorName.focus();
+}
+
+function closePromptEditor() {
+  if (promptTemplateEditor) promptTemplateEditor.style.display = 'none';
+  editingPromptTemplate = null;
+}
+
+if (addPromptTemplateBtn) addPromptTemplateBtn.addEventListener('click', () => openPromptEditor(null));
+if (closePromptEditorBtn) closePromptEditorBtn.addEventListener('click', closePromptEditor);
+
+if (savePromptTemplateBtn) {
+  savePromptTemplateBtn.addEventListener('click', async () => {
+    const name = promptEditorName.value.trim();
+    const desc = promptEditorDesc.value.trim();
+    const prompt = promptEditorText.value.trim();
+    if (!name) { alert('Name is required'); return; }
+    if (!prompt) { alert('Prompt text is required'); return; }
+
+    try {
+      const template = {
+        name,
+        description: desc,
+        prompt,
+        created_at: editingPromptTemplate ? (allPromptTemplates.find(t => t.name === editingPromptTemplate)?.created_at || new Date().toISOString()) : new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      // If renaming, delete old first
+      if (editingPromptTemplate && editingPromptTemplate !== name) {
+        await invoke('delete_prompt_template', { name: editingPromptTemplate, force: true });
+      }
+      await invoke('save_prompt_template', { template });
+      closePromptEditor();
+      await loadPromptTemplates();
+    } catch (err) {
+      console.error('Failed to save prompt template:', err);
+      alert('Failed to save: ' + err);
+    }
+  });
+}
+
+if (deletePromptTemplateBtn) {
+  deletePromptTemplateBtn.addEventListener('click', async () => {
+    if (!editingPromptTemplate) return;
+    if (!confirm(`Delete template "${editingPromptTemplate}"?`)) return;
+    try {
+      await invoke('delete_prompt_template', { name: editingPromptTemplate, force: true });
+      closePromptEditor();
+      await loadPromptTemplates();
+    } catch (err) {
+      console.error('Failed to delete prompt template:', err);
+      alert('Failed to delete: ' + err);
+    }
+  });
+}
+
+// ===== PIPELINE DEFINITION MANAGEMENT =====
+let allPipelineDefs = [];
+let editingPipelineDef = null; // null = new, string = editing name
+let pipelineEditorSteps = []; // Working copy of steps
+
+const pipelineDefsListEl = document.getElementById('pipeline-defs-list');
+const addPipelineDefBtn = document.getElementById('add-pipeline-def-btn');
+const pipelineEditor = document.getElementById('pipeline-editor');
+const pipelineEditorTitle = document.getElementById('pipeline-editor-title');
+const pipelineEditorName = document.getElementById('pipeline-editor-name');
+const pipelineEditorDesc = document.getElementById('pipeline-editor-desc');
+const pipelineStepsListEl = document.getElementById('pipeline-steps-list');
+const addPipelineStepBtn = document.getElementById('add-pipeline-step-btn');
+const pipelinePreviewEl = document.getElementById('pipeline-preview');
+const savePipelineDefBtn = document.getElementById('save-pipeline-def-btn');
+const deletePipelineDefBtn = document.getElementById('delete-pipeline-def-btn');
+const closePipelineEditorBtn = document.getElementById('close-pipeline-editor');
+
+async function loadPipelineDefs() {
+  try {
+    allPipelineDefs = await invoke('list_pipelines');
+    renderPipelineDefsList();
+  } catch (err) {
+    console.error('Failed to load pipelines:', err);
+  }
+}
+
+function renderPipelineDefsList() {
+  if (!pipelineDefsListEl) return;
+  if (allPipelineDefs.length === 0) {
+    pipelineDefsListEl.innerHTML = '<div style="color: var(--text-secondary); opacity: 0.6; font-size: 0.85rem;">No pipelines yet.</div>';
+    return;
+  }
+  pipelineDefsListEl.innerHTML = allPipelineDefs.map(p => `
+    <div class="pipeline-def-item" data-name="${p.name}">
+      <div class="pipeline-def-info">
+        <div class="pipeline-def-name">${p.name}</div>
+        <div class="pipeline-def-desc">${p.description || ''} &middot; ${p.steps.length} step${p.steps.length !== 1 ? 's' : ''}</div>
+      </div>
+    </div>
+  `).join('');
+
+  pipelineDefsListEl.querySelectorAll('.pipeline-def-item').forEach(el => {
+    el.addEventListener('click', () => openPipelineEditor(el.dataset.name));
+  });
+}
+
+function openPipelineEditor(name) {
+  if (!pipelineEditor) return;
+  if (name) {
+    const p = allPipelineDefs.find(p => p.name === name);
+    if (!p) return;
+    editingPipelineDef = name;
+    pipelineEditorTitle.textContent = 'Edit Pipeline';
+    pipelineEditorName.value = p.name;
+    pipelineEditorDesc.value = p.description || '';
+    pipelineEditorSteps = JSON.parse(JSON.stringify(p.steps));
+    if (deletePipelineDefBtn) deletePipelineDefBtn.style.display = 'inline-block';
+  } else {
+    editingPipelineDef = null;
+    pipelineEditorTitle.textContent = 'New Pipeline';
+    pipelineEditorName.value = '';
+    pipelineEditorDesc.value = '';
+    pipelineEditorSteps = [];
+    if (deletePipelineDefBtn) deletePipelineDefBtn.style.display = 'none';
+  }
+  pipelineEditor.style.display = 'block';
+  renderPipelineSteps();
+  renderPipelinePreview();
+  pipelineEditorName.focus();
+}
+
+function closePipelineEditor() {
+  if (pipelineEditor) pipelineEditor.style.display = 'none';
+  editingPipelineDef = null;
+  pipelineEditorSteps = [];
+}
+
+function renderPipelineSteps() {
+  if (!pipelineStepsListEl) return;
+  if (pipelineEditorSteps.length === 0) {
+    pipelineStepsListEl.innerHTML = '<div style="color: var(--text-secondary); opacity: 0.5; font-size: 0.85rem;">No steps. Click "+ Add Step" to begin.</div>';
+    return;
+  }
+
+  pipelineStepsListEl.innerHTML = pipelineEditorSteps.map((step, i) => {
+    const inputLabel = step.input === 'transcript' ? 'transcript' : step.input;
+    return `
+      <div class="pipeline-step-item" draggable="true" data-index="${i}">
+        <span class="step-drag-handle">&#9776;</span>
+        <span class="step-number">${i + 1}</span>
+        <div class="step-info" data-index="${i}" style="cursor: pointer;">
+          <div class="step-name-row">
+            <span class="step-name">${step.name || 'Unnamed'}</span>
+            <span class="step-connector-badge">${step.connector}</span>
+          </div>
+          <div class="step-input-label">input: ${inputLabel}</div>
+        </div>
+        <button class="step-remove-btn" data-index="${i}" title="Remove step">&times;</button>
+      </div>
+    `;
+  }).join('');
+
+  // Drag-and-drop handlers
+  const items = pipelineStepsListEl.querySelectorAll('.pipeline-step-item');
+  let dragSrcIndex = null;
+
+  items.forEach(item => {
+    item.addEventListener('dragstart', (e) => {
+      dragSrcIndex = parseInt(item.dataset.index);
+      item.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    item.addEventListener('dragend', () => {
+      item.classList.remove('dragging');
+      items.forEach(el => el.classList.remove('drag-over'));
+    });
+    item.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      item.classList.add('drag-over');
+    });
+    item.addEventListener('dragleave', () => {
+      item.classList.remove('drag-over');
+    });
+    item.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const dropIndex = parseInt(item.dataset.index);
+      if (dragSrcIndex !== null && dragSrcIndex !== dropIndex) {
+        const [moved] = pipelineEditorSteps.splice(dragSrcIndex, 1);
+        pipelineEditorSteps.splice(dropIndex, 0, moved);
+        // Fix input references after reorder
+        fixStepInputs();
+        renderPipelineSteps();
+        renderPipelinePreview();
+      }
+      items.forEach(el => el.classList.remove('drag-over'));
+    });
+  });
+
+  // Click step to edit
+  pipelineStepsListEl.querySelectorAll('.step-info').forEach(el => {
+    el.addEventListener('click', () => showStepEditor(parseInt(el.dataset.index)));
+  });
+
+  // Remove step
+  pipelineStepsListEl.querySelectorAll('.step-remove-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.index);
+      pipelineEditorSteps.splice(idx, 1);
+      fixStepInputs();
+      renderPipelineSteps();
+      renderPipelinePreview();
+    });
+  });
+}
+
+function fixStepInputs() {
+  // Fix input references: first step must reference 'transcript'
+  // Others can reference 'transcript' or a previous step name
+  for (let i = 0; i < pipelineEditorSteps.length; i++) {
+    const step = pipelineEditorSteps[i];
+    if (i === 0) {
+      step.input = 'transcript';
+    } else {
+      const validInputs = ['transcript', ...pipelineEditorSteps.slice(0, i).map(s => s.name)];
+      if (!validInputs.includes(step.input)) {
+        step.input = pipelineEditorSteps[i - 1].name || 'transcript';
+      }
+    }
+  }
+}
+
+function getInputOptions(stepIndex) {
+  const options = ['transcript'];
+  for (let i = 0; i < stepIndex; i++) {
+    if (pipelineEditorSteps[i].name) options.push(pipelineEditorSteps[i].name);
+  }
+  return options;
+}
+
+function showStepEditor(index) {
+  const step = pipelineEditorSteps[index];
+  if (!step) return;
+
+  const inputOptions = getInputOptions(index).map(o =>
+    `<option value="${o}" ${step.input === o ? 'selected' : ''}>${o}</option>`
+  ).join('');
+
+  const promptTemplateOptions = allPromptTemplates.map(t =>
+    `<option value="${t.name}" ${step.config?.prompt_template === t.name ? 'selected' : ''}>${t.name}</option>`
+  ).join('');
+
+  // Build connector-specific config fields
+  let configFields = '';
+  if (step.connector === 'llm') {
+    configFields = `
+      <div class="step-editor-row"><label>Prompt</label><select data-field="prompt_template"><option value="">Select template...</option>${promptTemplateOptions}</select></div>
+      <div class="step-editor-row"><label>Provider</label><select data-field="provider">
+        <option value="openai" ${step.config?.provider === 'openai' ? 'selected' : ''}>OpenAI</option>
+        <option value="google" ${step.config?.provider === 'google' ? 'selected' : ''}>Google</option>
+        <option value="anthropic" ${step.config?.provider === 'anthropic' ? 'selected' : ''}>Anthropic</option>
+      </select></div>
+      <div class="step-editor-row"><label>Model</label><input data-field="model" value="${step.config?.model || ''}" placeholder="e.g. gpt-4o" /></div>
+    `;
+  } else if (step.connector === 'save') {
+    configFields = `
+      <div class="step-editor-row"><label>Path</label><input data-field="path" value="${step.config?.path || ''}" placeholder="~/Documents/{date}-{pipeline-name}.md" /></div>
+    `;
+  } else if (step.connector === 'webhook') {
+    configFields = `
+      <div class="step-editor-row"><label>URL</label><input data-field="url" value="${step.config?.url || ''}" placeholder="https://hooks.example.com/..." /></div>
+      <div class="step-editor-row"><label>Method</label><select data-field="method">
+        <option value="POST" ${step.config?.method === 'POST' ? 'selected' : ''}>POST</option>
+        <option value="PUT" ${step.config?.method === 'PUT' ? 'selected' : ''}>PUT</option>
+        <option value="PATCH" ${step.config?.method === 'PATCH' ? 'selected' : ''}>PATCH</option>
+      </select></div>
+    `;
+  } else if (step.connector === 'mcp') {
+    configFields = `
+      <div class="step-editor-row"><label>Server</label><input data-field="server" value="${step.config?.server || ''}" placeholder="e.g. slack-mcp" /></div>
+      <div class="step-editor-row"><label>Tool</label><input data-field="tool" value="${step.config?.tool || ''}" placeholder="e.g. send-message" /></div>
+      <div class="step-editor-row"><label>Args</label><textarea data-field="args" rows="2" placeholder='{"channel": "#team"}'>${step.config?.args ? JSON.stringify(step.config.args, null, 2) : ''}</textarea></div>
+    `;
+  }
+
+  // Replace step item with editor
+  const stepItems = pipelineStepsListEl.querySelectorAll('.pipeline-step-item');
+  const stepEl = stepItems[index];
+  if (!stepEl) return;
+
+  const editorEl = document.createElement('div');
+  editorEl.className = 'step-editor';
+  editorEl.innerHTML = `
+    <div class="step-editor-row"><label>Name</label><input data-field="name" value="${step.name}" placeholder="step name" /></div>
+    <div class="step-editor-row"><label>Connector</label><select data-field="connector">
+      <option value="llm" ${step.connector === 'llm' ? 'selected' : ''}>LLM</option>
+      <option value="save" ${step.connector === 'save' ? 'selected' : ''}>Save</option>
+      <option value="webhook" ${step.connector === 'webhook' ? 'selected' : ''}>Webhook</option>
+      <option value="mcp" ${step.connector === 'mcp' ? 'selected' : ''}>MCP</option>
+    </select></div>
+    <div class="step-editor-row"><label>Input</label><select data-field="input">${inputOptions}</select></div>
+    <div class="step-editor-row"><label>Description</label><input data-field="description" value="${step.description || ''}" placeholder="What this step does..." /></div>
+    <div id="step-config-fields">${configFields}</div>
+    <div class="step-editor-actions">
+      <button class="mini-action-btn step-editor-done" style="height: 28px; padding: 0 14px;">
+        <span style="font-weight: 600; font-size: 12px;">Done</span>
+      </button>
+    </div>
+  `;
+
+  stepEl.replaceWith(editorEl);
+
+  // Connector change → re-render config fields
+  const connectorSelect = editorEl.querySelector('[data-field="connector"]');
+  connectorSelect.addEventListener('change', () => {
+    step.connector = connectorSelect.value;
+    step.config = {};
+    showStepEditor(index);
+  });
+
+  // Done button
+  editorEl.querySelector('.step-editor-done').addEventListener('click', () => {
+    // Read values back
+    step.name = editorEl.querySelector('[data-field="name"]').value.trim();
+    step.connector = editorEl.querySelector('[data-field="connector"]').value;
+    step.input = editorEl.querySelector('[data-field="input"]').value;
+    step.description = editorEl.querySelector('[data-field="description"]').value.trim() || null;
+
+    // Read connector-specific config
+    const configFieldsEl = editorEl.querySelector('#step-config-fields');
+    step.config = {};
+    configFieldsEl.querySelectorAll('[data-field]').forEach(field => {
+      const key = field.dataset.field;
+      let val = field.value.trim();
+      if (key === 'args') {
+        try { val = JSON.parse(val); } catch { val = {}; }
+      }
+      if (val !== '') step.config[key] = val;
+    });
+
+    renderPipelineSteps();
+    renderPipelinePreview();
+  });
+}
+
+function renderPipelinePreview() {
+  if (!pipelinePreviewEl) return;
+  if (pipelineEditorSteps.length === 0) {
+    pipelinePreviewEl.innerHTML = '<span class="pipeline-preview-empty">Add steps to see preview</span>';
+    return;
+  }
+
+  let html = '<span class="preview-node source">transcript</span>';
+  for (const step of pipelineEditorSteps) {
+    html += '<span class="preview-arrow">&rarr;</span>';
+    html += `<span class="preview-node step">${step.name || '?'} <small style="opacity:0.6">(${step.connector})</small></span>`;
+  }
+  pipelinePreviewEl.innerHTML = html;
+}
+
+if (addPipelineDefBtn) addPipelineDefBtn.addEventListener('click', () => openPipelineEditor(null));
+if (closePipelineEditorBtn) closePipelineEditorBtn.addEventListener('click', closePipelineEditor);
+
+if (addPipelineStepBtn) {
+  addPipelineStepBtn.addEventListener('click', () => {
+    const prevStepName = pipelineEditorSteps.length > 0
+      ? pipelineEditorSteps[pipelineEditorSteps.length - 1].name
+      : null;
+    pipelineEditorSteps.push({
+      name: '',
+      connector: 'llm',
+      input: prevStepName || 'transcript',
+      config: {},
+      description: null
+    });
+    renderPipelineSteps();
+    renderPipelinePreview();
+    // Auto-open editor for new step
+    showStepEditor(pipelineEditorSteps.length - 1);
+  });
+}
+
+if (savePipelineDefBtn) {
+  savePipelineDefBtn.addEventListener('click', async () => {
+    const name = pipelineEditorName.value.trim();
+    const desc = pipelineEditorDesc.value.trim();
+    if (!name) { alert('Pipeline name is required'); return; }
+    if (pipelineEditorSteps.length === 0) { alert('Pipeline must have at least one step'); return; }
+
+    // Validate step names
+    for (let i = 0; i < pipelineEditorSteps.length; i++) {
+      if (!pipelineEditorSteps[i].name.trim()) {
+        alert(`Step ${i + 1} needs a name`);
+        return;
+      }
+    }
+
+    try {
+      const pipeline = { name, description: desc, steps: pipelineEditorSteps };
+
+      // If renaming, delete old first
+      if (editingPipelineDef && editingPipelineDef !== name) {
+        await invoke('delete_pipeline', { name: editingPipelineDef });
+      }
+      await invoke('save_pipeline', { pipeline });
+      closePipelineEditor();
+      await loadPipelineDefs();
+    } catch (err) {
+      console.error('Failed to save pipeline:', err);
+      alert('Failed to save: ' + err);
+    }
+  });
+}
+
+if (deletePipelineDefBtn) {
+  deletePipelineDefBtn.addEventListener('click', async () => {
+    if (!editingPipelineDef) return;
+    if (!confirm(`Delete pipeline "${editingPipelineDef}"?`)) return;
+    try {
+      await invoke('delete_pipeline', { name: editingPipelineDef });
+      closePipelineEditor();
+      await loadPipelineDefs();
+    } catch (err) {
+      console.error('Failed to delete pipeline:', err);
+      alert('Failed to delete: ' + err);
+    }
+  });
+}
+
 // ===== LOAD TEMPLATES =====
 async function loadTemplates() {
   if (!templateSelect) return;
@@ -1383,6 +1876,8 @@ async function init() {
   await loadSettings();
   await loadRecordings();
   await loadTemplates();
+  await loadPromptTemplates();
+  await loadPipelineDefs();
   try {
     const version = await invoke("get_app_version");
     const versionEl = document.getElementById("app-version");

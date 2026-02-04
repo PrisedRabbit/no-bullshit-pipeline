@@ -1158,6 +1158,329 @@ body.settings-open .detail-view {
   color: var(--bg-primary);
 }
 
+/* Prompt Templates & Pipeline Definitions Lists */
+.prompt-templates-list,
+.pipeline-defs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.template-item,
+.pipeline-def-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.template-item:hover,
+.pipeline-def-item:hover {
+  border-color: var(--accent);
+}
+
+.template-item-info,
+.pipeline-def-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.template-item-name,
+.pipeline-def-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.template-item-desc,
+.pipeline-def-desc {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  opacity: 0.8;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.template-item-preview {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 400px;
+}
+
+/* Inline Editor (Prompt Template / Pipeline) */
+.inline-editor {
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: 16px;
+  padding: 1.5rem;
+  margin-top: 1rem;
+}
+
+.inline-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+}
+
+.inline-editor-header h4 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.inline-editor-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.editor-field label {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.settings-textarea {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  padding: 12px;
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+  min-height: 120px;
+  line-height: 1.5;
+}
+
+.settings-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.editor-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+/* Pipeline Steps List (drag-and-drop) */
+.pipeline-steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pipeline-step-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: grab;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.pipeline-step-item:active {
+  cursor: grabbing;
+}
+
+.pipeline-step-item.dragging {
+  opacity: 0.5;
+  border-color: var(--accent);
+}
+
+.pipeline-step-item.drag-over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.step-drag-handle {
+  color: var(--text-secondary);
+  opacity: 0.5;
+  font-size: 14px;
+  flex-shrink: 0;
+  cursor: grab;
+}
+
+.step-number {
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: var(--accent);
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.step-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.step-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.step-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.step-connector-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.step-input-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  margin-top: 2px;
+}
+
+.step-remove-btn {
+  background: none;
+  border: none;
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.step-remove-btn:hover {
+  opacity: 1;
+}
+
+/* Step Editor (inline within pipeline editor) */
+.step-editor {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.step-editor-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.step-editor-row label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 70px;
+}
+
+.step-editor-row input,
+.step-editor-row select,
+.step-editor-row textarea {
+  flex: 1;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.step-editor-row textarea {
+  font-family: "JetBrains Mono", monospace;
+  resize: vertical;
+  min-height: 60px;
+}
+
+.step-editor-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* Pipeline Preview */
+.pipeline-preview {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 16px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow-x: auto;
+  min-height: 48px;
+}
+
+.preview-node {
+  display: flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.preview-node.source {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+.preview-node.step {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+.preview-arrow {
+  color: var(--text-secondary);
+  opacity: 0.5;
+  font-size: 14px;
+  padding: 0 8px;
+  flex-shrink: 0;
+}
+
+.pipeline-preview-empty {
+  color: var(--text-secondary);
+  opacity: 0.5;
+  font-size: 0.85rem;
+}
+
 .settings-footer {
   margin-top: 1rem;
   border-top: 1px solid var(--border);

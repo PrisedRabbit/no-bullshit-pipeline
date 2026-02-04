@@ -1,3 +1,28 @@
+---
+stepsCompleted: ['step-01-init', 'step-02-discovery', 'step-03-success', 'step-04-journeys', 'step-05-domain-skipped', 'step-06-innovation', 'step-07-project-type', 'step-08-scoping', 'step-09-functional', 'step-10-nonfunctional', 'step-11-polish', 'step-12-complete']
+workflowStatus: complete
+completedAt: '2026-02-01'
+inputDocuments:
+  - docs/index.md
+  - docs/architecture.md
+  - docs/project-overview.md
+  - docs/source-tree-analysis.md
+  - docs/development-guide.md
+  - _bmad-output/planning-artifacts/epics.md
+workflowType: 'prd'
+documentCounts:
+  brief: 0
+  research: 0
+  projectDocs: 5
+  epics: 1
+projectType: brownfield
+classification:
+  projectType: desktop_app
+  domain: general
+  complexity: medium
+  projectContext: brownfield
+---
+
 # Product Requirements Document - NBP
 
 **Author:** sk
@@ -81,6 +106,14 @@
 - Audio mix error handling (drift prevention)
 - Signed build entitlements
 - Recording notification
+
+**Epic 5: Processing Pipelines**
+- Pipeline definitions with steps and connectors
+- Built-in connectors (LLM, Save, Webhook)
+- MCP connector for external integrations
+- Pipeline execution engine
+- Prompt template registry
+- UI for pipeline management and construction
 
 ### Vision (Future)
 
@@ -303,10 +336,10 @@ NBP is designed for **air-gapped operation**:
 
 | Feature | Offline | Online |
 |---------|---------|--------|
-| Recording | Full functionality | Full functionality |
-| Local Whisper transcription | Full functionality | Full functionality |
-| Cloud AI transcription | Requires API keys + network | Requires API keys |
-| Model download | Requires network | One-time download |
+| Recording | ✅ Full functionality | ✅ Full functionality |
+| Local Whisper transcription | ✅ Full functionality | ✅ Full functionality |
+| Cloud AI transcription | ❌ Requires API keys + network | ✅ Requires API keys |
+| Model download | ❌ Requires network | ✅ One-time download |
 
 **Data Storage:**
 - All recordings stored locally in `~/nbp-data/`
@@ -344,8 +377,8 @@ NBP is designed for **air-gapped operation**:
 ### MVP Feature Set (Phase 1 — COMPLETED)
 
 **Core User Journeys Supported:**
-- Basic recording (Journey 1 & 2 partial)
-- First-time setup (Journey 4)
+- ✅ Basic recording (Journey 1 & 2 partial)
+- ✅ First-time setup (Journey 4)
 
 **Must-Have Capabilities (DONE):**
 - [x] Dual-track recording (mic + system audio)
@@ -488,6 +521,34 @@ NBP is designed for **air-gapped operation**:
 - FR56: System shows progress indicator during model download
 - FR57: System shows processing indicator during transcription
 
+### Processing Pipelines
+
+- FR58: User can create pipeline definitions with name, description, and steps
+- FR59: User can define steps with connectors (llm, save, webhook, mcp)
+- FR60: User can configure llm connector with prompt templates and AI provider
+- FR61: User can configure save connector with file path and variables ({date}, {pipeline-name})
+- FR62: User can configure webhook connector with URL
+- FR63: User can configure mcp connector with server, tool, and arguments
+- FR64: User can assign pipelines to recordings
+- FR65: User can remove pipelines from recordings
+- FR66: System executes pipeline steps in order when transcript is available
+- FR67: System marks pipeline status as waiting/running/done/partial
+- FR68: System writes each step output as markdown file with frontmatter in pipelines/{pipeline-name}/
+- FR69: User can view pipeline status and step outputs for each recording
+- FR70: User can re-run failed pipeline steps individually
+- FR71: User can re-run entire pipelines
+- FR72: System automatically triggers waiting pipelines when transcript becomes available
+- FR73: User can create prompt templates with name, description, and prompt text
+- FR74: User can edit and delete prompt templates
+- FR75: User can select prompt templates when configuring llm connector steps
+- FR76: System stores pipeline definitions in ~/nbp-data/pipelines.json
+- FR77: System stores prompt templates in ~/nbp-data/prompt-templates.json
+- FR78: System migrates existing built-in templates to prompt-templates.json
+- FR79: User can filter recordings by assigned pipelines in sidebar
+- FR80: User can use visual pipeline constructor to create/edit pipelines with drag-and-drop
+- FR81: System validates pipeline configuration (input references, step dependencies)
+- FR82: System converts transcript format from plain text to markdown with frontmatter
+
 ## Non-Functional Requirements
 
 ### Performance
@@ -496,7 +557,7 @@ NBP is designed for **air-gapped operation**:
 - NFR2: Recording starts within 500ms of user clicking "Record"
 - NFR3: Recording stops and file writes within 1 second of user clicking "Stop"
 - NFR4: Real-time audio mixing adds <10ms latency
-- NFR5: Local Whisper transcription processes at >=1x real-time on Apple Silicon
+- NFR5: Local Whisper transcription processes at ≥1x real-time on Apple Silicon
 - NFR6: UI remains responsive during transcription (no blocking)
 - NFR7: Waveform visualization renders within 2 seconds for recordings up to 1 hour
 
@@ -533,3 +594,14 @@ NBP is designed for **air-gapped operation**:
 - NFR27: Visual feedback for all state changes (recording, processing, complete)
 - NFR28: Error messages actionable (include what went wrong and what to do)
 - NFR29: Theme colors maintain sufficient contrast for readability
+
+### Processing Pipelines
+
+- NFR30: Pipeline steps execute sequentially without blocking UI
+- NFR31: Step failures don't prevent subsequent step inspection
+- NFR32: Pipeline execution errors include actionable error messages
+- NFR33: MCP connector handles server unavailability gracefully
+- NFR34: Pipeline file outputs are human-readable markdown
+- NFR35: Prompt templates support variable substitution in runtime
+- NFR36: Pipeline execution handles missing input files with clear errors
+

@@ -1,3 +1,37 @@
+//! # NBP (No Bullshit Pipeline)
+//!
+//! Privacy-first macOS audio capture application built with Tauri 2.
+//! Records microphone and system audio simultaneously, processes with
+//! AI-powered transcription, and pipes results through configurable pipelines.
+//!
+//! ## Module Overview
+//!
+//! ### Core Audio
+//! - [`audio`] - Recording lifecycle (start/stop/pause/resume) and state management
+//! - [`mic_audio`] - Microphone capture via cpal
+//! - [`system_audio`] - System audio capture via Core Audio Process Taps (cidre)
+//! - [`audio_processing`] - EBU R128 normalization, real-time mixing, shared buffers
+//! - [`playback`] - In-app audio playback via rodio
+//! - [`waveform`] - Waveform data extraction for visualization
+//! - [`devices`] - Audio input device enumeration
+//!
+//! ### AI & Transcription
+//! - [`transcription`] - Local Whisper and cloud transcription
+//! - [`cloud_ai`] - Cloud AI providers (OpenAI, Google, Anthropic)
+//! - [`templates`] - Legacy output templates for structured extraction
+//!
+//! ### Pipeline System
+//! - [`pipelines`] - Pipeline definition model and validation
+//! - [`pipeline_engine`] - Sequential step execution engine with progress events
+//! - [`connectors`] - Built-in connectors (LLM, Save, Webhook)
+//! - [`prompt_templates`] - Reusable prompt template registry
+//! - [`transcript_migration`] - Migration from plain text to frontmatter transcript format
+//!
+//! ### Infrastructure
+//! - [`storage`] - Recording metadata, filesystem layout, CRUD operations
+//! - [`config`] - App settings, API key management
+//! - [`permissions`] - macOS permission checks (microphone, screen recording)
+
 mod audio;
 pub mod audio_processing;
 mod storage;
@@ -11,10 +45,14 @@ mod templates;
 mod playback;
 mod waveform;
 mod devices;
+pub mod pipelines;
+mod prompt_templates;
+mod connectors;
+mod pipeline_engine;
+mod transcript_migration;
 use audio::AudioState;
 use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
 
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -74,6 +112,10 @@ pub fn run() {
                 .build()?;
 
             app.set_menu(menu)?;
+
+            // Run transcript migration on startup
+            transcript_migration::run_migration_if_needed();
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -114,6 +156,22 @@ pub fn run() {
             waveform::get_waveform_data,
             devices::get_input_devices,
             get_audio_level,
+            // Pipeline system
+            pipelines::list_pipelines,
+            pipelines::get_pipeline,
+            pipelines::save_pipeline,
+            pipelines::delete_pipeline,
+            // Prompt templates
+            prompt_templates::list_prompt_templates,
+            prompt_templates::get_prompt_template,
+            prompt_templates::save_prompt_template,
+            prompt_templates::delete_prompt_template,
+            // Pipeline execution
+            pipeline_engine::execute_pipeline,
+            pipeline_engine::get_pipeline_status,
+            pipeline_engine::get_all_pipeline_states,
+            pipeline_engine::get_step_outputs,
+            pipeline_engine::assign_pipeline,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

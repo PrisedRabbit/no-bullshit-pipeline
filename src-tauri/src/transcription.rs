@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use crate::config::{WhisperModelSize, TranscriptionProvider, get_models_dir, load_settings};
-use crate::storage::get_data_dir;
+use crate::storage::{get_data_dir, read_metadata};
 use crate::cloud_ai;
+use crate::transcript_migration::{TranscriptMetadata, TranscriptSource, write_transcript_with_metadata};
 use tauri::Emitter;
 
 const BASE_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
@@ -162,7 +163,10 @@ pub async fn transcribe_recording(
         return Err("Audio file not found".to_string());
     }
 
-    let result = match settings.transcription.provider {
+    let provider = settings.transcription.provider.clone();
+    let whisper_model_ref = settings.transcription.whisper_model.clone();
+
+    let result = match provider {
         TranscriptionProvider::LocalWhisper => {
             // Local Whisper transcription
             let model_size = settings.transcription.whisper_model.ok_or("No whisper model selected")?;
@@ -205,9 +209,54 @@ pub async fn transcribe_recording(
         },
     };
 
-    std::fs::write(recording_dir.join("transcript.md"), &result).map_err(|e| e.to_string())?;
+    // Write transcript with frontmatter metadata
+    let source = match provider {
+        TranscriptionProvider::LocalWhisper => TranscriptSource::Local,
+        TranscriptionProvider::OpenAI => TranscriptSource::Openai,
+        TranscriptionProvider::Google => TranscriptSource::Google,
+        TranscriptionProvider::Anthropic => TranscriptSource::Anthropic,
+    };
+    let model_name = match &source {
+        TranscriptSource::Local => {
+            format!("whisper-{}", whisper_model_ref
+                .map(|m| format!("{:?}", m).to_lowercase())
+                .unwrap_or_else(|| "unknown".to_string()))
+        },
+        TranscriptSource::Openai => "whisper-1".to_string(),
+        _ => "unknown".to_string(),
+    };
+    let duration_sec = read_metadata(&recording_id)
+        .ok()
+        .and_then(|m| m.audio.mix.as_ref().map(|a| a.duration_sec))
+        .unwrap_or(0.0);
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+
+    let metadata = TranscriptMetadata {
+        source,
+        model: model_name,
+        created_at: now,
+        duration_sec,
+        language: Some("auto".to_string()),
+        segments_count: None,
+    };
+
+    let transcript_path = recording_dir.join("transcript.md");
+    write_transcript_with_metadata(&transcript_path, &result, &metadata)?;
 
     Ok(result)
+}
+
+/// Read transcript body, stripping frontmatter if present
+fn read_transcript_body(path: &std::path::Path) -> Result<String, String> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read transcript: {}", e))?;
+    if content.starts_with("---") {
+        let parts: Vec<&str> = content.splitn(3, "---").collect();
+        if parts.len() >= 3 {
+            return Ok(parts[2].trim().to_string());
+        }
+    }
+    Ok(content)
 }
 
 /// Summarize a recording's transcript using the configured AI provider
@@ -224,8 +273,7 @@ pub async fn summarize_recording(
         return Err("No transcript found. Please transcribe the recording first.".to_string());
     }
 
-    let transcript = std::fs::read_to_string(&transcript_path)
-        .map_err(|e| format!("Failed to read transcript: {}", e))?;
+    let transcript = read_transcript_body(&transcript_path)?;
 
     // Determine which provider to use
     let use_provider = provider
@@ -283,8 +331,7 @@ pub async fn process_with_template(
         return Err("No transcript found. Please transcribe the recording first.".to_string());
     }
 
-    let transcript = std::fs::read_to_string(&transcript_path)
-        .map_err(|e| format!("Failed to read transcript: {}", e))?;
+    let transcript = read_transcript_body(&transcript_path)?;
 
     // Load template
     let template = crate::templates::get_template_internal(&template_name)?;
@@ -335,9 +382,17 @@ pub async fn process_with_template(
 pub async fn get_transcript(recording_id: String) -> Result<Option<String>, String> {
     let recording_dir = get_data_dir().join(&recording_id);
     let transcript_path = recording_dir.join("transcript.md");
-    
+
     if transcript_path.exists() {
-        let content = std::fs::read_to_string(transcript_path).map_err(|e| e.to_string())?;
+        let content = std::fs::read_to_string(&transcript_path).map_err(|e| e.to_string())?;
+        // Strip YAML frontmatter if present, return only body
+        if content.starts_with("---") {
+            let parts: Vec<&str> = content.splitn(3, "---").collect();
+            if parts.len() >= 3 {
+                let body = parts[2].trim();
+                return Ok(Some(body.to_string()));
+            }
+        }
         Ok(Some(content))
     } else {
         Ok(None)

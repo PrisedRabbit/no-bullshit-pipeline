@@ -261,6 +261,164 @@ body.deep-obsidian         /* Deep Obsidian theme applied */
 | Explicit consent | API keys only when user provides them |
 | Permission checks | macOS permissions verified at startup |
 
+## Processing Pipelines
+
+### Pipeline Model
+
+**Core Concept:** Named, ordered sequences of steps that process recording data. Replaces flat tags with actionable workflows.
+
+**Pipeline States:**
+- `waiting` - No transcript available yet
+- `running` - Steps currently executing
+- `done` - All steps completed successfully
+- `partial` - Some steps failed, others succeeded
+
+### File-Based Context
+
+All pipeline execution uses filesystem as context. No in-memory state.
+
+```
+~/nbp-data/{recording-id}/
+├── metadata.json
+├── audio_mix.ogg
+├── raw_mic.ogg
+├── raw_system.ogg
+├── transcript.md              # System-level, not pipeline-specific
+└── pipelines/
+    ├── hltm/
+    │   ├── meeting_notes.md   # Step 1 output
+    │   ├── action_items.md    # Step 2 output
+    │   └── slack.md           # Step 3 delivery status
+    └── self/
+        ├── structured.md
+        └── save.md
+```
+
+### Step Format
+
+Every step output is markdown with YAML frontmatter:
+
+```markdown
+---
+name: meeting_notes
+description: "Extract structured meeting notes"
+connector: llm
+input: transcript
+status: done
+created_at: 2026-02-03T12:00:00Z
+completed_at: 2026-02-03T12:00:05Z
+error: null
+---
+
+## Meeting Notes
+- Decision: Launch in March
+- Owner: SK takes frontend
+```
+
+### Connectors
+
+**Built-in (3 types):**
+
+| Connector | Purpose | I/O |
+|-----------|---------|-----|
+| `llm` | AI processing with prompt template | md → md |
+| `save` | Copy file to specified path | md → md (status) |
+| `webhook` | HTTP POST to URL | md → md (status) |
+
+**External (MCP):**
+
+All third-party integrations use MCP connector:
+
+```yaml
+connector: mcp
+config:
+  server: "slack-mcp"
+  tool: "send-message"
+  args: { channel: "#team" }
+```
+
+### Pipeline Definition
+
+Stored in `~/nbp-data/pipelines.json`:
+
+```json
+{
+  "hltm": {
+    "name": "HLTM Team Meetings",
+    "description": "Process team meetings to Slack + Notion",
+    "steps": [
+      {
+        "name": "meeting_notes",
+        "connector": "llm",
+        "input": "transcript",
+        "config": {
+          "prompt_template": "meeting-notes-v1",
+          "provider": "openai",
+          "model": "gpt-4o"
+        }
+      },
+      {
+        "name": "action_items",
+        "connector": "llm",
+        "input": "meeting_notes",
+        "config": {
+          "prompt_template": "extract-actions",
+          "provider": "claude"
+        }
+      },
+      {
+        "name": "slack",
+        "connector": "mcp",
+        "input": "meeting_notes",
+        "config": {
+          "server": "slack-mcp",
+          "tool": "send-message",
+          "args": { "channel": "#hltm" }
+        }
+      }
+    ]
+  }
+}
+```
+
+### Prompt Templates
+
+Reusable prompts stored in `~/nbp-data/prompt-templates.json`:
+
+```json
+{
+  "meeting-notes-v1": {
+    "name": "Meeting Notes Extractor",
+    "description": "Extract structured meeting notes",
+    "prompt": "Extract from transcript:\n- Attendees\n- Key decisions\n- Action items with owners\n\nFormat as markdown."
+  }
+}
+```
+
+### Execution Model
+
+1. **Transcript Dependency:** Pipelines wait until `transcript.md` exists
+2. **Sequential Steps:** Execute in definition order, no branching
+3. **Input References:** Each step reads from previous step output or transcript
+4. **Output Files:** Each step writes `{step-name}.md` in pipeline directory
+5. **Error Handling:** Failed steps don't block inspection, mark pipeline as `partial`
+6. **Re-run Support:** Individual steps or entire pipelines can be re-run
+
+### Migration from Tags
+
+Existing template system converts to pipelines:
+
+**Before (v0.3):**
+- Recording has tags: `["meeting", "team"]`
+- User manually applies template after transcription
+
+**After (v0.4 with Pipelines):**
+- Recording assigned pipeline: `"hltm"`
+- Pipeline auto-executes when transcript appears
+- Steps produce files in `pipelines/hltm/`
+
+Built-in templates (Meeting Notes, Brainstorm, Journal) migrate to prompt templates.
+
 ## Future Extensibility
 
 **Platform Isolation:**
@@ -271,3 +429,9 @@ body.deep-obsidian         /* Deep Obsidian theme applied */
 **API Integration Points:**
 - `TranscriptionProvider` enum supports `LocalWhisper`, `OpenAI`, `Google`
 - API key storage ready in settings
+- MCP connector enables unlimited third-party integrations
+
+**Pipeline Extensibility:**
+- User-defined pipelines via JSON config
+- Shareable pipeline templates
+- Visual pipeline constructor (future)

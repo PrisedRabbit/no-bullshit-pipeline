@@ -155,7 +155,7 @@ async function runE2ETests() {
       'template-select',
       'summarize-btn',
       'extract-btn',
-      'waveform-canvas',
+      'recording-waveform-canvas',
       'play-pause-btn',
       'settings-recording-notification'
     ];
@@ -176,7 +176,6 @@ async function runE2ETests() {
       'summarize_recording',
       'process_with_template',
       'list_templates',
-      'get_waveform_data',
       'play_audio'
     ];
 
