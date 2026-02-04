@@ -12,7 +12,7 @@ use std::sync::{
     Arc,
 };
 use std::thread;
-use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoder};
+use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoderBuilder};
 
 use crate::audio_processing::LoudnessNormalizer;
 
@@ -56,6 +56,12 @@ pub struct MicAudioRecorder {
     stream: Option<cpal::Stream>,
 }
 
+// SAFETY: MicAudioRecorder is stored inside Mutex<Option<...>> in AudioState.
+// The cpal::Stream it holds is !Send due to platform-level PhantomData<*mut ()>,
+// but the stream is only created, held alive, and dropped -- never sent or
+// accessed from another thread. The Mutex serialises all access.
+unsafe impl Send for MicAudioRecorder {}
+
 impl MicAudioRecorder {
     pub fn new(output_path: std::path::PathBuf, device_name: Option<String>, skip_file: bool) -> Result<Self> {
         let host = cpal::default_host();
@@ -78,7 +84,8 @@ impl MicAudioRecorder {
         let sample_rate = config.sample_rate().0;
         let channels = config.channels();
         
-        println!("Mic Config: Rate={}, Channels={}", sample_rate, channels);
+        #[cfg(debug_assertions)]
+        eprintln!("Mic Config: Rate={}, Channels={}", sample_rate, channels);
 
         // Ring Buffer (1 second capacity is usually enough for processing thread to catch up)
         // 48k * 2ch * 4bytes = ~384KB.
@@ -170,6 +177,41 @@ pub fn start_mic_capture(output_path: std::path::PathBuf, device_name: Option<St
     MicAudioRecorder::new(output_path, device_name, skip_file)
 }
 
+/// Convert interleaved audio samples to planar stereo format.
+///
+/// Handles mono (duplicate to both channels), stereo (de-interleave),
+/// and multi-channel (take first two channels) input.
+fn to_planar_stereo(samples: &[f32], input_channels: u32) -> Vec<Vec<f32>> {
+    let frames = samples.len() / input_channels as usize;
+    if input_channels == 1 {
+        // Mono -> Stereo: duplicate to both channels
+        let ch_data = samples.to_vec();
+        vec![ch_data.clone(), ch_data]
+    } else if input_channels == 2 {
+        // Stereo -> Stereo: de-interleave
+        let mut left = Vec::with_capacity(frames);
+        let mut right = Vec::with_capacity(frames);
+        for chunk in samples.chunks(2) {
+            if chunk.len() == 2 {
+                left.push(chunk[0]);
+                right.push(chunk[1]);
+            }
+        }
+        vec![left, right]
+    } else {
+        // Multi-channel -> Stereo: take first two channels
+        let mut left = Vec::with_capacity(frames);
+        let mut right = Vec::with_capacity(frames);
+        for chunk in samples.chunks(input_channels as usize) {
+            if chunk.len() >= 2 {
+                left.push(chunk[0]);
+                right.push(chunk[1]);
+            }
+        }
+        vec![left, right]
+    }
+}
+
 fn run_audio_processing(
     path: std::path::PathBuf,
     should_stop: Arc<AtomicBool>,
@@ -191,7 +233,8 @@ fn run_audio_processing(
     let needs_resampling = sample_rate != MIXER_SAMPLE_RATE;
     let resampler_chunk_size = 1024usize;
     let mut resampler: Option<SincFixedIn<f32>> = if needs_resampling {
-        println!("Mic: Resampling from {}Hz to {}Hz for real-time mixer", sample_rate, MIXER_SAMPLE_RATE);
+        #[cfg(debug_assertions)]
+        eprintln!("Mic: Resampling from {}Hz to {}Hz for real-time mixer", sample_rate, MIXER_SAMPLE_RATE);
         let params = SincInterpolationParameters {
             sinc_len: 256,
             f_cutoff: 0.95,
@@ -216,19 +259,19 @@ fn run_audio_processing(
     let mut resample_buffer_right: Vec<f32> = Vec::with_capacity(resampler_chunk_size * 2);
 
     // Setup Encoder (only if not skipping file output)
-    let mut encoder: Option<VorbisEncoder<File>> = if !skip_file {
+    let mut encoder = if !skip_file {
         let output_file = File::create(&path)?;
-        Some(VorbisEncoder::new(
-            0,
-            [("", ""); 0],
+        Some(VorbisEncoderBuilder::new_with_serial(
             NonZeroU32::new(sample_rate).ok_or(anyhow::anyhow!("Invalid sample rate"))?,
             NonZeroU8::new(output_channels).ok_or(anyhow::anyhow!("Invalid channels"))?,
-            VorbisBitrateManagementStrategy::QualityVbr { target_quality: 0.4 },
-            None,
             output_file,
-        )?)
+            0,
+        )
+        .bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr { target_quality: 0.4 })
+        .build()?)
     } else {
-        println!("Mic: Skipping file output (mix-only mode)");
+        #[cfg(debug_assertions)]
+        eprintln!("Mic: Skipping file output (mix-only mode)");
         None
     };
 
@@ -277,36 +320,9 @@ fn run_audio_processing(
 
                     let normalized_samples = normalizer.normalize_loudness(raw_samples);
                     
-                    // Logic to handle Mono/Stereo/Multi -> Stereo Output
+                    // Convert to planar stereo format
                     let frames_encoded = normalized_samples.len() / input_channels as usize;
-
-                    let planar_slices: Vec<Vec<f32>> = if input_channels == 1 {
-                        // MONO -> STEREO
-                        let ch_data = normalized_samples.clone();
-                        vec![ch_data.clone(), ch_data]
-                    } else if input_channels == 2 {
-                        // STEREO -> STEREO (De-interleave)
-                        let mut left = Vec::with_capacity(frames_encoded);
-                        let mut right = Vec::with_capacity(frames_encoded);
-                        for chunk in normalized_samples.chunks(2) {
-                            if chunk.len() == 2 {
-                                left.push(chunk[0]);
-                                right.push(chunk[1]);
-                            }
-                        }
-                        vec![left, right]
-                    } else {
-                        // Multi-channel -> Stereo (Take first 2)
-                         let mut left = Vec::with_capacity(frames_encoded);
-                         let mut right = Vec::with_capacity(frames_encoded);
-                         for chunk in normalized_samples.chunks(input_channels as usize) {
-                              if chunk.len() >= 2 {
-                                 left.push(chunk[0]);
-                                 right.push(chunk[1]);
-                             }
-                         }
-                         vec![left, right]
-                    };
+                    let planar_slices = to_planar_stereo(&normalized_samples, input_channels);
 
                     // Push to shared buffer for real-time mixing (resample if needed)
                     if planar_slices.len() >= 2 {
@@ -420,30 +436,7 @@ fn run_audio_processing(
             let normalized_samples = normalizer.normalize_loudness(raw_samples);
             let frames_encoded = normalized_samples.len() / input_channels as usize;
             
-            let planar_slices: Vec<Vec<f32>> = if input_channels == 1 {
-                let ch_data = normalized_samples.clone();
-                vec![ch_data.clone(), ch_data]
-            } else if input_channels == 2 {
-                let mut left = Vec::with_capacity(frames_encoded);
-                let mut right = Vec::with_capacity(frames_encoded);
-                for chunk in normalized_samples.chunks(2) {
-                    if chunk.len() == 2 {
-                        left.push(chunk[0]);
-                        right.push(chunk[1]);
-                    }
-                }
-                vec![left, right]
-            } else {
-                let mut left = Vec::with_capacity(frames_encoded);
-                let mut right = Vec::with_capacity(frames_encoded);
-                for chunk in normalized_samples.chunks(input_channels as usize) {
-                    if chunk.len() >= 2 {
-                        left.push(chunk[0]);
-                        right.push(chunk[1]);
-                    }
-                }
-                vec![left, right]
-            };
+            let planar_slices = to_planar_stereo(&normalized_samples, input_channels);
             
             if let Some(ref mut enc) = encoder {
                 let slices_ref: Vec<&[f32]> = planar_slices.iter().map(|v| v.as_slice()).collect();
@@ -463,7 +456,8 @@ fn run_audio_processing(
 
         if total_frames_written < expected_frames {
             let missing_frames = expected_frames - total_frames_written;
-            println!("Mic Audio Underrun: Padding with {} frames of silence ({:.2}s)",
+            #[cfg(debug_assertions)]
+            eprintln!("Mic Audio Underrun: Padding with {} frames of silence ({:.2}s)",
                  missing_frames, missing_frames as f64 / sample_rate as f64);
 
             // Create silence block

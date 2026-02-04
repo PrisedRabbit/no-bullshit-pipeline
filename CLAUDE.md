@@ -32,11 +32,20 @@
 
 - Always use `Context7` MCP when I need library/API documentation, code generation, setup or configuration steps without me having to explicitly ask.
 
+## File Operations
+
+- NEVER use Bash redirects (`>`, `>>`, heredoc, `cat > file`, `echo > file`)
+- Do NOT write files via shell commands
+- Use only Write/Edit tools for file creation or modification
+
 ## Build
 
 - Run all commands without prompting for user input unless interaction is **absolutely** required
+- **NEVER** run `cargo tauri dev` unless the user explicitly asks — use `cargo check` for compilation verification
+- Running the app opens a window and interferes with the user's workflow
 
 ```bash
-cargo tauri dev      # development
+cargo check          # verify compilation (default)
+cargo tauri dev      # development (only when user asks)
 cargo tauri build    # production
 ```

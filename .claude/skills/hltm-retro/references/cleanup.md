@@ -2,36 +2,24 @@
 
 ## Script
 
-**Use the script. Don't delete manually.**
-
-```bash
-bash ./scripts/cleanup.sh
-```
-
-Script will:
-1. Confirm with user
-2. Delete: epics, stories, prd, sprint-status
-3. Reset .hltm/session.yaml to idle
-4. Verify post-cleanup invariants
+**No script. Manual cleanup only.**
 
 ## What Gets Deleted
 
-| Path | Content |
-|------|---------|
-| `docs/epics/` | All epic files |
-| `docs/stories/` | All story files (if exists) |
-| `docs/prd.md` | Requirements doc |
-| `sprint-status.yaml` | Sprint tracking |
+| Path                          | Content                                                                      |
+| ----------------------------- | ---------------------------------------------------------------------------- |
+| `{planning_artifacts}/`       | BMAD planning artifacts. **DELETE:** epics, user stories, wireframes, intermediate diagrams. **KEEP:** PRD, Architecture, UX Guidelines (for Brownfield context). |
+| `{implementation_artifacts}/` | BMAD implementation artifacts (stories, sprint-status, test summaries, etc.). **DELETE ALL** (except keeping logs if needed). |
 
 ## What Stays
 
-| Path | Why |
-|------|-----|
-| `docs/architecture.md` | Long-term reference |
-| `docs/ux-design.md` | Long-term reference |
-| `docs/project-context.md` | Rules for agents |
-| `changelog-*.md` | History |
-| `.hltm/session.yaml` | Reset to idle |
+| Path                             | Why                                          |
+| -------------------------------- | -------------------------------------------- |
+| `{planning_artifacts}/prd*.md` | Project Context |
+| `{planning_artifacts}/arch*.md` | Project Context |
+| `{planning_artifacts}/ux*.md`  | Project Context |
+| `{project_knowledge}/`           | Long-term knowledge (if used by the project) |
+| `{PROJECT_ROOT}/changelogs/changelog-*.md` | History                                |
 
 ## Git = Archive
 
@@ -39,16 +27,14 @@ Don't create `/archive` folders. Just delete.
 
 ```bash
 # Recover deleted files from git:
-git log --all --full-history -- docs/epics/
-git checkout <commit>^ -- docs/epics/
+git log --all --full-history -- <path>
+git checkout <commit>^ -- <path>
 ```
 
 ## Post-Cleanup Invariant
 
-Script verifies:
-- `docs/project-context.md` exists
-- `docs/architecture.md` exists
-- `docs/prd.md` deleted
-- `sprint-status.yaml` deleted
-- `docs/epics/` empty or gone
-- `.hltm/session.yaml` phase = idle
+Verify:
+
+- `{project_knowledge}/project-context.md` exists (if used by the project)
+- `{planning_artifacts}` contains ONLY PRD/Architecture/UX docs.
+- Transient DONE artifacts removed (without destroying in-progress/backlog artifacts).

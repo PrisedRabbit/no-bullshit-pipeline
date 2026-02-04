@@ -11,7 +11,7 @@ use std::sync::{
     Arc,
 };
 use std::thread;
-use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoder};
+use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoder, VorbisEncoderBuilder};
 
 use crate::audio_processing::LoudnessNormalizer;
 
@@ -140,57 +140,53 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
         _output_time: &cat::AudioTimeStamp,
         ctx: Option<&mut AudioContext>,
     ) -> os::Status {
-        let ctx = ctx.unwrap();
-        
-        // Check number of buffers to determine Planar vs Interleaved
-        // input_data.number_buffers is u32
+        let Some(ctx) = ctx else {
+            return os::Status::NO_ERR; // Graceful: no context, skip frame
+        };
+
         let num_buffers = input_data.number_buffers;
         let buffers = &input_data.buffers;
 
-        if num_buffers == 2 {
+        if num_buffers >= 2 {
             // PLANAR: L in buffer[0], R in buffer[1]
-            // Access buffers[0] safely via slice
             let buf_l = &buffers[0];
-            
-            // Access buffers[1] using unsafe pointer arithmetic because 
-            // AudioBufList<1> generic limits slice size to 1.
+            // Safety: we verified num_buffers >= 2 so buffer[1] exists in the
+            // underlying C array even though Rust generic is AudioBufList<1>
             let buf_r = unsafe { &*buffers.as_ptr().add(1) };
-            
+
             let ptr_l = buf_l.data as *const f32;
             let ptr_r = buf_r.data as *const f32;
             let len_l = (buf_l.data_bytes_size as usize) / std::mem::size_of::<f32>();
-            
+            let len_r = (buf_r.data_bytes_size as usize) / std::mem::size_of::<f32>();
+
             if !ptr_l.is_null() && !ptr_r.is_null() && len_l > 0 {
                 let samples_l = unsafe { std::slice::from_raw_parts(ptr_l, len_l) };
-                let samples_r = unsafe { std::slice::from_raw_parts(ptr_r, len_l) };
-                
-                // Interleave manually: L, R, L, R...
-                let mut interleaved = Vec::with_capacity(len_l * 2);
-                for i in 0..len_l {
+                let samples_r = unsafe { std::slice::from_raw_parts(ptr_r, len_r) };
+
+                let frame_count = len_l.min(len_r);
+                let mut interleaved = Vec::with_capacity(frame_count * 2);
+                for i in 0..frame_count {
                     interleaved.push(samples_l[i]);
-                    // Safety check if buf_r len is different? Assume audio block alignment.
-                    if i < samples_r.len() {
-                        interleaved.push(samples_r[i]);
-                    } else {
-                        interleaved.push(0.0);
-                    }
+                    interleaved.push(samples_r[i]);
+                }
+                // If L has extra samples beyond R, pad R with silence
+                for i in frame_count..len_l {
+                    interleaved.push(samples_l[i]);
+                    interleaved.push(0.0);
                 }
                 ctx.producer.push_slice(&interleaved);
             }
-        
+
         } else if !buffers.is_empty() {
-             // INTERLEAVED (or Mono): All channels in buffer[0]
-             let buffer = &buffers[0];
-             let ptr = buffer.data as *const f32;
-             // data_bytes_size tells absolute size.
-             let len = (buffer.data_bytes_size as usize) / std::mem::size_of::<f32>();
-             if !ptr.is_null() && len > 0 {
-                 let samples = unsafe { std::slice::from_raw_parts(ptr, len) };
-                 // Push to ring buffer
-                 ctx.producer.push_slice(samples);
-             }
+            let buffer = &buffers[0];
+            let ptr = buffer.data as *const f32;
+            let len = (buffer.data_bytes_size as usize) / std::mem::size_of::<f32>();
+            if !ptr.is_null() && len > 0 {
+                let samples = unsafe { std::slice::from_raw_parts(ptr, len) };
+                ctx.producer.push_slice(samples);
+            }
         }
-        
+
         os::Status::NO_ERR
     }
 
@@ -211,17 +207,17 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
     let mut encoder: Option<VorbisEncoder<File>> = if !skip_file {
         let output_file = File::create(&path)?;
         // Quality 0.4 is variable bitrate (VBR) target quality (~128kbps)
-        Some(VorbisEncoder::new(
-            0, // Stream serial (0 for now)
-            [("", ""); 0], // No comments
+        Some(VorbisEncoderBuilder::new_with_serial(
             NonZeroU32::new(sample_rate).ok_or(anyhow::anyhow!("Invalid sample rate"))?,
             NonZeroU8::new(channels as u8).ok_or(anyhow::anyhow!("Invalid channels"))?,
-            VorbisBitrateManagementStrategy::QualityVbr { target_quality: 0.4 },
-            None, // Default page size optimization
             output_file,
-        )?)
+            0,
+        )
+        .bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr { target_quality: 0.4 })
+        .build()?)
     } else {
-        println!("System: Skipping file output (mix-only mode)");
+        #[cfg(debug_assertions)]
+        eprintln!("System: Skipping file output (mix-only mode)");
         None
     };
     
@@ -394,12 +390,14 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
         let elapsed = start_time.elapsed().as_secs_f64();
         let expected_frames = (elapsed * sample_rate as f64) as u64;
 
-        println!("System Audio Stop: Timer={:.3}s, Rate={}, Written={}, Expected={}, Diff={}",
+        #[cfg(debug_assertions)]
+        eprintln!("System Audio Stop: Timer={:.3}s, Rate={}, Written={}, Expected={}, Diff={}",
             elapsed, sample_rate, total_frames_written, expected_frames, expected_frames as i64 - total_frames_written as i64);
 
         if total_frames_written < expected_frames {
             let missing_frames = expected_frames - total_frames_written;
-            println!("System Audio Underrun: Padding with {} frames of silence ({:.2}s)",
+            #[cfg(debug_assertions)]
+            eprintln!("System Audio Underrun: Padding with {} frames of silence ({:.2}s)",
                 missing_frames, missing_frames as f64 / sample_rate as f64);
 
             // Create silence block (e.g., 4096 frames at a time)
@@ -425,12 +423,14 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
                 remaining -= chunk;
             }
         } else {
-            println!("System Audio: No padding needed (Written >= Expected)");
+            #[cfg(debug_assertions)]
+            eprintln!("System Audio: No padding needed (Written >= Expected)");
         }
 
         // Finish encoding
         enc.finish()?;
-        println!("System Audio: Encoder finished.");
+        #[cfg(debug_assertions)]
+        eprintln!("System Audio: Encoder finished.");
     }
 
     Ok(())

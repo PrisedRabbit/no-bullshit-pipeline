@@ -14,7 +14,7 @@ pub enum PlaybackStatus {
     Paused,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PlaybackState {
     pub status: PlaybackStatus,
     pub current_position_ms: u64,

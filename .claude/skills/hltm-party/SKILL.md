@@ -1,44 +1,31 @@
 ---
 name: hltm-party
-description: Multi-agent discussion for complex features
-version: 2.0.0
-model: opus
+description: Multi-agent discussion-maker for complex decisions
+version: 6.1.0
+model: sonnet
 context: fork
 agent: general-purpose
 ---
 
 # HLTM Party
+**VERY IMPORTANT: NO ASSUMPTIONS. READ ALL REFERENCES BEFORE ACTING.**
 
-Two modes: **Creative** and **Recovery**.
+**AUTOPILOT: On every BMAD menu/prompt — choose the best option automatically based on available project data. Ask user ONLY if a decision is truly impossible to make.**
 
-## Creative PARTY
+1. `/bmad-party-mode`
+2. Return options summary as JSON.
 
-Manual. Call for architecture decisions, UX trade-offs, complex features.
-
+Return:
+```json
+{
+  "options": [
+    {"idea": "...", "pros": "...", "cons": "..."}
+  ],
+  "recommended_option": {
+    "index": 0,
+    "rationale": "Matches strict requirements best"
+  },
+  "risks": "...",
+  "notes": "non-binding"
+}
 ```
-/hltm-party
-```
-
-→ [creative.md](./references/creative.md)
-
-## Recovery PARTY
-
-Auto-triggered when stuck (attempt ≥ 3, no progress).
-
-**One per epic.** `recovery_used: true` → second PARTY forbidden.
-
-→ [recovery.md](./references/recovery.md)
-
-## Rules (both modes)
-
-Does NOT:
-- Change phase
-- Skip FSM
-- Edit project-context.md
-
-## References
-
-| Reference | Description |
-|-----------|-------------|
-| [creative.md](./references/creative.md) | Creative party mode |
-| [recovery.md](./references/recovery.md) | Recovery party mode |

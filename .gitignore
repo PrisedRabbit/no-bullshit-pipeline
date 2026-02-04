@@ -41,3 +41,7 @@ src-tauri/target
 .cursor/commands
 _bmad
 input
+
+# Swift sidecar build artifacts
+fluidaudio-sidecar/.build/
+fluidaudio-sidecar/.swiftpm/

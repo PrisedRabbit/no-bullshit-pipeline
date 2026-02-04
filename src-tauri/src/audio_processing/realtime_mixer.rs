@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoder};
+use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoder, VorbisEncoderBuilder};
 
 use super::{MIC_BUFFER, SYSTEM_BUFFER};
 
@@ -46,22 +46,22 @@ impl RealtimeMixer {
 }
 
 fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Result<()> {
-    println!("Real-time mixer: Starting (buffer-based, continuous timeline)");
+    #[cfg(debug_assertions)]
+    eprintln!("Real-time mixer: Starting (buffer-based, continuous timeline)");
 
     // Output format: 48kHz stereo
     let sample_rate = 48000u32;
     let channels = 2u8;
 
     let output_file = File::create(&output_path)?;
-    let mut encoder = VorbisEncoder::new(
-        0,
-        [("", ""); 0],
+    let mut encoder = VorbisEncoderBuilder::new_with_serial(
         NonZeroU32::new(sample_rate).ok_or(anyhow::anyhow!("Invalid sample rate"))?,
         NonZeroU8::new(channels).ok_or(anyhow::anyhow!("Invalid channels"))?,
-        VorbisBitrateManagementStrategy::QualityVbr { target_quality: 0.5 },
-        None,
         output_file,
-    )?;
+        0,
+    )
+    .bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr { target_quality: 0.5 })
+    .build()?;
 
     // Continuous timeline tracking (like mic/system recorders)
     let start_time = std::time::Instant::now();
@@ -69,9 +69,6 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
 
     // Tick every 10ms to maintain timeline
     let tick_duration = Duration::from_millis(10);
-
-    // Wait a bit for buffers to start filling
-    thread::sleep(Duration::from_millis(50));
 
     while !should_stop.load(Ordering::Relaxed) {
         // Calculate how many frames SHOULD exist by now
@@ -168,7 +165,8 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
     }
 
     encoder.finish()?;
-    println!("Real-time mixer: Finished. Wrote {} frames ({:.2}s)",
+    #[cfg(debug_assertions)]
+    eprintln!("Real-time mixer: Finished. Wrote {} frames ({:.2}s)",
         total_frames_written, total_frames_written as f64 / sample_rate as f64);
     Ok(())
 }
@@ -211,12 +209,12 @@ fn drain_and_encode(encoder: &mut VorbisEncoder<File>, block_size: usize) -> Res
     Ok(())
 }
 
-/// Soft clipping to prevent harsh distortion
+/// Soft clipping to prevent harsh distortion using tanh.
+/// Consistent with offline mixer approach (mixer.rs).
+/// tanh provides smooth, continuous clipping with no discontinuity:
+/// - Near-linear passthrough for small values (tanh(x) ≈ x when |x| << 1)
+/// - Smooth saturation toward ±1.0 for large values
 #[inline]
 fn soft_clip(x: f32) -> f32 {
-    if x.abs() <= 1.0 {
-        x
-    } else {
-        x.signum() * (1.0 - (-x.abs() + 1.0).exp().min(1.0))
-    }
+    (x as f64).tanh() as f32
 }

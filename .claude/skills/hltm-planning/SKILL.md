@@ -1,19 +1,20 @@
 ---
 name: hltm-planning
 description: Planning phase - PRD + UX
-version: 4.0.0
+version: 6.1.0
 model: opus
 context: fork
 agent: general-purpose
 ---
 
 # Planning
+**Goal:** PRD + UX from `input/brief-enhanced.md`. **Strict scope** (see `../hltm-autopilot/references/scope.md`).
 
-**VERY IMPORTANT: NO ASSUMPTIONS. READ ALL REFERENCES BEFORE ACTING.**
+## Steps
 
-1. `/bmad-bmm-create-prd`
+1. `/bmad-bmm-create-prd` (auto-decide mode)
 2. `/bmad-bmm-create-ux-design`
+3. `/hltm-party` — review
+4. `/bmad-agent-bmm-pm` — apply changes
 
-Output: `docs/prd.md`, `docs/ux-design.md`
-
-Return: `{"status": "done", "phase": "planning"}`
+Return: `{"status": "done"}`

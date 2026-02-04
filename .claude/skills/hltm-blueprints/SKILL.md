@@ -1,11 +1,13 @@
 ---
 name: hltm-blueprints
 description: Project blueprint templates for HLTM
-version: 2.0.0
+version: 6.1.0
 model: sonnet
 ---
 
 # HLTM Blueprints
+
+**VERY IMPORTANT: NO ASSUMPTIONS. READ ALL REFERENCES BEFORE ACTING.**
 
 Comprehensive project templates with tech stack, architecture, patterns.
 

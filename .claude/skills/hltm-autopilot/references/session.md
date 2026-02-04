@@ -10,25 +10,31 @@
 
 ```yaml
 phase: implementation
+blueprint: web-app
 epic: epic-01-auth
 story: 1-2-refresh-token
-step: hltm-testing-run
+step: develop
 attempt: 2
 recovery_used: false
+blocked: false
+waiting_for_answers: false
 ```
 
 No timestamps. No messages. No reasons.
 
 ## Fields
 
-| Field | Values |
-|-------|--------|
-| phase | idle, planning, solutioning, readiness, implementation, retro |
-| epic | epic file name |
-| story | story key |
-| step | current workflow step |
-| attempt | retry count (≥1) |
-| recovery_used | boolean (reset on epic change only) |
+| Field               | Values                                                                                                    |
+| ------------------- | --------------------------------------------------------------------------------------------------------- |
+| phase               | idle, brief, planning, solutioning, readiness, sprint-prep, implementation, retro                      |
+| blueprint           | web-app, desktop-app, custom (cached from brief)                                                          |
+| epic                | epic file name                                                                                            |
+| story               | story key                                                                                                 |
+| step                | develop, testing, code-review                                                                             |
+| attempt             | retry count (≥1)                                                                                          |
+| recovery_used       | boolean (reset on epic change only)                                                                       |
+| blocked             | boolean (true if critical error occurred). **User must remove manually after fixing issue.**              |
+| waiting_for_answers | boolean (true if input/questions.md needs user attention). **User must remove manually after answering.** |
 
 ## Rules
 
@@ -37,10 +43,10 @@ No timestamps. No messages. No reasons.
 3. **Update after EVERY action**
 4. **Corrupted → FAIL FAST**
 
-## Driver Pattern
+## Write Pattern
 
 ```
-Agent returns JSON → Driver validates → Driver writes YAML
+Skill returns JSON → Autopilot validates → Autopilot writes YAML
 ```
 
-Agent NEVER writes YAML directly.
+Skills NEVER write `.hltm/session.yaml` directly.

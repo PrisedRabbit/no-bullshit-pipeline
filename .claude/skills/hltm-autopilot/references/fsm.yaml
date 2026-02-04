@@ -5,38 +5,50 @@
 phases:
   idle:
     transitions:
+      - to: brief
+        trigger: input/brief.md exists
+
+  brief:
+    skill: /hltm-brief
+    transitions:
       - to: planning
-        trigger: new_project
-      - to: planning
-        trigger: update
 
   planning:
-    allowed_agents: [pm, analyst, ux]
+    skill: /hltm-planning
     transitions:
       - to: solutioning
 
   solutioning:
-    allowed_agents: [architect]
+    skill: /hltm-solutioning
     transitions:
       - to: readiness
 
   readiness:
-    allowed_agents: []  # gate only, no agents
+    skill: /hltm-readiness
     transitions:
-      - to: implementation
+      - to: sprint-prep
         condition: pass
       - to: solutioning
         condition: fail
 
+  sprint-prep:
+    skill: /hltm-sprint-prep
+    transitions:
+      - to: implementation
+
   implementation:
-    allowed_agents: [dev, tea, reviewer]
-    # NO self-loop. Story/epic progression is internal (step-based), not FSM.
+    # No single skill — router maps step to sub-skill.
+    # See implementation-routing.md
+    sub-skills:
+      develop: /hltm-impl-develop
+      testing: /hltm-impl-testing
+      code-review: /hltm-impl-code-review
     transitions:
       - to: retro
         trigger: all_done
 
   retro:
-    allowed_agents: []  # system only
+    skill: /hltm-retro
     transitions:
       - to: idle
 

@@ -1,30 +1,19 @@
 ---
 name: hltm-readiness
 description: Gate check before implementation
-version: 3.0.0
+version: 6.1.0
 model: sonnet
 context: fork
 agent: general-purpose
 ---
 
 # Readiness Gate
+**VERY IMPORTANT: NO ASSUMPTIONS. READ ALL REFERENCES BEFORE ACTING.**
 
-Binary gate. PASS or FAIL. No reasoning.
+**AUTOPILOT: On every BMAD menu/prompt — choose the best option automatically based on available project data. Ask user ONLY if a decision is truly impossible to make.**
 
-Check: `docs/prd.md`, `docs/ux-design.md`, `docs/architecture.md`, `docs/epics/*.md` exist.
+1. `/bmad-bmm-check-implementation-readiness`
+2. If FAIL → write `readiness-report.md` to `{planning_artifacts}/` with issues found.
+   (Solutioning reads this on re-entry to fix reported issues.)
 
-Return:
-```json
-{"missing": [], "conflicts": [], "verdict": "PASS|FAIL"}
-```
-
-FSM:
-- PASS → implementation
-- FAIL → solutioning
-
-## References
-
-| Reference | Description |
-|-----------|-------------|
-| [checks.md](./references/checks.md) | Required files + output format |
-| [review.md](./references/review.md) | Drift detection rules |
+Return: `{"verdict": "PASS|FAIL", "missing": [...]}`

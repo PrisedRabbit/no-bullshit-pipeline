@@ -34,15 +34,15 @@
 
 mod audio;
 pub mod audio_processing;
-mod storage;
+pub mod storage;
 mod system_audio;
 mod mic_audio;
 mod permissions;
-mod config;
+pub mod config;
 pub mod transcription;
 mod cloud_ai;
 mod templates;
-mod playback;
+pub mod playback;
 mod waveform;
 mod devices;
 pub mod pipelines;
@@ -52,13 +52,8 @@ mod pipeline_engine;
 mod transcript_migration;
 use audio::AudioState;
 use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
+use tauri::Manager;
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[tauri::command]
 fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
@@ -76,6 +71,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_shell::init())
         .manage(AudioState::new())
         .manage(permissions::PermissionsStateCache(std::sync::Arc::new(std::sync::Mutex::new(
             permissions::PermissionsState::default()
@@ -119,7 +115,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            greet,
             get_app_version,
             audio::start_recording,
             audio::stop_recording,
@@ -143,6 +138,7 @@ pub fn run() {
             transcription::delete_whisper_model,
             transcription::transcribe_recording,
             transcription::get_transcript,
+            transcription::export_transcript_md,
             transcription::summarize_recording,
             transcription::process_with_template,
             templates::list_templates,
@@ -173,6 +169,26 @@ pub fn run() {
             pipeline_engine::get_step_outputs,
             pipeline_engine::assign_pipeline,
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                // Graceful shutdown: stop active recording and wait for finalization
+                let state = window.state::<AudioState>();
+                {
+                    let is_recording = state.is_recording.lock().unwrap_or_else(|e| e.into_inner());
+                    if *is_recording {
+                        drop(is_recording);
+                        // Best-effort stop — we're shutting down
+                        let mut mic = state.mic_recorder.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Some(mut r) = mic.take() { r.stop(); }
+                        let mut sys = state.system_recorder.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Some(mut r) = sys.take() { r.stop(); }
+                        let mut mix = state.realtime_mixer.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Some(mut m) = mix.take() { m.stop(); }
+                    }
+                }
+                state.wait_for_finalization();
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

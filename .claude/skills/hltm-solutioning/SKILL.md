@@ -1,20 +1,22 @@
 ---
 name: hltm-solutioning
-description: Solutioning phase - Architecture + Epics + Sprint
-version: 4.0.0
+description: Solutioning phase - Architecture + Epics
+version: 6.1.0
 model: opus
 context: fork
 agent: general-purpose
 ---
 
 # Solutioning
+**Goal:** Architecture + Epics. **Strict scope** (see `../hltm-autopilot/references/scope.md`).
 
-**VERY IMPORTANT: NO ASSUMPTIONS. READ ALL REFERENCES BEFORE ACTING.**
+**Note:** If `readiness-report.md` exists, READ IT first and fix issues.
+
+## Steps
 
 1. `/bmad-bmm-create-architecture`
 2. `/bmad-bmm-create-epics-and-stories`
-3. `/bmad-bmm-sprint-planning`
+3. `/hltm-party` — review
+4. `/bmad-agent-bmm-pm` — apply changes
 
-Output: `docs/architecture.md`, `docs/epics/*.md`, `sprint-status.yaml`
-
-Return: `{"status": "done", "phase": "solutioning"}`
+Return: `{"status": "done"}`

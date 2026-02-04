@@ -2,8 +2,9 @@ use serde::{Deserialize, Serialize};
 use crate::config::{WhisperModelSize, TranscriptionProvider, get_models_dir, load_settings};
 use crate::storage::{get_data_dir, read_metadata};
 use crate::cloud_ai;
-use crate::transcript_migration::{TranscriptMetadata, TranscriptSource, write_transcript_with_metadata};
+use crate::transcript_migration::{TranscriptMetadata, TranscriptSource};
 use tauri::Emitter;
+use tauri_plugin_shell::ShellExt;
 
 const BASE_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
 
@@ -16,6 +17,53 @@ pub struct ModelInfo {
     pub exact_bytes: Option<u64>,
     pub downloaded: bool,
     pub path: String,
+}
+
+#[derive(Deserialize, Debug)]
+#[allow(dead_code)]
+struct FluidAudioSegment {
+    #[serde(rename = "speakerId")]
+    speaker_id: String,
+    #[serde(rename = "startTime")]
+    start_time: f64,
+    #[serde(rename = "endTime")]
+    end_time: f64,
+    text: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct FluidAudioOutput {
+    #[serde(rename = "speakerCount")]
+    speaker_count: usize,
+    model: String,
+    segments: Vec<FluidAudioSegment>,
+}
+
+/// JSON transcript segment (for FluidAudio diarized output)
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TranscriptSegment {
+    speaker_id: String,
+    start_time: f64,
+    end_time: f64,
+    text: String,
+}
+
+/// JSON transcript stored as transcript.json (source of truth)
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) struct TranscriptJson {
+    source: TranscriptSource,
+    model: String,
+    created_at: String,
+    duration_sec: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    language: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    speaker_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    segments: Option<Vec<TranscriptSegment>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<String>,
 }
 
 pub fn get_model_url(size: &WhisperModelSize) -> String {
@@ -145,7 +193,7 @@ pub async fn delete_whisper_model(size: WhisperModelSize) -> Result<(), String> 
 
 #[tauri::command]
 pub async fn transcribe_recording(
-    _app_handle: tauri::AppHandle,
+    app_handle: tauri::AppHandle,
     recording_id: String
 ) -> Result<String, String> {
     let settings = load_settings();
@@ -166,9 +214,17 @@ pub async fn transcribe_recording(
     let provider = settings.transcription.provider.clone();
     let whisper_model_ref = settings.transcription.whisper_model.clone();
 
-    let result = match provider {
+    // Shared metadata fields
+    let source = match provider {
+        TranscriptionProvider::LocalWhisper => TranscriptSource::Local,
+        TranscriptionProvider::FluidAudio => TranscriptSource::Fluidaudio,
+        TranscriptionProvider::OpenAI => TranscriptSource::Openai,
+        TranscriptionProvider::Google => TranscriptSource::Google,
+        TranscriptionProvider::Anthropic => TranscriptSource::Anthropic,
+    };
+
+    let transcript_json = match provider {
         TranscriptionProvider::LocalWhisper => {
-            // Local Whisper transcription
             let model_size = settings.transcription.whisper_model.ok_or("No whisper model selected")?;
             let url = get_model_url(&model_size);
             let filename = url.split('/').last().unwrap();
@@ -189,74 +245,169 @@ pub async fn transcribe_recording(
             }).await.map_err(|e| e.to_string())??;
 
             let _ = std::fs::remove_file(&wav_path);
-            transcript
+
+            let model_name = format!("whisper-{}", whisper_model_ref
+                .map(|m| format!("{:?}", m).to_lowercase())
+                .unwrap_or_else(|| "unknown".to_string()));
+            let duration_sec = read_metadata(&recording_id)
+                .ok()
+                .and_then(|m| m.audio.mix.as_ref().map(|a| a.duration_sec))
+                .unwrap_or(0.0);
+
+            TranscriptJson {
+                source,
+                model: model_name,
+                created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                duration_sec,
+                language: Some("auto".to_string()),
+                speaker_count: None,
+                segments: None,
+                text: Some(transcript),
+            }
+        },
+        TranscriptionProvider::FluidAudio => {
+            let wav_path = recording_dir.join("temp_transcription.wav");
+            convert_ogg_to_wav(&audio_path, &wav_path)?;
+
+            let sidecar = app_handle.shell().sidecar("fluidaudio-sidecar")
+                .map_err(|e| format!("Failed to create sidecar command: {}", e))?
+                .arg(wav_path.to_str().ok_or("Invalid WAV path")?);
+
+            let sidecar_future = sidecar.output();
+            let output = tokio::time::timeout(
+                std::time::Duration::from_secs(600),
+                sidecar_future,
+            ).await
+                .map_err(|_| "FluidAudio sidecar timed out after 10 minutes".to_string())?
+                .map_err(|e| format!("Failed to run FluidAudio sidecar: {}", e))?;
+
+            let _ = std::fs::remove_file(&wav_path);
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(format!("FluidAudio sidecar failed: {}", stderr));
+            }
+
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let fa_output: FluidAudioOutput = serde_json::from_str(&stdout)
+                .map_err(|e| format!("Failed to parse FluidAudio output: {}", e))?;
+
+            let segments: Vec<TranscriptSegment> = fa_output.segments.iter().map(|seg| {
+                TranscriptSegment {
+                    speaker_id: seg.speaker_id.clone(),
+                    start_time: seg.start_time,
+                    end_time: seg.end_time,
+                    text: seg.text.trim().to_string(),
+                }
+            }).collect();
+
+            let duration_sec = read_metadata(&recording_id)
+                .ok()
+                .and_then(|m| m.audio.mix.as_ref().map(|a| a.duration_sec))
+                .unwrap_or(0.0);
+
+            TranscriptJson {
+                source,
+                model: fa_output.model,
+                created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                duration_sec,
+                language: Some("auto".to_string()),
+                speaker_count: Some(fa_output.speaker_count),
+                segments: Some(segments),
+                text: None,
+            }
         },
         TranscriptionProvider::OpenAI => {
-            // OpenAI Whisper-1 API
             let api_key = settings.transcription.api_keys.openai
                 .ok_or("OpenAI API key not configured")?;
 
-            cloud_ai::transcribe_with_whisper(&api_key, &audio_path).await?
+            let transcript = cloud_ai::transcribe_with_whisper(&api_key, &audio_path).await?;
+            let duration_sec = read_metadata(&recording_id)
+                .ok()
+                .and_then(|m| m.audio.mix.as_ref().map(|a| a.duration_sec))
+                .unwrap_or(0.0);
+
+            TranscriptJson {
+                source,
+                model: "whisper-1".to_string(),
+                created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                duration_sec,
+                language: Some("auto".to_string()),
+                speaker_count: None,
+                segments: None,
+                text: Some(transcript),
+            }
         },
         TranscriptionProvider::Google => {
-            // Google doesn't do transcription directly, but Gemini can process audio
-            // For now, we need a transcript first, so fall back to error
             return Err("Google provider requires a transcript first. Use Local Whisper or OpenAI for transcription, then use Google for summarization.".to_string());
         },
         TranscriptionProvider::Anthropic => {
-            // Anthropic doesn't do audio transcription
             return Err("Anthropic provider doesn't support audio transcription. Use Local Whisper or OpenAI for transcription, then use Anthropic for structured extraction.".to_string());
         },
     };
 
-    // Write transcript with frontmatter metadata
-    let source = match provider {
-        TranscriptionProvider::LocalWhisper => TranscriptSource::Local,
-        TranscriptionProvider::OpenAI => TranscriptSource::Openai,
-        TranscriptionProvider::Google => TranscriptSource::Google,
-        TranscriptionProvider::Anthropic => TranscriptSource::Anthropic,
-    };
-    let model_name = match &source {
-        TranscriptSource::Local => {
-            format!("whisper-{}", whisper_model_ref
-                .map(|m| format!("{:?}", m).to_lowercase())
-                .unwrap_or_else(|| "unknown".to_string()))
-        },
-        TranscriptSource::Openai => "whisper-1".to_string(),
-        _ => "unknown".to_string(),
-    };
-    let duration_sec = read_metadata(&recording_id)
-        .ok()
-        .and_then(|m| m.audio.mix.as_ref().map(|a| a.duration_sec))
-        .unwrap_or(0.0);
-    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    // Save raw JSON as source of truth
+    let json_str = serde_json::to_string_pretty(&transcript_json)
+        .map_err(|e| format!("Failed to serialize transcript JSON: {}", e))?;
+    let json_path = recording_dir.join("transcript.json");
+    let temp_path = json_path.with_extension("json.tmp");
+    std::fs::write(&temp_path, &json_str)
+        .map_err(|e| format!("Failed to write transcript: {}", e))?;
+    std::fs::rename(&temp_path, &json_path)
+        .map_err(|e| format!("Failed to finalize transcript: {}", e))?;
 
-    let metadata = TranscriptMetadata {
-        source,
-        model: model_name,
-        created_at: now,
-        duration_sec,
-        language: Some("auto".to_string()),
-        segments_count: None,
-    };
-
-    let transcript_path = recording_dir.join("transcript.md");
-    write_transcript_with_metadata(&transcript_path, &result, &metadata)?;
-
-    Ok(result)
+    // Return rendered text for immediate UI display
+    Ok(render_transcript_from_json(&transcript_json))
 }
 
-/// Read transcript body, stripping frontmatter if present
-fn read_transcript_body(path: &std::path::Path) -> Result<String, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read transcript: {}", e))?;
-    if content.starts_with("---") {
-        let parts: Vec<&str> = content.splitn(3, "---").collect();
-        if parts.len() >= 3 {
-            return Ok(parts[2].trim().to_string());
+/// Render compact text from a TranscriptJson struct
+pub(crate) fn render_transcript_from_json(tj: &TranscriptJson) -> String {
+    if let Some(segments) = &tj.segments {
+        segments.iter().map(|seg| {
+            let short_id = seg.speaker_id.replace("Speaker ", "SP");
+            format!("{}: {}", short_id, seg.text)
+        }).collect::<Vec<_>>().join("\n")
+    } else if let Some(text) = &tj.text {
+        text.clone()
+    } else {
+        String::new()
+    }
+}
+
+/// Render transcript text on the fly from transcript.json (with .md fallback)
+fn render_transcript_text(recording_id: &str) -> Option<String> {
+    let recording_dir = get_data_dir().join(recording_id);
+    let json_path = recording_dir.join("transcript.json");
+
+    if json_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&json_path) {
+            if let Ok(tj) = serde_json::from_str::<TranscriptJson>(&content) {
+                return Some(render_transcript_from_json(&tj));
+            }
         }
     }
-    Ok(content)
+
+    // Fallback: legacy transcript.md
+    let md_path = recording_dir.join("transcript.md");
+    if md_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&md_path) {
+            if content.starts_with("---") {
+                let parts: Vec<&str> = content.splitn(3, "---").collect();
+                if parts.len() >= 3 {
+                    return Some(parts[2].trim().to_string());
+                }
+            }
+            return Some(content);
+        }
+    }
+
+    None
+}
+
+/// Read transcript body for internal consumers (summarize, templates, etc.)
+fn read_transcript_body(recording_id: &str) -> Result<String, String> {
+    render_transcript_text(recording_id)
+        .ok_or_else(|| "No transcript found. Please transcribe the recording first.".to_string())
 }
 
 /// Summarize a recording's transcript using the configured AI provider
@@ -267,13 +418,8 @@ pub async fn summarize_recording(
 ) -> Result<String, String> {
     let settings = load_settings();
     let recording_dir = get_data_dir().join(&recording_id);
-    let transcript_path = recording_dir.join("transcript.md");
 
-    if !transcript_path.exists() {
-        return Err("No transcript found. Please transcribe the recording first.".to_string());
-    }
-
-    let transcript = read_transcript_body(&transcript_path)?;
+    let transcript = read_transcript_body(&recording_id)?;
 
     // Determine which provider to use
     let use_provider = provider
@@ -304,8 +450,8 @@ pub async fn summarize_recording(
                 &transcript
             ).await?
         },
-        TranscriptionProvider::LocalWhisper => {
-            return Err("Local Whisper cannot generate summaries. Please configure a cloud AI provider (OpenAI, Google, or Anthropic).".to_string());
+        TranscriptionProvider::LocalWhisper | TranscriptionProvider::FluidAudio => {
+            return Err("Local transcription providers cannot generate summaries. Please configure a cloud AI provider (OpenAI, Google, or Anthropic).".to_string());
         },
     };
 
@@ -325,13 +471,8 @@ pub async fn process_with_template(
 ) -> Result<String, String> {
     let settings = load_settings();
     let recording_dir = get_data_dir().join(&recording_id);
-    let transcript_path = recording_dir.join("transcript.md");
 
-    if !transcript_path.exists() {
-        return Err("No transcript found. Please transcribe the recording first.".to_string());
-    }
-
-    let transcript = read_transcript_body(&transcript_path)?;
+    let transcript = read_transcript_body(&recording_id)?;
 
     // Load template
     let template = crate::templates::get_template_internal(&template_name)?;
@@ -362,8 +503,8 @@ pub async fn process_with_template(
                 .ok_or("Anthropic API key not configured")?;
             cloud_ai::process_with_claude(&api_key, &template.prompt, &transcript).await?
         },
-        TranscriptionProvider::LocalWhisper => {
-            return Err("Local Whisper cannot process templates. Please configure a cloud AI provider.".to_string());
+        TranscriptionProvider::LocalWhisper | TranscriptionProvider::FluidAudio => {
+            return Err("Local transcription providers cannot process templates. Please configure a cloud AI provider.".to_string());
         },
     };
 
@@ -380,50 +521,100 @@ pub async fn process_with_template(
 
 #[tauri::command]
 pub async fn get_transcript(recording_id: String) -> Result<Option<String>, String> {
-    let recording_dir = get_data_dir().join(&recording_id);
-    let transcript_path = recording_dir.join("transcript.md");
+    Ok(render_transcript_text(&recording_id))
+}
 
-    if transcript_path.exists() {
-        let content = std::fs::read_to_string(&transcript_path).map_err(|e| e.to_string())?;
-        // Strip YAML frontmatter if present, return only body
-        if content.starts_with("---") {
-            let parts: Vec<&str> = content.splitn(3, "---").collect();
-            if parts.len() >= 3 {
-                let body = parts[2].trim();
-                return Ok(Some(body.to_string()));
-            }
-        }
-        Ok(Some(content))
+/// Export transcript as markdown with frontmatter (for Save button)
+#[tauri::command]
+pub async fn export_transcript_md(
+    app_handle: tauri::AppHandle,
+    recording_id: String,
+) -> Result<(), String> {
+    let recording_dir = get_data_dir().join(&recording_id);
+    let json_path = recording_dir.join("transcript.json");
+
+    // Build markdown content
+    let md_content = if json_path.exists() {
+        let content = std::fs::read_to_string(&json_path)
+            .map_err(|e| format!("Failed to read transcript: {}", e))?;
+        let tj: TranscriptJson = serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse transcript: {}", e))?;
+
+        let body = render_transcript_from_json(&tj);
+        let metadata = TranscriptMetadata {
+            source: tj.source,
+            model: tj.model,
+            created_at: tj.created_at,
+            duration_sec: tj.duration_sec,
+            language: tj.language,
+            segments_count: tj.segments.as_ref().map(|s| s.len()),
+            speaker_count: tj.speaker_count,
+        };
+        let frontmatter = serde_yaml::to_string(&metadata)
+            .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
+        format!("---\n{}---\n\n{}", frontmatter, body)
     } else {
-        Ok(None)
+        // Fallback: legacy .md
+        let md_path = recording_dir.join("transcript.md");
+        if md_path.exists() {
+            std::fs::read_to_string(&md_path)
+                .map_err(|e| format!("Failed to read transcript: {}", e))?
+        } else {
+            return Err("No transcript found".to_string());
+        }
+    };
+
+    // Use Tauri save dialog (async via oneshot channel to avoid blocking tokio worker)
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app_handle.dialog()
+        .file()
+        .add_filter("Markdown", &["md"])
+        .set_file_name("transcript.md")
+        .save_file(move |file_path| {
+            let _ = tx.send(file_path);
+        });
+
+    let file_path = rx.await.map_err(|_| "Dialog channel closed unexpectedly")?;
+
+    if let Some(path) = file_path {
+        let dest = path.as_path()
+            .ok_or("Invalid file path selected")?;
+        std::fs::write(dest, &md_content)
+            .map_err(|e| format!("Failed to save file: {}", e))?;
     }
+
+    Ok(())
 }
 
 fn convert_ogg_to_wav(ogg_path: &std::path::Path, wav_path: &std::path::Path) -> Result<(), String> {
     use lewton::inside_ogg::OggStreamReader;
     use hound::{WavWriter, WavSpec};
+    use rubato::{SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction, Resampler};
     use std::fs::File;
-    
+
+    const TARGET_RATE: u32 = 16000;
+
     let ogg_file = File::open(ogg_path).map_err(|e| e.to_string())?;
     let mut ogg_reader = OggStreamReader::new(ogg_file).map_err(|e| e.to_string())?;
-    
+
     let src_rate = ogg_reader.ident_hdr.audio_sample_rate;
     let src_channels = ogg_reader.ident_hdr.audio_channels as u16;
-    
+
     let spec = WavSpec {
-        channels: 1, 
-        sample_rate: 16000,
+        channels: 1,
+        sample_rate: TARGET_RATE,
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
-    
+
     let mut wav_writer = WavWriter::create(wav_path, spec).map_err(|e| e.to_string())?;
-    
+
+    // Collect all decoded mono samples as f32
+    let mut all_mono: Vec<f32> = Vec::new();
     while let Some(packet) = ogg_reader.read_dec_packet_generic::<Vec<Vec<i16>>>().map_err(|e| e.to_string())? {
         if packet.is_empty() { continue; }
-        
         let frames = packet[0].len();
-        let mut mono = Vec::with_capacity(frames);
         for i in 0..frames {
             let mut sum: i32 = 0;
             for ch in 0..src_channels as usize {
@@ -431,19 +622,59 @@ fn convert_ogg_to_wav(ogg_path: &std::path::Path, wav_path: &std::path::Path) ->
                     sum += packet[ch][i] as i32;
                 }
             }
-            mono.push((sum / src_channels as i32) as i16);
-        }
-
-        if src_rate == 48000 {
-            for (i, s) in mono.iter().enumerate() {
-                if i % 3 == 0 { wav_writer.write_sample(*s).map_err(|e| e.to_string())?; }
-            }
-        } else if src_rate == 16000 {
-            for s in mono { wav_writer.write_sample(s).map_err(|e| e.to_string())?; }
-        } else {
-            return Err("Unsupported sample rate".to_string());
+            all_mono.push((sum / src_channels as i32) as f32 / 32768.0);
         }
     }
+
+    if src_rate == TARGET_RATE {
+        // No resampling needed
+        for s in &all_mono {
+            wav_writer.write_sample((*s * 32768.0).clamp(-32768.0, 32767.0) as i16)
+                .map_err(|e| e.to_string())?;
+        }
+    } else {
+        // High-quality sinc interpolation resampling (matches mic pipeline approach)
+        let chunk_size = 1024usize;
+        let params = SincInterpolationParameters {
+            sinc_len: 256,
+            f_cutoff: 0.95,
+            interpolation: SincInterpolationType::Linear,
+            oversampling_factor: 256,
+            window: WindowFunction::BlackmanHarris2,
+        };
+        let resample_ratio = TARGET_RATE as f64 / src_rate as f64;
+        let mut resampler = SincFixedIn::<f32>::new(
+            resample_ratio,
+            2.0,
+            params,
+            chunk_size,
+            1, // mono
+        ).map_err(|e| format!("Failed to create resampler: {}", e))?;
+
+        let mut pos = 0;
+        while pos + chunk_size <= all_mono.len() {
+            let chunk = vec![&all_mono[pos..pos + chunk_size]];
+            let output = resampler.process(&chunk, None)
+                .map_err(|e| format!("Resampling error: {}", e))?;
+            for s in &output[0] {
+                wav_writer.write_sample((*s * 32768.0).clamp(-32768.0, 32767.0) as i16)
+                    .map_err(|e| e.to_string())?;
+            }
+            pos += chunk_size;
+        }
+
+        // Process remaining frames
+        if pos < all_mono.len() {
+            let chunk = vec![&all_mono[pos..]];
+            let output = resampler.process_partial(Some(&chunk), None)
+                .map_err(|e| format!("Resampling error: {}", e))?;
+            for s in &output[0] {
+                wav_writer.write_sample((*s * 32768.0).clamp(-32768.0, 32767.0) as i16)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+    }
+
     Ok(())
 }
 

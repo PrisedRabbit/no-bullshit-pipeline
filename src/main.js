@@ -1,5 +1,62 @@
 const { invoke } = window.__TAURI__.core;
 
+// ===== SPEAKER TRANSCRIPT FORMATTING =====
+// Matches compact format: "SP1: text" or "SP2: text"
+const SPEAKER_LINE_PATTERN = /^(SP\d+):\s*(.+)$/m;
+const SPEAKER_COLORS = ['var(--accent)', 'var(--success)', '#f59e0b', '#ec4899', '#06b6d4', '#8b5cf6'];
+
+function hasSpeakerLabels(text) {
+  return SPEAKER_LINE_PATTERN.test(text);
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function formatSpeakerTranscript(text) {
+  const lines = text.split('\n');
+  const speakerOrder = [];
+
+  // First pass: discover unique speakers in order
+  for (const line of lines) {
+    const m = line.match(SPEAKER_LINE_PATTERN);
+    if (m && !speakerOrder.includes(m[1])) {
+      speakerOrder.push(m[1]);
+    }
+  }
+
+  // Second pass: render with color by speaker identity
+  return lines.map(line => {
+    const match = line.match(SPEAKER_LINE_PATTERN);
+    if (match) {
+      const speakerLabel = escapeHtml(match[1]);
+      const content = escapeHtml(match[2]);
+      const colorIdx = speakerOrder.indexOf(match[1]) % SPEAKER_COLORS.length;
+      const color = SPEAKER_COLORS[colorIdx];
+      return `<div class="speaker-segment">` +
+        `<div class="speaker-label">` +
+          `<span class="speaker-name" style="color:${color}">${speakerLabel}</span>` +
+        `</div>` +
+        `<div class="speaker-text">${content}</div>` +
+      `</div>`;
+    }
+    if (line.trim()) {
+      return `<div>${escapeHtml(line)}</div>`;
+    }
+    return '';
+  }).join('');
+}
+
+function renderTranscript(element, text) {
+  if (hasSpeakerLabels(text)) {
+    element.innerHTML = formatSpeakerTranscript(text);
+  } else {
+    element.textContent = text;
+  }
+}
+
 // ===== VIEW STATE MANAGER =====
 const ViewManager = {
   closeAll() {
@@ -25,6 +82,7 @@ const ViewManager = {
 let timerInterval;
 let startTime;
 let isRecording = false;
+let isRecordingBusy = false; // Guard against double-click during async start/stop
 
 let allRecordings = [];
 let selectedTags = []; // Current filter tags
@@ -185,6 +243,7 @@ function drawSpectrum() {
 
 // ===== RECORDING CONTROLS =====
 async function toggleRecording() {
+  if (isRecordingBusy) return; // Prevent double-click during async operations
   if (isRecording) {
     await stopRecording();
   } else {
@@ -192,15 +251,8 @@ async function toggleRecording() {
   }
 }
 
-async function startRecording() {
-  ViewManager.showRecordings();
-
-  const tags = [...selectedTags];
-  const saveMixOnly = appSettings?.save_mix_only !== false; // default true
-  try {
-    const metadata = await invoke("start_recording", { tags, saveMixOnly });
-    isRecording = true;
-
+function setRecordingUI(recording) {
+  if (recording) {
     if (statusIndicator) statusIndicator.className = "status-recording";
     document.body.classList.add("is-recording-active");
     if (recordToggleBtn) {
@@ -208,32 +260,7 @@ async function startRecording() {
       recordToggleBtn.classList.add("is-active");
       recordToggleBtn.title = "Stop Recording";
     }
-
-    await loadRecordings();
-    startTimer();
-    startWaveformAnimation();
-    showDetailView(metadata.id);
-
-  } catch (error) {
-    console.error("Failed to start recording:", error);
-    alert("Failed to start: " + error);
-  }
-}
-
-async function stopRecording() {
-  try {
-    const currentId = selectedRecordingId;
-
-    // Explicitly sync title before stopping
-    if (detailTitleInput && selectedRecordingId) {
-      await invoke('update_title', { recordingId: selectedRecordingId, title: detailTitleInput.value });
-    }
-
-    await invoke("stop_recording");
-    isRecording = false;
-
-    stopTimer();
-    stopWaveformAnimation();
+  } else {
     if (statusIndicator) statusIndicator.className = "status-idle";
     document.body.classList.remove("is-recording-active");
     if (recordToggleBtn) {
@@ -241,6 +268,57 @@ async function stopRecording() {
       recordToggleBtn.classList.remove("is-active");
       recordToggleBtn.title = "Start Recording";
     }
+  }
+}
+
+async function startRecording() {
+  isRecordingBusy = true;
+  ViewManager.showRecordings();
+
+  const tags = [...selectedTags];
+  const saveMixOnly = appSettings?.save_mix_only !== false;
+  try {
+    const metadata = await invoke("start_recording", { tags, saveMixOnly });
+    isRecording = true;
+    setRecordingUI(true);
+
+    await loadRecordings();
+    startTimer();
+    startWaveformAnimation();
+    showDetailView(metadata.id);
+
+  } catch (error) {
+    // Revert all state on failure
+    isRecording = false;
+    stopTimer();
+    stopWaveformAnimation();
+    setRecordingUI(false);
+    console.error("Failed to start recording:", error);
+    alert("Failed to start: " + error);
+  } finally {
+    isRecordingBusy = false;
+  }
+}
+
+async function stopRecording() {
+  isRecordingBusy = true;
+  try {
+    const currentId = selectedRecordingId;
+
+    if (detailTitleInput && selectedRecordingId) {
+      try {
+        await invoke('update_title', { recordingId: selectedRecordingId, title: detailTitleInput.value });
+      } catch (e) {
+        console.error('Title sync failed (non-fatal):', e);
+      }
+    }
+
+    await invoke("stop_recording");
+    isRecording = false;
+
+    stopTimer();
+    stopWaveformAnimation();
+    setRecordingUI(false);
 
     await loadRecordings();
 
@@ -249,11 +327,18 @@ async function stopRecording() {
     }
 
   } catch (error) {
+    // Always reset UI state, even on error
+    isRecording = false;
+    stopTimer();
+    stopWaveformAnimation();
+    setRecordingUI(false);
     console.error("Failed to stop:", error);
     if (error && error.includes && error.includes("discarded")) {
       hideDetailView();
       await loadRecordings();
     }
+  } finally {
+    isRecordingBusy = false;
   }
 }
 
@@ -383,9 +468,10 @@ function renderTags() {
 
   allTagsListEl.innerHTML = sortedTags.map(([tag, count]) => {
     const isActive = selectedTags.includes(tag);
+    const safeTag = escapeHtml(tag);
     return `
-      <div class="sidebar-tag-item ${isActive ? 'active' : ''}" onclick="toggleTagFilter('${tag}')">
-        <span>#${tag}</span>
+      <div class="sidebar-tag-item ${isActive ? 'active' : ''}" data-tag="${safeTag}" onclick="toggleTagFilter(this.dataset.tag)">
+        <span>#${safeTag}</span>
         <div style="display: flex; align-items: center; gap: 8px;">
           <span class="tag-count">${count}</span>
           ${isActive ? '<span class="tag-remove-sidebar">×</span>' : ''}
@@ -447,10 +533,13 @@ function renderRecordingsList() {
     const hasIssues = rec.health && rec.health.status !== 'ok';
     const healthIcon = hasIssues ? '<span class="health-warning" title="Issues occurred during recording">⚠️</span>' : '';
 
+    const safeTitle = escapeHtml(rec.title || "Untitled");
+    const safeId = escapeHtml(rec.id);
+
     return `
-    <div class="recording-item ${isCurrentlyRecording ? 'recording-active' : ''}" onclick="showDetailView('${rec.id}')">
+    <div class="recording-item ${isCurrentlyRecording ? 'recording-active' : ''}" data-id="${safeId}" onclick="showDetailView(this.dataset.id)">
         <div class="recording-item-header">
-          <div class="recording-title">${healthIcon}${rec.title || "Untitled"}${isCurrentlyRecording ? ' <span style="color:var(--accent)">●</span>' : ''}</div>
+          <div class="recording-title">${healthIcon}${safeTitle}${isCurrentlyRecording ? ' <span style="color:var(--accent)">●</span>' : ''}</div>
           <div class="recording-meta">
             <span>${new Date(rec.created_at).toLocaleString(undefined, dateOptions)}</span>
             <span>·</span>
@@ -458,7 +547,7 @@ function renderRecordingsList() {
           </div>
         </div>
         <div class="recording-tags">
-          ${(rec.tags || []).map(tag => `<span class="recording-tag">#${tag}</span>`).join("")}
+          ${(rec.tags || []).map(tag => `<span class="recording-tag">#${escapeHtml(tag)}</span>`).join("")}
         </div>
       </div>
     `;
@@ -467,7 +556,7 @@ function renderRecordingsList() {
 
 function getDuration(rec) {
   if (!rec.audio) return 0;
-  return rec.audio.mic?.duration_sec || rec.audio.system?.duration_sec || 0;
+  return rec.audio.mix?.duration_sec || rec.audio.mic?.duration_sec || rec.audio.system?.duration_sec || 0;
 }
 
 function formatDuration(seconds) {
@@ -528,21 +617,24 @@ window.showDetailView = async (id) => {
     }
   }
 
-  // POLLING if processing
+  // POLLING if processing — non-recursive, self-contained polling loop
   if (isProcessing) {
-    setTimeout(async () => {
-      if (selectedRecordingId === id) {
+    const pollId = id;
+    const pollInterval = setInterval(async () => {
+      if (selectedRecordingId !== pollId) {
+        clearInterval(pollInterval); // User navigated away — stop polling
+        return;
+      }
+      try {
         await loadRecordings();
-        // Only re-call showDetailView if status actually changed to avoid flicker? 
-        // loadRecordings updates allRecordings.
-        const updated = allRecordings.find(r => r.id === id);
+        const updated = allRecordings.find(r => r.id === pollId);
         if (updated && updated.status !== 'processing') {
-          showDetailView(id);
-        } else if (updated) {
-          // Still processing, update timer/visuals if needed, or just poll again
-          // Recursive poll
-          showDetailView(id);
+          clearInterval(pollInterval);
+          showDetailView(pollId);
         }
+      } catch (e) {
+        console.error('Processing poll error:', e);
+        clearInterval(pollInterval);
       }
     }, 1000);
   }
@@ -560,16 +652,19 @@ window.showDetailView = async (id) => {
     try {
       const transcript = await invoke("get_transcript", { recordingId: id });
       if (transcript) {
-        detailTranscriptEl.textContent = transcript;
+        renderTranscript(detailTranscriptEl, transcript);
         detailTranscriptEl.classList.remove('empty');
+        if (saveTranscriptBtn) saveTranscriptBtn.style.display = '';
       } else {
         detailTranscriptEl.textContent = "Not processed yet.";
         detailTranscriptEl.classList.add('empty');
+        if (saveTranscriptBtn) saveTranscriptBtn.style.display = 'none';
       }
     } catch (err) {
       console.error("Failed to load transcript:", err);
       detailTranscriptEl.textContent = "Not processed yet.";
       detailTranscriptEl.classList.add('empty');
+      if (saveTranscriptBtn) saveTranscriptBtn.style.display = 'none';
     }
   }
 
@@ -606,12 +701,15 @@ function hideDetailView() {
 function renderTagChips() {
   const listEl = document.getElementById('detail-tags-list');
   if (!listEl) return;
-  listEl.innerHTML = currentRecordingTags.map(tag => `
+  listEl.innerHTML = currentRecordingTags.map(tag => {
+    const safeTag = escapeHtml(tag);
+    return `
     <div class="detail-tag-chip">
-    #${tag}
-<span class="tag-remove" onclick="removeRecordingTag('${tag}')">×</span>
+    #${safeTag}
+<span class="tag-remove" data-tag="${safeTag}" onclick="removeRecordingTag(this.dataset.tag)">×</span>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 window.removeRecordingTag = async (tag) => {
@@ -643,12 +741,15 @@ function renderTagSuggestions() {
     return;
   }
 
-  tagSuggestionsEl.innerHTML = sorted.map(([tag, count]) => `
-    <div class="suggestion-item" onclick="selectSuggestedTag('${tag}')">
-      <span>#${tag}</span>
+  tagSuggestionsEl.innerHTML = sorted.map(([tag, count]) => {
+    const safeTag = escapeHtml(tag);
+    return `
+    <div class="suggestion-item" data-tag="${safeTag}" onclick="selectSuggestedTag(this.dataset.tag)">
+      <span>#${safeTag}</span>
       <span class="count">${count}</span>
     </div>
-  `).join("");
+  `;
+  }).join("");
   tagSuggestionsEl.style.display = "block";
 }
 
@@ -713,11 +814,13 @@ if (detailTitleInput) {
 const deleteModal = document.getElementById('delete-modal');
 const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
 const cancelDeleteBtn = document.getElementById('cancel-delete-btn');
+let deleteTargetId = null; // Capture ID at modal open time to avoid race
 
 const deleteBtnHeader = document.getElementById('delete-btn-header');
 if (deleteBtnHeader) {
   deleteBtnHeader.addEventListener('click', () => {
     if (!selectedRecordingId) return;
+    deleteTargetId = selectedRecordingId;
     deleteModal.style.display = 'flex';
   });
 }
@@ -725,16 +828,29 @@ if (deleteBtnHeader) {
 if (cancelDeleteBtn) {
   cancelDeleteBtn.addEventListener('click', () => {
     deleteModal.style.display = 'none';
+    deleteTargetId = null;
   });
 }
 
 if (confirmDeleteBtn) {
   confirmDeleteBtn.addEventListener('click', async () => {
-    if (!selectedRecordingId) return;
-    await invoke('delete_recording', { recordingId: selectedRecordingId });
-    deleteModal.style.display = 'none';
-    hideDetailView();
-    await loadRecordings();
+    if (!deleteTargetId) return;
+    try {
+      await invoke('delete_recording', { recordingId: deleteTargetId });
+      deleteModal.style.display = 'none';
+      deleteTargetId = null;
+      hideDetailView();
+      await loadRecordings();
+    } catch (e) {
+      console.error('Delete failed:', e);
+      deleteModal.style.display = 'none';
+      deleteTargetId = null;
+      if (e && typeof e === 'string' && e.includes('finalized')) {
+        alert('Recording is still being finalized. Please wait a moment and try again.');
+      } else {
+        alert('Delete failed: ' + e);
+      }
+    }
   });
 }
 
@@ -748,9 +864,13 @@ if (deleteModal) {
 const openFolderBtnHeader = document.getElementById('open-folder-btn-header');
 if (openFolderBtnHeader) {
   openFolderBtnHeader.addEventListener('click', async () => {
-    if (!selectedRecordingId) return;
+    if (!selectedRecordingId || !appSettings?.storage_path) return;
     const folderPath = `${appSettings.storage_path}/${selectedRecordingId}`;
-    await window.__TAURI_PLUGIN_OPENER__.openPath(folderPath);
+    try {
+      await window.__TAURI_PLUGIN_OPENER__.openPath(folderPath);
+    } catch (e) {
+      console.error('Failed to open folder:', e);
+    }
   });
 }
 
@@ -766,19 +886,33 @@ if (window.__TAURI__) {
     }
   };
 
-  // Note: Using window.__TAURI__.event.listen for simplicity if available
+  // Transcription segment listener — scoped to the recording being transcribed
   try {
+    let transcribingRecordingId = null;
+
+    // Track which recording is being transcribed
+    window.__NBP_setTranscribingId = (id) => { transcribingRecordingId = id; };
+
+    window.__TAURI__.event.listen('recording_warning', (event) => {
+      console.warn('Recording warning:', event.payload);
+      // Show non-blocking notification — system audio may have failed
+      const warn = document.createElement('div');
+      warn.className = 'recording-warning-toast';
+      warn.textContent = event.payload;
+      document.body.appendChild(warn);
+      setTimeout(() => warn.remove(), 5000);
+    });
+
     window.__TAURI__.event.listen('transcription_segment', (event) => {
       const segmentText = event.payload;
-      if (detailTranscriptEl) {
+      // Only append if we're still viewing the recording that's being transcribed
+      if (detailTranscriptEl && selectedRecordingId && selectedRecordingId === transcribingRecordingId) {
         if (detailTranscriptEl.classList.contains('empty')) {
           detailTranscriptEl.textContent = '';
           detailTranscriptEl.classList.remove('empty');
         }
-        // Append new segment
         detailTranscriptEl.textContent += segmentText + ' ';
 
-        // Auto-scroll to bottom of the detail container
         const scroller = detailTranscriptEl.closest('.detail-scroller');
         if (scroller) scroller.scrollTop = scroller.scrollHeight;
       }
@@ -788,29 +922,32 @@ if (window.__TAURI__) {
   }
 }
 
+const saveTranscriptBtn = document.getElementById('save-transcript-btn');
 const prBtn = document.getElementById('process-btn');
 if (prBtn) {
   prBtn.addEventListener('click', async () => {
-    if (!selectedRecordingId) return;
+    if (!selectedRecordingId || prBtn.disabled) return;
 
     try {
-      // Show loading state
       prBtn.disabled = true;
       prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Processing...</span>';
 
       if (detailTranscriptEl) {
-        detailTranscriptEl.textContent = ''; // Clear for live segments
+        detailTranscriptEl.textContent = '';
         detailTranscriptEl.classList.remove('empty');
       }
 
-      // Call backend - segments will start arriving via the listener above
+      // Set which recording is being transcribed so listener is scoped
+      if (window.__NBP_setTranscribingId) window.__NBP_setTranscribingId(selectedRecordingId);
+
       const transcript = await invoke('transcribe_recording', { recordingId: selectedRecordingId });
 
       // Final update to ensure everything is matched correctly
       if (detailTranscriptEl) {
-        detailTranscriptEl.textContent = transcript;
+        renderTranscript(detailTranscriptEl, transcript);
         detailTranscriptEl.classList.remove('empty');
       }
+      if (saveTranscriptBtn) saveTranscriptBtn.style.display = '';
 
       prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Transcribe</span>';
       prBtn.disabled = false;
@@ -826,6 +963,22 @@ if (prBtn) {
 
       prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Transcribe</span>';
       prBtn.disabled = false;
+    }
+  });
+}
+
+// ===== SAVE TRANSCRIPT BUTTON =====
+if (saveTranscriptBtn) {
+  saveTranscriptBtn.addEventListener('click', async () => {
+    if (!selectedRecordingId) return;
+    try {
+      saveTranscriptBtn.disabled = true;
+      await invoke('export_transcript_md', { recordingId: selectedRecordingId });
+    } catch (error) {
+      console.error('Save transcript failed:', error);
+      alert(`Save failed: ${error}`);
+    } finally {
+      saveTranscriptBtn.disabled = false;
     }
   });
 }
@@ -918,9 +1071,8 @@ function formatDurationShort(seconds) {
 
 async function loadAudioDuration(recordingId) {
   try {
-    // Get duration from recording metadata
-    const recordings = await invoke('list_recordings');
-    const rec = recordings.find(r => r.id === recordingId);
+    // Get duration from recording metadata (single read, not full list)
+    const rec = await invoke('read_metadata', { recordingId });
     if (rec) {
       const duration = rec.audio?.mix?.duration_sec || rec.audio?.mic?.duration_sec || 0;
       audioDurationMs = duration * 1000;
@@ -1030,7 +1182,6 @@ function isKeyMasked(value) {
 async function loadSettings() {
   try {
     appSettings = await invoke("load_settings");
-    console.log("Loaded settings:", appSettings);
 
     if (storagePathInput) storagePathInput.value = appSettings.storage_path;
     if (cleanupThresholdInput) cleanupThresholdInput.value = appSettings.auto_discard_seconds;
@@ -1142,6 +1293,10 @@ async function updateProviderVisibility() {
 
     // Fetch model info when showing this section
     await loadWhisperModelsAndState();
+  } else if (provider === "FluidAudio") {
+    // FluidAudio needs no config — hide both sections
+    providerLocalSection.style.display = 'none';
+    providerApiSection.style.display = 'none';
   } else {
     providerLocalSection.style.display = 'none';
     providerApiSection.style.display = 'flex';
@@ -1312,7 +1467,11 @@ if (whisperModelSelect) {
 }
 
 function applyTheme(themeName) {
-  document.body.classList.remove("neon-purple", "deep-obsidian", "deep-blue", "light-pastel");
+  // Migrate old theme names
+  if (themeName === "light-pastel") themeName = "light";
+  if (themeName === "deep-obsidian") themeName = "neon-purple";
+
+  document.body.classList.remove("neon-purple", "deep-blue", "light");
   if (themeName !== "neon-purple") {
     document.body.classList.add(themeName);
   }
@@ -1321,6 +1480,49 @@ function applyTheme(themeName) {
 
   themeButtons.forEach(btn => {
     btn.classList.toggle("active", btn.dataset.theme === themeName);
+  });
+}
+
+// ===== SETTINGS TABS =====
+function switchSettingsTab(tabName) {
+  document.querySelectorAll('.settings-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.tab === tabName);
+  });
+  document.querySelectorAll('.settings-tab-content').forEach(c => {
+    c.classList.toggle('active', c.dataset.tab === tabName);
+  });
+}
+
+const settingsTabs = document.getElementById('settings-tabs');
+if (settingsTabs) {
+  settingsTabs.addEventListener('click', (e) => {
+    const tab = e.target.closest('.settings-tab');
+    if (tab) switchSettingsTab(tab.dataset.tab);
+  });
+}
+
+// ===== SIDEBAR NAV =====
+const sidebarPipelinesBtn = document.getElementById('sidebar-pipelines-btn');
+const sidebarTemplatesBtn = document.getElementById('sidebar-templates-btn');
+const sidebarPipelineCount = document.getElementById('sidebar-pipeline-count');
+const sidebarTemplateCount = document.getElementById('sidebar-template-count');
+
+function updateSidebarCounts() {
+  if (sidebarPipelineCount) sidebarPipelineCount.textContent = allPipelineDefs.length || '';
+  if (sidebarTemplateCount) sidebarTemplateCount.textContent = allPromptTemplates.length || '';
+}
+
+if (sidebarPipelinesBtn) {
+  sidebarPipelinesBtn.addEventListener('click', () => {
+    ViewManager.showSettings();
+    switchSettingsTab('pipelines');
+  });
+}
+
+if (sidebarTemplatesBtn) {
+  sidebarTemplatesBtn.addEventListener('click', () => {
+    ViewManager.showSettings();
+    switchSettingsTab('templates');
   });
 }
 
@@ -1384,6 +1586,7 @@ async function loadPromptTemplates() {
   try {
     allPromptTemplates = await invoke('list_prompt_templates');
     renderPromptTemplatesList();
+    updateSidebarCounts();
   } catch (err) {
     console.error('Failed to load prompt templates:', err);
   }
@@ -1395,15 +1598,20 @@ function renderPromptTemplatesList() {
     promptTemplatesListEl.innerHTML = '<div style="color: var(--text-secondary); opacity: 0.6; font-size: 0.85rem;">No templates yet.</div>';
     return;
   }
-  promptTemplatesListEl.innerHTML = allPromptTemplates.map(t => `
-    <div class="template-item" data-name="${t.name}">
+  promptTemplatesListEl.innerHTML = allPromptTemplates.map(t => {
+    const safeName = escapeHtml(t.name);
+    const safeDesc = escapeHtml(t.description || '');
+    const safePreview = escapeHtml((t.prompt || '').substring(0, 80)) + (t.prompt && t.prompt.length > 80 ? '...' : '');
+    return `
+    <div class="template-item" data-name="${safeName}">
       <div class="template-item-info">
-        <div class="template-item-name">${t.name}</div>
-        <div class="template-item-desc">${t.description || ''}</div>
-        <div class="template-item-preview">${(t.prompt || '').substring(0, 80)}${t.prompt && t.prompt.length > 80 ? '...' : ''}</div>
+        <div class="template-item-name">${safeName}</div>
+        <div class="template-item-desc">${safeDesc}</div>
+        <div class="template-item-preview">${safePreview}</div>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   promptTemplatesListEl.querySelectorAll('.template-item').forEach(el => {
     el.addEventListener('click', () => openPromptEditor(el.dataset.name));
@@ -1509,6 +1717,7 @@ async function loadPipelineDefs() {
   try {
     allPipelineDefs = await invoke('list_pipelines');
     renderPipelineDefsList();
+    updateSidebarCounts();
   } catch (err) {
     console.error('Failed to load pipelines:', err);
   }
@@ -1520,14 +1729,18 @@ function renderPipelineDefsList() {
     pipelineDefsListEl.innerHTML = '<div style="color: var(--text-secondary); opacity: 0.6; font-size: 0.85rem;">No pipelines yet.</div>';
     return;
   }
-  pipelineDefsListEl.innerHTML = allPipelineDefs.map(p => `
-    <div class="pipeline-def-item" data-name="${p.name}">
+  pipelineDefsListEl.innerHTML = allPipelineDefs.map(p => {
+    const safeName = escapeHtml(p.name);
+    const safeDesc = escapeHtml(p.description || '');
+    return `
+    <div class="pipeline-def-item" data-name="${safeName}">
       <div class="pipeline-def-info">
-        <div class="pipeline-def-name">${p.name}</div>
-        <div class="pipeline-def-desc">${p.description || ''} &middot; ${p.steps.length} step${p.steps.length !== 1 ? 's' : ''}</div>
+        <div class="pipeline-def-name">${safeName}</div>
+        <div class="pipeline-def-desc">${safeDesc} &middot; ${p.steps.length} step${p.steps.length !== 1 ? 's' : ''}</div>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   pipelineDefsListEl.querySelectorAll('.pipeline-def-item').forEach(el => {
     el.addEventListener('click', () => openPipelineEditor(el.dataset.name));
@@ -1573,16 +1786,20 @@ function renderPipelineSteps() {
   }
 
   pipelineStepsListEl.innerHTML = pipelineEditorSteps.map((step, i) => {
-    const inputLabel = step.input === 'transcript' ? 'transcript' : step.input;
+    const inputLabel = step.input === 'transcript' ? 'transcript' : escapeHtml(step.input);
+    const safeName = escapeHtml(step.name || 'Unnamed');
+    const safeConnector = escapeHtml(step.connector);
+    const safeDesc = step.description ? escapeHtml(step.description) : '';
     return `
       <div class="pipeline-step-item" draggable="true" data-index="${i}">
         <span class="step-drag-handle">&#9776;</span>
         <span class="step-number">${i + 1}</span>
         <div class="step-info" data-index="${i}" style="cursor: pointer;">
           <div class="step-name-row">
-            <span class="step-name">${step.name || 'Unnamed'}</span>
-            <span class="step-connector-badge">${step.connector}</span>
+            <span class="step-name">${safeName}</span>
+            <span class="step-connector-badge">${safeConnector}</span>
           </div>
+          ${safeDesc ? `<div class="step-description">${safeDesc}</div>` : ''}
           <div class="step-input-label">input: ${inputLabel}</div>
         </div>
         <button class="step-remove-btn" data-index="${i}" title="Remove step">&times;</button>
@@ -1674,11 +1891,11 @@ function showStepEditor(index) {
   if (!step) return;
 
   const inputOptions = getInputOptions(index).map(o =>
-    `<option value="${o}" ${step.input === o ? 'selected' : ''}>${o}</option>`
+    `<option value="${escapeHtml(o)}" ${step.input === o ? 'selected' : ''}>${escapeHtml(o)}</option>`
   ).join('');
 
   const promptTemplateOptions = allPromptTemplates.map(t =>
-    `<option value="${t.name}" ${step.config?.prompt_template === t.name ? 'selected' : ''}>${t.name}</option>`
+    `<option value="${escapeHtml(t.name)}" ${step.config?.prompt_template === t.name ? 'selected' : ''}>${escapeHtml(t.name)}</option>`
   ).join('');
 
   // Build connector-specific config fields
@@ -1691,15 +1908,15 @@ function showStepEditor(index) {
         <option value="google" ${step.config?.provider === 'google' ? 'selected' : ''}>Google</option>
         <option value="anthropic" ${step.config?.provider === 'anthropic' ? 'selected' : ''}>Anthropic</option>
       </select></div>
-      <div class="step-editor-row"><label>Model</label><input data-field="model" value="${step.config?.model || ''}" placeholder="e.g. gpt-4o" /></div>
+      <div class="step-editor-row"><label>Model</label><input data-field="model" value="${escapeHtml(step.config?.model || '')}" placeholder="e.g. gpt-4o" /></div>
     `;
   } else if (step.connector === 'save') {
     configFields = `
-      <div class="step-editor-row"><label>Path</label><input data-field="path" value="${step.config?.path || ''}" placeholder="~/Documents/{date}-{pipeline-name}.md" /></div>
+      <div class="step-editor-row"><label>Path</label><input data-field="path" value="${escapeHtml(step.config?.path || '')}" placeholder="~/Documents/{date}-{pipeline-name}.md" /></div>
     `;
   } else if (step.connector === 'webhook') {
     configFields = `
-      <div class="step-editor-row"><label>URL</label><input data-field="url" value="${step.config?.url || ''}" placeholder="https://hooks.example.com/..." /></div>
+      <div class="step-editor-row"><label>URL</label><input data-field="url" value="${escapeHtml(step.config?.url || '')}" placeholder="https://hooks.example.com/..." /></div>
       <div class="step-editor-row"><label>Method</label><select data-field="method">
         <option value="POST" ${step.config?.method === 'POST' ? 'selected' : ''}>POST</option>
         <option value="PUT" ${step.config?.method === 'PUT' ? 'selected' : ''}>PUT</option>
@@ -1708,21 +1925,21 @@ function showStepEditor(index) {
     `;
   } else if (step.connector === 'mcp') {
     configFields = `
-      <div class="step-editor-row"><label>Server</label><input data-field="server" value="${step.config?.server || ''}" placeholder="e.g. slack-mcp" /></div>
-      <div class="step-editor-row"><label>Tool</label><input data-field="tool" value="${step.config?.tool || ''}" placeholder="e.g. send-message" /></div>
-      <div class="step-editor-row"><label>Args</label><textarea data-field="args" rows="2" placeholder='{"channel": "#team"}'>${step.config?.args ? JSON.stringify(step.config.args, null, 2) : ''}</textarea></div>
+      <div class="step-editor-row"><label>Server</label><input data-field="server" value="${escapeHtml(step.config?.server || '')}" placeholder="e.g. slack-mcp" /></div>
+      <div class="step-editor-row"><label>Tool</label><input data-field="tool" value="${escapeHtml(step.config?.tool || '')}" placeholder="e.g. send-message" /></div>
+      <div class="step-editor-row"><label>Args</label><textarea data-field="args" rows="2" placeholder='{"channel": "#team"}'>${escapeHtml(step.config?.args ? JSON.stringify(step.config.args, null, 2) : '')}</textarea></div>
     `;
   }
 
-  // Replace step item with editor
-  const stepItems = pipelineStepsListEl.querySelectorAll('.pipeline-step-item');
-  const stepEl = stepItems[index];
+  // Replace step item (or existing editor) with new editor
+  const stepChildren = pipelineStepsListEl.querySelectorAll('.pipeline-step-item, .step-editor');
+  const stepEl = stepChildren[index];
   if (!stepEl) return;
 
   const editorEl = document.createElement('div');
   editorEl.className = 'step-editor';
   editorEl.innerHTML = `
-    <div class="step-editor-row"><label>Name</label><input data-field="name" value="${step.name}" placeholder="step name" /></div>
+    <div class="step-editor-row"><label>Name</label><input data-field="name" value="${escapeHtml(step.name)}" placeholder="step name" /></div>
     <div class="step-editor-row"><label>Connector</label><select data-field="connector">
       <option value="llm" ${step.connector === 'llm' ? 'selected' : ''}>LLM</option>
       <option value="save" ${step.connector === 'save' ? 'selected' : ''}>Save</option>
@@ -1730,12 +1947,10 @@ function showStepEditor(index) {
       <option value="mcp" ${step.connector === 'mcp' ? 'selected' : ''}>MCP</option>
     </select></div>
     <div class="step-editor-row"><label>Input</label><select data-field="input">${inputOptions}</select></div>
-    <div class="step-editor-row"><label>Description</label><input data-field="description" value="${step.description || ''}" placeholder="What this step does..." /></div>
+    <div class="step-editor-row"><label>Description</label><input data-field="description" value="${escapeHtml(step.description || '')}" placeholder="What this step does..." /></div>
     <div id="step-config-fields">${configFields}</div>
     <div class="step-editor-actions">
-      <button class="mini-action-btn step-editor-done" style="height: 28px; padding: 0 14px;">
-        <span style="font-weight: 600; font-size: 12px;">Done</span>
-      </button>
+      <button class="mini-action-btn compact-add-btn step-editor-done">Done</button>
     </div>
   `;
 
@@ -1784,7 +1999,7 @@ function renderPipelinePreview() {
   let html = '<span class="preview-node source">transcript</span>';
   for (const step of pipelineEditorSteps) {
     html += '<span class="preview-arrow">&rarr;</span>';
-    html += `<span class="preview-node step">${step.name || '?'} <small style="opacity:0.6">(${step.connector})</small></span>`;
+    html += `<span class="preview-node step">${escapeHtml(step.name || '?')} <small style="opacity:0.6">(${escapeHtml(step.connector)})</small></span>`;
   }
   pipelinePreviewEl.innerHTML = html;
 }
@@ -1865,7 +2080,7 @@ async function loadTemplates() {
   try {
     const templates = await invoke('list_templates');
     templateSelect.innerHTML = '<option value="">Select template...</option>' +
-      templates.map(t => `<option value="${t.name}">${t.description}</option>`).join('');
+      templates.map(t => `<option value="${escapeHtml(t.name)}">${escapeHtml(t.description)}</option>`).join('');
   } catch (err) {
     console.error('Failed to load templates:', err);
   }
@@ -1894,4 +2109,4 @@ async function init() {
   }
 }
 
-init();
+init().catch(e => console.error('Init failed:', e));

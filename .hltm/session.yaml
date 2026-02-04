@@ -1,10 +1,9 @@
 phase: idle
+blueprint: desktop-app
 epic: null
 story: null
 step: null
-attempt: 0
+attempt: 1
 recovery_used: false
-last_completed:
-  epic: epic-13-app-polish
-  story: 13.3-about-menu
-  timestamp: 2026-02-02
+blocked: false
+waiting_for_answers: false

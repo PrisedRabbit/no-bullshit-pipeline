@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use chrono::Utc;
 use crate::pipelines::{ConnectorType, load_pipelines, validate_pipeline};
 use crate::storage::get_data_dir;
+use crate::transcription::{TranscriptJson, render_transcript_from_json};
 use crate::connectors;
 
 /// Pipeline execution status
@@ -59,14 +60,51 @@ fn get_pipeline_output_dir(recording_id: &str, pipeline_name: &str) -> PathBuf {
         .join(pipeline_name)
 }
 
-/// Resolve the input path for a step
+/// Resolve the input path for a step.
+/// For transcript input: renders JSON to a cached .txt file (with .md fallback).
+/// For step outputs: returns the step's .md file path.
 fn resolve_input_path(
     recording_id: &str,
     pipeline_name: &str,
     input: &str,
 ) -> PathBuf {
     if input == "transcript" {
-        get_data_dir().join(recording_id).join("transcript.md")
+        let recording_dir = get_data_dir().join(recording_id);
+        let json_path = recording_dir.join("transcript.json");
+
+        if json_path.exists() {
+            // DESIGN NOTE: Save connector behavior change (v0.3 -> v0.4)
+            //
+            // Connectors now receive transcript_rendered.txt (plain text) instead of
+            // transcript.md (markdown with YAML frontmatter).
+            //
+            // RATIONALE:
+            // - transcript.json is the source of truth (metadata + segments/text)
+            // - transcript_rendered.txt is an ephemeral cache for connector consumption
+            // - Connectors process content, not metadata
+            // - Metadata stays in transcript.json where it belongs
+            // - Separation of concerns: storage (JSON) vs processing (plain text)
+            //
+            // This is INTENTIONAL design, not a bug. The rendered text file:
+            // 1. Contains only the transcript body (speaker-labeled or plain text)
+            // 2. Has no YAML frontmatter (metadata lives in .json)
+            // 3. Is generated on-demand for each pipeline execution
+            // 4. Is cleaned up after pipeline completes (see execute_pipeline_internal)
+            //
+            // Previous behavior (v0.3): transcript.md with frontmatter passed directly.
+            // Current behavior (v0.4): transcript.json rendered to .txt, frontmatter-free.
+            let rendered_path = recording_dir.join("transcript_rendered.txt");
+            if let Ok(content) = fs::read_to_string(&json_path) {
+                if let Ok(tj) = serde_json::from_str::<TranscriptJson>(&content) {
+                    let text = render_transcript_from_json(&tj);
+                    let _ = fs::write(&rendered_path, &text);
+                    return rendered_path;
+                }
+            }
+        }
+
+        // Fallback: legacy transcript.md
+        recording_dir.join("transcript.md")
     } else {
         get_pipeline_output_dir(recording_id, pipeline_name).join(format!("{}.md", input))
     }
@@ -87,9 +125,11 @@ pub async fn execute_pipeline_internal(
 
     validate_pipeline(&pipeline)?;
 
-    // Verify transcript exists
-    let transcript_path = get_data_dir().join(recording_id).join("transcript.md");
-    if !transcript_path.exists() {
+    // Verify transcript exists (.json primary, .md fallback)
+    let recording_dir = get_data_dir().join(recording_id);
+    let has_transcript = recording_dir.join("transcript.json").exists()
+        || recording_dir.join("transcript.md").exists();
+    if !has_transcript {
         return Err("No transcript found. Transcribe the recording first.".to_string());
     }
 
@@ -228,6 +268,10 @@ pub async fn execute_pipeline_internal(
                     Some(&error),
                 )?;
 
+                // Clean up temporary rendered transcript file
+                let rendered_path = get_data_dir().join(recording_id).join("transcript_rendered.txt");
+                let _ = fs::remove_file(&rendered_path);
+
                 return Ok(PipelineStatus::Partial);
             }
         }
@@ -241,6 +285,10 @@ pub async fn execute_pipeline_internal(
         None,
         None,
     )?;
+
+    // Clean up temporary rendered transcript file
+    let rendered_path = get_data_dir().join(recording_id).join("transcript_rendered.txt");
+    let _ = fs::remove_file(&rendered_path);
 
     Ok(PipelineStatus::Done)
 }
@@ -494,7 +542,11 @@ mod tests {
     fn test_resolve_input_path_transcript() {
         let path = resolve_input_path("abc-123", "my-pipeline", "transcript");
         assert!(path.to_string_lossy().contains("abc-123"));
-        assert!(path.to_string_lossy().ends_with("transcript.md"));
+        // Falls back to transcript.md when no .json exists
+        assert!(
+            path.to_string_lossy().ends_with("transcript.md")
+            || path.to_string_lossy().ends_with("transcript_rendered.txt")
+        );
     }
 
     #[test]

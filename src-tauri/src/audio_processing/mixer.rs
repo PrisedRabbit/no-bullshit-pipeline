@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::fs::File;
 use std::path::Path;
 use lewton::inside_ogg::OggStreamReader;
-use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoder};
+use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoderBuilder};
 use std::num::{NonZeroU32, NonZeroU8};
 use std::collections::VecDeque;
 // Note: rubato available for high-quality resampling if needed
@@ -44,23 +44,24 @@ pub fn mix_audio_files<P: AsRef<Path>>(
     let mic_needs_resample = mic_sample_rate != output_sample_rate;
     let sys_needs_resample = sys_sample_rate != output_sample_rate;
     
+    #[cfg(debug_assertions)]
     if mic_needs_resample {
-        println!("Will resample mic on-the-fly: {} Hz -> {} Hz", mic_sample_rate, output_sample_rate);
+        eprintln!("Will resample mic on-the-fly: {} Hz -> {} Hz", mic_sample_rate, output_sample_rate);
     }
+    #[cfg(debug_assertions)]
     if sys_needs_resample {
-        println!("Will resample system on-the-fly: {} Hz -> {} Hz", sys_sample_rate, output_sample_rate);
+        eprintln!("Will resample system on-the-fly: {} Hz -> {} Hz", sys_sample_rate, output_sample_rate);
     }
     
     let output_file = File::create(output_path.as_ref())?;
-    let mut encoder = VorbisEncoder::new(
-        0,
-        [("", ""); 0],
+    let mut encoder = VorbisEncoderBuilder::new_with_serial(
         NonZeroU32::new(output_sample_rate).ok_or(anyhow::anyhow!("Invalid sample rate"))?,
         NonZeroU8::new(channels).ok_or(anyhow::anyhow!("Invalid channels"))?,
-        VorbisBitrateManagementStrategy::QualityVbr { target_quality: 0.5 },
-        None,
         output_file,
-    )?;
+        0,
+    )
+    .bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr { target_quality: 0.5 })
+    .build()?;
 
     // Buffers for mixing
     let mut mic_buffers: Vec<VecDeque<f32>> = vec![VecDeque::new(); channels as usize];
@@ -71,7 +72,8 @@ pub fn mix_audio_files<P: AsRef<Path>>(
     
     let block_size = 4096;
     
-    println!("Mixing audio...");
+    #[cfg(debug_assertions)]
+    eprintln!("Mixing audio...");
     
     loop {
         // 1. REFILL MIC BUFFERS
@@ -143,11 +145,8 @@ pub fn mix_audio_files<P: AsRef<Path>>(
                 let s = sys_buffers[ch].pop_front().unwrap_or(0.0);
                 
                 let sum = m + s;
-                let clipped = if sum.abs() > 1.0 {
-                    sum.signum() * sum.abs().tanh()
-                } else {
-                    sum
-                };
+                // Soft clip using tanh - smooth, continuous, no discontinuity
+                let clipped = (sum as f64).tanh() as f32;
                 mixed_channels[ch].push(clipped);
             }
         }

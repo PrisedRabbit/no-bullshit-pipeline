@@ -1,561 +1,343 @@
 ---
 stepsCompleted: ['step-01-init', 'step-02-discovery', 'step-03-success', 'step-04-journeys', 'step-05-domain-skipped', 'step-06-innovation', 'step-07-project-type', 'step-08-scoping', 'step-09-functional', 'step-10-nonfunctional', 'step-11-polish', 'step-12-complete']
 workflowStatus: complete
-completedAt: '2026-02-01'
+completedAt: '2026-02-04'
 inputDocuments:
-  - docs/index.md
-  - docs/architecture.md
-  - docs/project-overview.md
-  - docs/source-tree-analysis.md
-  - docs/development-guide.md
+  - input/brief.md
+  - input/brief-enhanced.md
+  - _bmad-output/planning-artifacts/architecture.md
+  - _bmad-output/planning-artifacts/project-context.md
   - _bmad-output/planning-artifacts/epics.md
-workflowType: 'prd'
-documentCounts:
-  brief: 0
-  research: 0
-  projectDocs: 5
-  epics: 1
+workflowType: 'prd-bugfix'
 projectType: brownfield
 classification:
   projectType: desktop_app
   domain: general
   complexity: medium
-  projectContext: brownfield
+  projectContext: brownfield-bugfix
 ---
 
-# Product Requirements Document - NBP
+# PRD: Code Review Bug Fix Sprint
 
 **Author:** sk
-**Date:** 2026-02-01
+**Date:** 2026-02-04
+**Type:** Brownfield Bug Fix
+**Iteration:** v0.4.1
+**Sprint:** Code Review Findings
 
 ## Executive Summary
 
-**NBP (No Bullshit Pipeline)** is a privacy-first audio capture application for macOS that records microphone and system audio simultaneously, processes it with professional-grade normalization, and provides AI-powered transcription and structured output.
+A comprehensive code review of NBP identified 17 issues across Critical (3), Significant (7), and Minor (7) severity levels. This PRD covers the resolution of all 17 findings. No new features are introduced. All changes are fixes, refactors, and cleanup to existing functionality.
 
-**Core Value:** Total Audio Capture → Structured Data. Privacy-first. No bullshit.
-
-**Current State:** v0.3.0 with working core recording, local Whisper transcription, tagging, and themes.
-
-**This PRD covers:** v0.3 "The Pipeline & Polish" — Cloud AI integration, structured output templates, audio playback, and quality improvements.
+**Core Objective:** Improve code safety, eliminate security vulnerabilities, remove dead code, and fix correctness issues identified during code review.
 
 ## Success Criteria
 
-### User Success
+### Acceptance
 
-1. **Zero-friction capture** — Start recording in <2 seconds, no configuration needed
-2. **Accurate transcription** — Cloud AI options (OpenAI, Gemini, Claude) produce usable text without manual correction
-3. **Actionable output** — Meeting Notes template extracts attendees, decisions, action items automatically
-4. **In-app review** — Play recordings + see waveforms without opening external apps
-5. **Privacy confidence** — User knows exactly when data leaves device (API calls require explicit key setup)
-
-### Business Success
-
-(Personal project — "business" = personal productivity value)
-
-1. **Daily driver status** — NBP replaces QuickTime/Voice Memos for all meeting capture
-2. **Processing reliability** — 95%+ recordings successfully process to structured output
-3. **Feature completion** — All 4 epics (14 stories) from v0.3 roadmap implemented
-
-### Technical Success
-
-1. **Audio integrity** — Zero drift/sync issues in mixed recordings (mic + system)
-2. **Error resilience** — Graceful degradation when one source fails
-3. **Build health** — Signed DMG passes Gatekeeper without quarantine warnings
-4. **API stability** — Cloud transcription handles network failures gracefully
+1. All 3 Critical issues resolved
+2. All 7 Significant issues resolved
+3. All 7 Minor issues addressed
+4. Existing tests pass without regression
+5. `cargo check` passes cleanly
+6. No new bugs introduced
+7. Existing functionality preserved
 
 ### Measurable Outcomes
 
 | Metric | Target |
 |--------|--------|
-| Recording success rate | >99% (no crashes, no corruption) |
-| Transcription accuracy | Matches source quality (Whisper-1/Gemini handles accents, crosstalk) |
-| Template extraction | >80% of sections populated for typical meetings |
-| App launch → recording | <3 seconds |
+| Unsafe code blocks | Zero unnecessary `unsafe` in AudioState |
+| XSS attack surface | Zero raw innerHTML with user data |
+| Data corruption risk | Zero non-atomic metadata writes |
+| Dead code | Zero template/scaffolding leftovers |
+| Debug println! in production | Zero |
+| API key exposure | Zero console logging of secrets |
+| App startup time | Reduced by 500ms+ (permission check optimization) |
 
-## Product Scope
+## Scope
 
-### MVP - Minimum Viable Product (v0.1-0.2 — DONE)
+### In Scope
 
-- [x] Dual-track recording (mic + system audio)
-- [x] EBU R128 normalization + real-time mixing
-- [x] Local Whisper transcription
-- [x] Tag-based organization
-- [x] Neon UI with themes
-- [x] Permissions onboarding
+All 17 issues from the code review (`input/brief-enhanced.md`), organized by severity.
 
-### Growth Features (v0.3 — IN SCOPE)
+### Out of Scope
 
-**Epic 1: Cloud AI Integration**
-- Secure API key storage
-- OpenAI Whisper-1 transcription
-- GPT-4o summarization
-- Google Gemini long-context processing
-- Claude structured extraction
-
-**Epic 2: Structured Output Templates**
-- Template system core
-- Meeting Notes template
-- Brainstorm template
-- Journal template
-
-**Epic 3: Audio Playback & Visualization**
-- In-app audio player
-- Waveform preview with seek
-
-**Epic 4: Quality & Polish**
-- Audio mix error handling (drift prevention)
-- Signed build entitlements
-- Recording notification
-
-### Vision (Future)
-
-- Speaker diarization
-- Real-time live transcription during recording
-- Calendar integration (auto-tag by meeting)
-- Export to Notion/Obsidian/etc.
-
-## User Journeys
-
-### Journey 1: Sarah's Weekly Team Standup (Meeting Notes)
-
-**Persona:** Sarah, product manager who runs daily standups over Zoom. Tired of taking notes while trying to participate.
-
-**Opening Scene:** Sarah joins her Monday standup. She used to frantically type while team members talked, missing context and misattributing action items.
-
-**Rising Action:**
-1. Opens NBP before joining Zoom
-2. Clicks record — both mic and Zoom system audio captured
-3. Participates fully in the meeting without note-taking
-4. 30 minutes later, clicks stop
-5. Sees "Processing..." as audio mixes in real-time
-
-**Climax:** Sarah clicks "Process" and selects "Meeting Notes" template. GPT-4o extracts attendees (from voice identification context), key decisions, and action items with owners.
-
-**Resolution:** In 2 minutes, Sarah has structured notes ready to paste into Notion. She catches an action item she would have missed while typing. Team gets meeting recap within 10 minutes of call ending.
-
-**Journey Requirements:**
-- Start/stop recording with minimal friction
-- Real-time audio mixing (no post-processing wait)
-- Cloud AI processing (GPT-4o)
-- Meeting Notes template with structured extraction
-- Copy-friendly output format
-
----
-
-### Journey 2: Alex's Product Brainstorm (Brainstorm Template)
-
-**Persona:** Alex, solo founder who thinks best out loud. Has ideas in the shower, on walks, at 2am.
-
-**Opening Scene:** Alex is pacing their apartment at midnight, breakthrough idea forming but too scattered to write coherently.
-
-**Rising Action:**
-1. Grabs laptop, opens NBP
-2. Records 45-minute stream-of-consciousness brainstorm
-3. Jumps between topics, contradicts self, has tangents
-4. Finally exhausted, stops recording
-
-**Climax:** Next morning, Alex processes with "Brainstorm" template. Claude structures the chaos: core idea, supporting themes, contradictions noted, top 3 priorities surfaced.
-
-**Resolution:** Alex has a clear starting point for a product spec. The "contradictions" section reveals an assumption they need to validate. The 45 minutes of rambling became 2 pages of structured thinking.
-
-**Journey Requirements:**
-- Long-form recording (45+ min)
-- Works with mic-only (no system audio needed)
-- Brainstorm template extracts themes, priorities
-- Claude integration for nuanced extraction
-
----
-
-### Journey 3: Recording Failure Recovery (Edge Case)
-
-**Persona:** David, user in important client call when system audio fails mid-recording.
-
-**Opening Scene:** David is 20 minutes into recording a crucial client call. System audio source disconnects (Zoom crashed and restarted).
-
-**Rising Action:**
-1. NBP detects system audio loss
-2. **Notification appears:** "System audio lost. Mic recording continues."
-3. David sees indicator but stays focused on call
-4. Call ends, David stops recording
-
-**Climax:** Recording list shows warning icon. David opens detail view, sees "Issues occurred during capture" indicator. Plays back — mic audio is intact, system audio partial.
-
-**Resolution:** David processes with local Whisper (his voice only, but enough context). Gets 80% of the conversation. Makes note to follow up on client-side items he couldn't hear.
-
-**Journey Requirements:**
-- Robust error detection during recording
-- Continue recording on partial failure
-- Clear visual indicators of issues
-- Graceful degradation (process what's available)
-
----
-
-### Journey 4: First-Time Setup (Onboarding)
-
-**Persona:** New user who just installed NBP.
-
-**Opening Scene:** Downloads NBP from website, opens the DMG, drags to Applications.
-
-**Rising Action:**
-1. Launches app — permissions overlay appears
-2. Grants microphone permission (system prompt)
-3. Grants Screen Recording permission (for system audio)
-4. Onboarding shows status: both permissions granted
-5. Clicks "Continue" to main app
-
-**Climax:**
-- Goes to Settings → Transcription
-- Enables transcription, downloads Base model (141MB)
-- Test recording: says "Testing, 1, 2, 3"
-- Processes — sees transcript appear
-
-**Resolution:** User is confident the app works. Optional: enters OpenAI API key for cloud transcription. Ready for first real recording.
-
-**Journey Requirements:**
-- Clear permission onboarding flow
-- Model download with progress indication
-- Quick test path to validate setup
-- API key configuration in settings
-
----
-
-### Journey Requirements Summary
-
-| Journey | Key Capabilities Required |
-|---------|---------------------------|
-| Meeting Notes | Cloud AI (GPT-4o), Meeting Notes template, real-time mixing |
-| Brainstorm | Long recording, Brainstorm template, Claude integration |
-| Failure Recovery | Error detection, notifications, graceful degradation |
-| Onboarding | Permission flow, model download, settings UI |
-
-## Innovation & Novel Patterns
-
-### Detected Innovation Areas
-
-1. **System Audio Loopback** — Using macOS Core Audio Process Taps to capture system audio (Zoom, FaceTime, browser) alongside mic. Most consumer recording apps lack this capability.
-
-2. **Privacy-First AI** — Local Whisper (Metal-accelerated) as default. No cloud dependency. API keys are opt-in, making air-gapped operation possible.
-
-3. **Structured Output Pipeline** — AI doesn't just transcribe; it extracts structure (Meeting Notes, Brainstorm, Journal templates). Transforms audio → actionable artifacts.
-
-4. **Hybrid Processing Model** — User controls the privacy/accuracy tradeoff:
-   - Local Whisper: Fast, private, good enough
-   - Cloud Whisper-1: Accurate, handles accents
-   - Gemini Flash 1.5: Long-context (1hr+ recordings)
-   - Claude: Nuanced extraction
-
-### Competitive Landscape
-
-| Competitor | System Audio | Local AI | Structured Output | Privacy-First |
-|------------|--------------|----------|-------------------|---------------|
-| Otter.ai | No | No | Yes | No (cloud-only) |
-| Fireflies | No | No | Yes | No (cloud-only) |
-| Voice Memos | No | No | No | Yes |
-| QuickTime | No | No | No | Yes |
-| **NBP** | **Yes** | **Yes** | **Yes** | **Yes** |
-
-### Validation Approach
-
-- **System Audio**: Already validated in v0.1-0.2 (Core Audio Process Taps working)
-- **Local Whisper**: Already validated in v0.3 (transcription working)
-- **Cloud AI**: Validate API integrations with OpenAI/Google/Anthropic
-- **Templates**: Validate extraction quality with real meeting recordings
-
-### Risk Mitigation
-
-| Risk | Mitigation |
-|------|------------|
-| Process Taps API changes | Monitor macOS releases, maintain compatibility layer |
-| Cloud AI rate limits | Graceful degradation to local Whisper |
-| Template extraction quality | Iterative prompt engineering, user feedback loop |
-
-## Desktop App Specific Requirements
-
-### Project-Type Overview
-
-NBP is a **native macOS desktop application** built with Tauri 2. It leverages platform-specific APIs (Core Audio Process Taps) that are not available on other platforms, making cross-platform support a non-goal for v0.3.
-
-**Platform Focus:** macOS 13.0+ (Ventura and later)
-
-### Platform Support
-
-| Attribute | Value |
-|-----------|-------|
-| Minimum OS | macOS 13.0 (Ventura) |
-| Architecture | Universal (Apple Silicon + Intel) |
-| Framework | Tauri 2.9.5 |
-| Backend | Rust 2024 Edition |
-| Frontend | Vanilla HTML/JS/CSS |
-
-**Why macOS-only:**
-- Core Audio Process Taps (system audio loopback) require macOS 13+
-- cidre crate is macOS-specific (Core Audio bindings)
-- No equivalent API on Windows/Linux for low-latency system audio capture
-
-### System Integration
-
-**Required Permissions:**
-
-| Permission | Purpose | Grant Method |
-|------------|---------|--------------|
-| Microphone | Voice capture | System prompt on first use |
-| Screen Recording | System audio via Process Taps | System Preferences (manual) |
-
-**System APIs Used:**
-
-| API | Crate | Purpose |
-|-----|-------|---------|
-| Core Audio Process Taps | cidre | System audio loopback capture |
-| Audio Units | cpal | Microphone input capture |
-| Metal | whisper-rs | GPU-accelerated Whisper inference |
-| Keychain | (future) | Secure API key storage |
-
-### Update Strategy
-
-**Current (v0.3):**
-- Manual download from distribution site
-- DMG-based installation
-- User replaces existing app manually
-
-**Future Roadmap:**
-- Sparkle framework for auto-updates
-- Delta updates for bandwidth efficiency
-- Update notifications in-app
-
-### Offline Capabilities
-
-NBP is designed for **air-gapped operation**:
-
-| Feature | Offline | Online |
-|---------|---------|--------|
-| Recording | ✅ Full functionality | ✅ Full functionality |
-| Local Whisper transcription | ✅ Full functionality | ✅ Full functionality |
-| Cloud AI transcription | ❌ Requires API keys + network | ✅ Requires API keys |
-| Model download | ❌ Requires network | ✅ One-time download |
-
-**Data Storage:**
-- All recordings stored locally in `~/nbp-data/`
-- Settings stored locally in `~/.nbp/settings.json`
-- Whisper models stored locally in `~/.nbp/models/`
-- No cloud sync, no telemetry, no analytics
-
-### Implementation Considerations
-
-**Tauri 2 Specifics:**
-- Uses `tauri-plugin-dialog` for file dialogs
-- Uses `tauri-plugin-opener` for opening folders
-- IPC via `invoke()` pattern
-- Event emitting for async updates (download progress, transcription segments)
-
-**Build & Distribution:**
-- `./build.sh` creates signed DMG
-- Entitlements required: microphone, screen recording
-- App notarization recommended for distribution
-
-## Project Scoping & Phased Development
-
-### MVP Strategy & Philosophy
-
-**MVP Approach:** Problem-Solving MVP
-- Core problem: Capture total audio (mic + system) and produce actionable output
-- Validated: Users can record, transcribe locally, and organize with tags
-- v0.3 extends with cloud AI and structured output
-
-**Resource Requirements:**
-- Solo developer (sk)
-- No external dependencies for core functionality
-- Cloud APIs require user-provided keys only
-
-### MVP Feature Set (Phase 1 — COMPLETED)
-
-**Core User Journeys Supported:**
-- ✅ Basic recording (Journey 1 & 2 partial)
-- ✅ First-time setup (Journey 4)
-
-**Must-Have Capabilities (DONE):**
-- [x] Dual-track recording (mic + system audio)
-- [x] Real-time audio mixing
-- [x] EBU R128 normalization
-- [x] Local Whisper transcription
-- [x] Tag-based organization
-- [x] Settings persistence
-- [x] Permission onboarding
-
-### Growth Features (Phase 2 — v0.3 IN PROGRESS)
-
-**Core User Journeys Completed:**
-- Meeting Notes (Journey 1) — requires Cloud AI + templates
-- Brainstorm (Journey 2) — requires templates
-- Failure Recovery (Journey 3) — requires error handling
-
-**Planned Capabilities:**
-
-| Epic | Features | Priority |
-|------|----------|----------|
-| 1: Cloud AI | API key storage, OpenAI, Gemini, Claude | High |
-| 2: Templates | Meeting Notes, Brainstorm, Journal | High |
-| 3: Playback | Audio player, waveform visualization | Medium |
-| 4: Polish | Error handling, signed builds, notifications | Medium |
-
-### Expansion Features (Phase 3 — Future)
-
-**Vision Capabilities:**
-- Speaker diarization (identify who said what)
-- Real-time live transcription during recording
-- Calendar integration (auto-tag meetings)
-- Export to Notion/Obsidian/other tools
-- Cross-platform (if demand exists)
-
-### Risk Mitigation Strategy
-
-**Technical Risks:**
-
-| Risk | Mitigation |
-|------|------------|
-| Core Audio API changes | Monitor Apple releases, maintain compatibility |
-| Cloud API rate limits | Graceful fallback to local Whisper |
-| Model download failures | Retry logic, clear error messages |
-
-**Market Risks:**
-
-| Risk | Mitigation |
-|------|------------|
-| Competitors add system audio | Privacy-first + local AI is differentiator |
-| Apple removes Process Taps | Monitor deprecation notices |
-
-**Resource Risks:**
-
-| Risk | Mitigation |
-|------|------------|
-| Solo developer bandwidth | Prioritize epics by user value |
-| Feature creep | Stick to v0.3 scope, defer to Vision |
+- No new features
+- No UI redesign
+- No new dependencies (except where strictly needed for resampling fix)
+- No architecture changes beyond targeted refactors
 
 ## Functional Requirements
 
-### Audio Capture
+### Critical Issues
 
-- FR1: User can start recording mic audio with a single click
-- FR2: User can start recording system audio (Zoom, FaceTime, browser) simultaneously with mic
-- FR3: System can capture system audio via macOS Process Taps
-- FR4: User can stop recording with a single click
-- FR5: User can pause and resume an active recording
-- FR6: System continues mic recording if system audio source fails mid-recording
+#### FR-CR1: Remove Unnecessary `unsafe impl Send + Sync` for AudioState
 
-### Audio Processing
+**File:** `src-tauri/src/audio.rs:44-45`
 
-- FR7: System can normalize recorded audio to EBU R128 standard (-23 LUFS)
-- FR8: System can apply true peak limiting (-1 dBTP) to prevent clipping
-- FR9: System can mix mic and system audio tracks in real-time during recording
-- FR10: System can encode audio to OGG Vorbis format (VBR ~128kbps)
-- FR11: System can detect and compensate for sample rate drift between audio sources
+**Current:** Manual `unsafe impl Send for AudioState` and `unsafe impl Sync for AudioState` bypass compiler safety checks. All fields in `AudioState` are `Mutex<T>` where `T: Send`, which means Rust auto-derives `Send + Sync`.
 
-### Transcription
+**Required:** Remove both `unsafe impl` lines. The compiler will verify safety automatically.
 
-- FR12: User can transcribe recordings using local Whisper models
-- FR13: User can select Whisper model size (Tiny, Base, Small, Medium, Large)
-- FR14: User can download Whisper models with progress indication
-- FR15: User can delete downloaded Whisper models
-- FR16: User can transcribe recordings using OpenAI Whisper-1 API
-- FR17: User can summarize transcriptions using GPT-4o
-- FR18: User can process long recordings (1hr+) using Google Gemini Flash 1.5
-- FR19: User can extract structured data using Anthropic Claude
+**Acceptance:**
+- Given `AudioState` contains only `Mutex<T>` fields with `T: Send`
+- When the unsafe impls are removed
+- Then `cargo check` compiles without errors
+- And future non-Send types added to AudioState will be caught by the compiler
 
-### Structured Output
+#### FR-CR2: Fix XSS via innerHTML with User Data
 
-- FR20: User can apply output templates to transcriptions
-- FR21: User can select "Meeting Notes" template for meeting recordings
-- FR22: System extracts attendees, key decisions, action items from Meeting Notes template
-- FR23: User can select "Brainstorm" template for ideation sessions
-- FR24: System extracts themes, priorities, contradictions from Brainstorm template
-- FR25: User can select "Journal" template for personal recordings
-- FR26: System extracts mood, key thoughts, reflections from Journal template
-- FR27: User can create custom templates in `~/.nbp/templates/`
+**Files:** `src/main.js:469-480`, `src/main.js:526-550`, `src/main.js:700-705`
 
-### Audio Playback
+**Current:** Tag names and recording titles are injected directly into `innerHTML` without escaping. The `escapeHtml()` function exists (line 12-16) but is not used in these rendering paths. A tag like `<img src=x onerror=alert(1)>` executes arbitrary JavaScript.
 
-- FR28: User can play recordings directly in the app
-- FR29: User can pause playback
-- FR30: User can seek to any position using a seek bar
-- FR31: User can see waveform visualization of recordings
-- FR32: User can click on waveform to seek to that position
-- FR33: System shows playhead position on waveform during playback
-- FR34: System stops playback when switching to different recording
+**Required:** Apply `escapeHtml()` to all user-provided data before inserting into `innerHTML`:
+- Tag names in tag rendering
+- Recording titles in `renderRecordingsList()`
+- Any other user-provided content inserted via innerHTML
 
-### User Settings
+**Acceptance:**
+- Given a tag name containing `<script>alert(1)</script>`
+- When rendered in the tag list
+- Then the HTML entities are escaped and no script executes
+- And the `escapeHtml()` function is used consistently in all innerHTML paths
 
-- FR35: User can configure storage path for recordings
-- FR36: User can set auto-discard threshold for short recordings
-- FR37: User can select UI theme (Neon Purple, Deep Obsidian)
-- FR38: User can enable/disable transcription feature
-- FR39: User can select transcription provider (Local Whisper, OpenAI, Google, Anthropic)
-- FR40: User can store API keys for cloud services
-- FR41: System masks API keys in UI after saving
+#### FR-CR3: Atomic `write_metadata` in Storage
 
-### Recording Management
+**File:** `src-tauri/src/storage.rs:123-128`
 
-- FR42: User can view list of all recordings
-- FR43: User can filter recordings by tags
-- FR44: User can add tags to recordings
-- FR45: User can remove tags from recordings
-- FR46: User can edit recording title
-- FR47: User can delete recordings
-- FR48: User can open recording folder in Finder
-- FR49: User can view recording metadata (date, duration, tags)
-- FR50: System suggests tags based on usage frequency
+**Current:** `File::create` truncates the file before writing. If serialization fails after truncation, `metadata.json` is corrupted (empty or partial). Other modules (`pipeline_engine.rs`, `transcription.rs`) correctly use temp-file + rename for atomic writes.
 
-### Notifications & Feedback
+**Required:** Implement temp-file + rename pattern consistent with other modules:
+1. Write to `metadata.json.tmp` in the same directory
+2. On successful write, rename `metadata.json.tmp` to `metadata.json`
+3. On failure, leave original `metadata.json` intact
 
-- FR51: User can enable/disable recording start notification
-- FR52: System displays notification when recording is active (if enabled)
-- FR53: System shows visual indicator when recording is in progress
-- FR54: System shows warning indicator if issues occurred during capture
-- FR55: System displays clear error messages for API failures
-- FR56: System shows progress indicator during model download
-- FR57: System shows processing indicator during transcription
+**Acceptance:**
+- Given metadata serialization is in progress
+- When the write to temp file succeeds
+- Then atomic rename replaces the original file
+- And if serialization fails, original metadata.json is preserved
+
+### Significant Issues
+
+#### FR-CR4: Extract Shared Mono-to-Stereo / De-interleave Logic
+
+**File:** `src-tauri/src/mic_audio.rs:282-308` and `src-tauri/src/mic_audio.rs:422-445`
+
+**Current:** ~25 lines of identical planar conversion logic is duplicated in the drain loop. Changes to one copy may not be reflected in the other.
+
+**Required:** Extract the shared conversion logic into a helper function within `mic_audio.rs`. Both call sites should use the shared function.
+
+**Acceptance:**
+- Given the mono-to-stereo / de-interleave logic
+- When either call site is invoked
+- Then the same extracted function is used
+- And no behavior change occurs in audio processing
+
+#### FR-CR5: Atomic SharedAudioBuffer Channel Locking
+
+**File:** `src-tauri/src/audio_processing/shared_buffer.rs:67-76`
+
+**Current:** Left and right channels are locked with separate `Mutex` acquisitions. Between the two locks, a reader can pop from left but not right (or vice versa), causing L/R channel desync.
+
+**Required:** Replace separate `Mutex<VecDeque>` for left and right with a single `Mutex<(VecDeque, VecDeque)>` to guarantee atomic access to both channels.
+
+**Acceptance:**
+- Given left and right audio channels
+- When samples are pushed or popped
+- Then both channels are accessed under a single lock
+- And L/R channel desync is impossible
+
+#### FR-CR6: Remove Dead `greet` Command
+
+**File:** `src-tauri/src/lib.rs:58-60`
+
+**Current:** The `greet` command is scaffolding from the Tauri template, still registered in the invoke handler.
+
+**Required:** Remove the `greet` function and its registration from the invoke handler.
+
+**Acceptance:**
+- Given the `greet` command exists
+- When removed
+- Then `cargo check` compiles without errors
+- And the invoke handler no longer references `greet`
+
+#### FR-CR7: Fix `getDuration` to Check Mix Duration
+
+**File:** `src/main.js:553-556`
+
+**Current:** `getDuration` only checks `rec.audio.mic?.duration_sec` and `rec.audio.system?.duration_sec`. Since the default save mode is `save_mix_only`, mic and system are `null`, so it returns `0` for most recordings.
+
+**Required:** Check `rec.audio.mix?.duration_sec` first, then fall back to mic/system durations.
+
+**Acceptance:**
+- Given a recording saved with `save_mix_only` mode
+- When `getDuration` is called
+- Then the mix duration is returned (not 0)
+
+#### FR-CR8: Optimize `loadAudioDuration` to Use Single Metadata Read
+
+**File:** `src/main.js:1062-1077`
+
+**Current:** `loadAudioDuration` calls `list_recordings` (fetches all recordings) just to get the duration for one recording.
+
+**Required:** Replace `list_recordings` call with `read_metadata` using the specific recording ID.
+
+**Acceptance:**
+- Given a recording detail view opens
+- When `loadAudioDuration` is called
+- Then only `read_metadata(recording_id)` is invoked (not `list_recordings`)
+
+#### FR-CR9: Proper Downsampling with Anti-Aliasing Filter
+
+**File:** `src-tauri/src/transcription.rs:625-627`
+
+**Current:** Downsampling from 48kHz to 16kHz takes every 3rd sample (decimation) without an anti-aliasing filter, introducing aliasing artifacts. The real-time mic pipeline uses `rubato` with sinc interpolation.
+
+**Required:** Use `rubato` (already a dependency) for proper sinc-interpolation-based resampling, consistent with the mic pipeline approach.
+
+**Acceptance:**
+- Given 48kHz audio needs downsampling to 16kHz
+- When transcription prepares audio for Whisper
+- Then sinc interpolation resampling is used (not naive decimation)
+- And audio quality matches the real-time mic pipeline approach
+
+#### FR-CR10: Lightweight Permission Check
+
+**File:** `src-tauri/src/permissions.rs:38-47`
+
+**Current:** System audio permission verification creates an actual `SystemAudioRecorder`, waits 500ms, and writes to `/tmp`. This heavyweight check runs on every app launch and adds 500ms+ startup delay.
+
+**Required:** Use a lightweight check that does not create actual recordings. Options include:
+- Check if Screen Recording permission is granted via macOS API without starting a recording
+- Cache the permission state and only re-verify when explicitly requested
+- Use a shorter timeout or non-recording API call
+
+**Acceptance:**
+- Given the app launches with onboarding completed
+- When permission check runs
+- Then no actual recording is started
+- And startup delay from permission check is eliminated or reduced to <50ms
+
+### Minor Issues
+
+#### FR-CR11: Remove Duplicate Comment
+
+**File:** `src-tauri/src/permissions.rs:57-58`
+
+**Current:** `// Update mic cache too` comment is duplicated on consecutive lines.
+
+**Required:** Remove the duplicate comment line.
+
+#### FR-CR12: Fix Misplaced `cfg_attr` on `get_app_version`
+
+**File:** `src-tauri/src/lib.rs:62-63`
+
+**Current:** `#[cfg_attr(mobile, tauri::mobile_entry_point)]` is on the version getter function instead of the app entry point. It does nothing but is misleading.
+
+**Required:** Remove the misplaced attribute from `get_app_version` and ensure it is correctly placed on the actual entry point (if needed).
+
+#### FR-CR13: Fix Soft Clip Formula Discontinuity
+
+**File:** `src-tauri/src/audio_processing/realtime_mixer.rs:212-218`
+
+**Current:** At `x = 1.0`, the else branch evaluates to `0.0` while the if branch returns `1.0`. This creates a hard jump at the clipping threshold. The offline mixer (`mixer.rs:146`) uses smooth `tanh`-based clipping.
+
+**Required:** Align the realtime mixer's clipping function with the offline mixer's `tanh`-based approach for consistent, smooth clipping behavior.
+
+#### FR-CR14: Remove Debug `println!` from Production Code
+
+**Files:** `src-tauri/src/mic_audio.rs:81`, `src-tauri/src/system_audio.rs:392-393`, `src-tauri/src/audio_processing/realtime_mixer.rs:49`, `src-tauri/src/permissions.rs:79-155`
+
+**Current:** Debug `println!` statements remain in production code paths.
+
+**Required:** Remove all debug `println!` statements from production paths. Use `#[cfg(debug_assertions)]` guard for any statements that should only appear during development, or replace with proper logging if needed.
+
+#### FR-CR15: Import Shared Structs in Integration Tests
+
+**File:** `src-tauri/tests/integration_tests.rs`
+
+**Current:** Tests re-declare local copies of structs (`TestAudioInfo`, `TestAudioFiles`) that mirror real types. If real types change, tests will not catch the divergence.
+
+**Required:** Import the actual types from the crate instead of re-declaring. Where direct import is not possible, document why and add comments noting which real types they mirror.
+
+#### FR-CR16: Support Additional Sample Rates in OGG-to-WAV Conversion
+
+**File:** `src-tauri/src/transcription.rs:625-633`
+
+**Current:** Only 48kHz and 16kHz are supported. Any other sample rate (e.g., 44.1kHz from some microphones) returns `Err("Unsupported sample rate")`, breaking transcription.
+
+**Required:** Support arbitrary sample rates by using the resampler (FR-CR9's approach via rubato) to convert any input rate to 16kHz for Whisper.
+
+**Acceptance:**
+- Given audio at 44.1kHz sample rate
+- When transcription prepares audio for Whisper
+- Then the audio is resampled to 16kHz without error
+
+#### FR-CR17: Remove API Key Console Logging
+
+**File:** `src/main.js:1176`
+
+**Current:** `console.log("Loaded settings:", appSettings)` logs the full settings object including API keys to the WebView console.
+
+**Required:** Remove the console.log statement, or redact sensitive fields before logging.
+
+**Acceptance:**
+- Given settings are loaded (with API keys configured)
+- When `loadSettings()` runs
+- Then no API keys appear in console output
 
 ## Non-Functional Requirements
 
-### Performance
+- NFR-CR1: All fixes must pass `cargo check` without warnings
+- NFR-CR2: No new dependencies introduced (rubato already present for FR-CR9/FR-CR16 resampling)
+- NFR-CR3: Existing tests must continue to pass
+- NFR-CR4: No user-visible behavior changes (except corrected speaker colors, corrected durations, and faster startup)
+- NFR-CR5: Code follows existing project conventions documented in CLAUDE.md
 
-- NFR1: App launches to ready state within 3 seconds
-- NFR2: Recording starts within 500ms of user clicking "Record"
-- NFR3: Recording stops and file writes within 1 second of user clicking "Stop"
-- NFR4: Real-time audio mixing adds <10ms latency
-- NFR5: Local Whisper transcription processes at ≥1x real-time on Apple Silicon
-- NFR6: UI remains responsive during transcription (no blocking)
-- NFR7: Waveform visualization renders within 2 seconds for recordings up to 1 hour
+## Epic Structure
 
-### Security & Privacy
+### Epic 7: Code Review Bug Fixes
 
-- NFR8: API keys stored in macOS Keychain (not plaintext)
-- NFR9: API keys never logged or transmitted except to their designated service
-- NFR10: No telemetry, analytics, or usage data collected
-- NFR11: All recordings stored locally with user-controlled paths
-- NFR12: No cloud sync or backup of recordings
-- NFR13: Settings file readable only by current user (600 permissions)
+**Single epic** containing all 17 stories organized by priority.
 
-### Reliability
+| Story | Issue | Priority | Estimate | Dependency |
+|-------|-------|----------|----------|------------|
+| 7.1 | Remove unsafe Send+Sync for AudioState | Critical | XS | None |
+| 7.2 | Fix XSS via innerHTML with user data | Critical | S | None |
+| 7.3 | Atomic write_metadata in storage | Critical | S | None |
+| 7.4 | Extract shared mono-to-stereo logic | Significant | S | None |
+| 7.5 | Atomic SharedAudioBuffer channel locking | Significant | M | None |
+| 7.6 | Remove dead greet command | Significant | XS | None |
+| 7.7 | Fix getDuration to check mix duration | Significant | XS | None |
+| 7.8 | Optimize loadAudioDuration | Significant | XS | None |
+| 7.9 | Proper downsampling with anti-aliasing | Significant | M | None |
+| 7.10 | Lightweight permission check | Significant | M | None |
+| 7.11 | Remove duplicate comment | Minor | XS | None |
+| 7.12 | Fix misplaced cfg_attr | Minor | XS | 7.6 |
+| 7.13 | Fix soft clip formula discontinuity | Minor | S | None |
+| 7.14 | Remove debug println! | Minor | S | None |
+| 7.15 | Import shared structs in tests | Minor | S | None |
+| 7.16 | Support additional sample rates | Minor | S | 7.9 |
+| 7.17 | Remove API key console logging | Minor | XS | None |
 
-- NFR14: Recording continues if system audio source fails (mic-only fallback)
-- NFR15: Recording continues if network connection lost
-- NFR16: Zero data loss on app crash during recording (auto-save to temp)
-- NFR17: Corrupt or partial audio files handled gracefully (no app crash)
-- NFR18: Cloud API failures display clear error messages and preserve local state
-- NFR19: Model download can be resumed if interrupted
+**Implementation Order:**
 
-### Integration
+1. **Phase 1 (Critical):** 7.1, 7.2, 7.3 (can be parallelized)
+2. **Phase 2 (Significant - Rust):** 7.4, 7.5, 7.6, 7.9, 7.10
+3. **Phase 3 (Significant - JS):** 7.7, 7.8
+4. **Phase 4 (Minor):** 7.11, 7.12, 7.13, 7.14, 7.15, 7.16, 7.17
 
-- NFR20: OpenAI API calls use standard REST with proper authentication
-- NFR21: Google AI SDK follows official client library patterns
-- NFR22: Anthropic API calls use standard REST with proper authentication
-- NFR23: Cloud API timeouts configurable with sensible defaults (30s)
-- NFR24: Network errors don't block UI (async with cancellation)
-- NFR25: API response parsing fails gracefully with user-friendly messages
+**Rationale:** Critical issues first for safety. Rust changes grouped together. JS changes grouped together. Minor issues last as they have lowest impact. Story 7.16 depends on 7.9 (shared resampler approach). Story 7.12 depends on 7.6 (both touch lib.rs).
 
-### Usability
+## UX Impact
 
-- NFR26: All primary actions accessible via keyboard shortcuts
-- NFR27: Visual feedback for all state changes (recording, processing, complete)
-- NFR28: Error messages actionable (include what went wrong and what to do)
-- NFR29: Theme colors maintain sufficient contrast for readability
+**Minimal.** User-visible changes:
+1. **Speaker colors** will now work correctly (if affected by prior BUG-1 fix)
+2. **Recording durations** will display correctly in list view (FR-CR7)
+3. **Faster startup** from lightweight permission check (FR-CR10)
+4. **XSS prevention** makes the app safer (FR-CR2)
 
+No UI layout, interaction, or design changes are required.

@@ -11,12 +11,12 @@
 ## File Location
 
 ```
-docs/changelogs/changelog-YYYY-MM.md
+{PROJECT_ROOT}/changelogs/changelog-YYYY-MM.md
 ```
 
-Example: `docs/changelogs/changelog-2025-01.md`
+Example: `{PROJECT_ROOT}/changelogs/changelog-2025-01.md`
 
-Monthly rotation. Scan all: `glob docs/changelogs/changelog-*.md`
+Monthly rotation. Scan all: `glob {PROJECT_ROOT}/changelogs/changelog-*.md`
 
 ## Format
 

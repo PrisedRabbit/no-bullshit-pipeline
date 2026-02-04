@@ -6,7 +6,7 @@ ALL must pass before deletion.
 
 | # | Check | What |
 |---|-------|------|
-| 1 | Architecture Sync | src/ matches docs/architecture.md |
+| 1 | Architecture Sync | src/ matches preserved architecture in `project_knowledge` (resolved from `_bmad/bmm/config.yaml`) |
 | 2 | Invariant Check | No orphan rules in stories only |
 | 3 | ADR Check | Irreversible decisions documented |
 

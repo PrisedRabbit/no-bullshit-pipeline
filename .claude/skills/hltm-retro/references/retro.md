@@ -2,13 +2,15 @@
 
 ## Steps
 
-1. Read docs (architecture, project-context, epics)
-2. Verify all epics done
-3. Read all story files
-4. Classify lessons
-5. Update project-context.md
-6. Update CHANGELOG
-7. Run cleanup.sh
+1. Resolve artifact locations from `_bmad/bmm/config.yaml`
+2. Read artifacts (architecture, project-context, epics)
+3. Verify all epics done
+4. Read all story files
+5. Classify lessons
+6. Update project-context.md
+7. Update CHANGELOG
+8. Cleanup:
+   - Default: manual selective cleanup of DONE items only
 
 **Use TodoWrite to track.**
 
@@ -17,9 +19,9 @@
 ## Docs First
 
 Read before analyzing:
-1. docs/architecture.md
-2. docs/project-context.md
-3. docs/epics/*.md
+1. `{project_knowledge}/architecture.md` (if preserved) OR `{planning_artifacts}/*architecture*.md`
+2. `{project_knowledge}/project-context.md` (if used)
+3. `{planning_artifacts}/*epic*.md` (typically `epics.md`)
 
 ---
 
@@ -45,9 +47,5 @@ Read before analyzing:
 ---
 
 ## Cleanup
-
-```bash
-bash ./scripts/cleanup.sh
-```
 
 Git = archive.
