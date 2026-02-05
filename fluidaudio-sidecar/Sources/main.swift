@@ -187,53 +187,52 @@ struct FluidAudioSidecar {
         do {
             let cached = modelsAreCached()
 
-            // Step 1: Initialize ASR (~300MB CoreML model)
-            if !cached { writeProgress("Downloading ASR model", 0) }
+            // Phase 1: Prepare models
+            writeProgress("Preparing models", 0)
+
+            // Initialize ASR (~300MB CoreML model)
+            if !cached { writeProgress("Downloading ASR model", 5) }
             let asrModels = try await AsrModels.downloadAndLoad(version: .v3)
             let asrManager = AsrManager(config: .default)
             try await asrManager.initialize(models: asrModels)
+            writeProgress("Preparing models", 15)
 
-            // Step 2: Initialize offline diarizer (~180MB CoreML model)
-            if !cached { writeProgress("Downloading diarizer", 0) }
-            // Balanced diarization settings
+            // Initialize offline diarizer (~180MB CoreML model)
+            if !cached { writeProgress("Downloading diarizer", 20) }
             var diarizerConfig = OfflineDiarizerConfig()
             diarizerConfig.clusteringThreshold = 0.12
             diarizerConfig.embeddingExcludeOverlap = false
-            diarizerConfig.minSegmentDuration = 0.1        // Very short segments OK
-            diarizerConfig.minGapDuration = 0.3            // Merge close segments
+            diarizerConfig.minSegmentDuration = 0.1
+            diarizerConfig.minGapDuration = 0.3
             diarizerConfig.clustering.minSpeakers = 2
             let diarizerManager = OfflineDiarizerManager(config: diarizerConfig)
             try await diarizerManager.prepareModels()
+            writeProgress("Preparing models", 25)
 
-            // Step 3: Run ASR
-            writeProgress("Transcribing", 30)
-            let asrResult = try await asrManager.transcribe(fileURL, source: .system)
+            // Phase 2: Transcription with real progress (25-60%)
+            writeProgress("Transcribing", 25)
 
-            // Debug: log ASR results with word timings
-            let timingsCount = asrResult.tokenTimings?.count ?? 0
-            FileHandle.standardError.write(Data("DEBUG asr: text_len=\(asrResult.text.count), timings=\(timingsCount)\n".utf8))
-            // Print words with timestamps
-            if let timings = asrResult.tokenTimings {
-                for t in timings {
-                    FileHandle.standardError.write(Data("  \(String(format: "%.2f", t.startTime))-\(String(format: "%.2f", t.endTime)): \(t.token)\n".utf8))
+            // Start progress monitoring task
+            let progressTask = Task {
+                let stream = await asrManager.transcriptionProgressStream
+                for try await progress in stream {
+                    // Map 0.0-1.0 to 25-60%
+                    let percent = 25 + Int(progress * 35.0)
+                    writeProgress("Transcribing", percent)
                 }
             }
 
-            // Step 4: Run diarization
-            writeProgress("Diarization", 70)
+            let asrResult = try await asrManager.transcribe(fileURL, source: .system)
+            progressTask.cancel()
+            writeProgress("Transcribing", 60)
+
+            // Phase 3: Diarization (60-90%)
+            writeProgress("Diarization", 60)
             let diarizationResult = try await diarizerManager.process(fileURL)
+            writeProgress("Diarization", 90)
 
-            // Debug: log diarization results
-            FileHandle.standardError.write(Data("DEBUG diarization: \(diarizationResult.segments.count) segments, threshold=\(diarizerConfig.clusteringThreshold)\n".utf8))
-            for (i, seg) in diarizationResult.segments.enumerated() {
-                FileHandle.standardError.write(Data("  [\(i)] speaker=\(seg.speakerId) time=\(seg.startTimeSeconds)-\(seg.endTimeSeconds)\n".utf8))
-            }
-            // Log unique speakers found
-            let uniqueSpeakers = Set(diarizationResult.segments.map { $0.speakerId })
-            FileHandle.standardError.write(Data("DEBUG unique speakers: \(uniqueSpeakers.sorted())\n".utf8))
-
-            // Step 5: Merge results
-            writeProgress("Finalizing", 95)
+            // Phase 4: Finalizing (90-100%)
+            writeProgress("Finalizing", 90)
             let timings = asrResult.tokenTimings ?? []
             let (segments, speakerCount) = mergeAsrWithDiarization(
                 tokenTimings: timings,
