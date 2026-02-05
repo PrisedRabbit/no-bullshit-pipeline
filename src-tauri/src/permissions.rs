@@ -1,14 +1,6 @@
 use serde::{Deserialize, Serialize};
 use cidre::av;
 use std::sync::{Arc, Mutex};
-use std::path::PathBuf;
-
-// CoreGraphics FFI for lightweight screen capture permission check (macOS 10.15+)
-// Returns true if screen capture access has been granted, false otherwise.
-// Does NOT trigger the system permission dialog.
-unsafe extern "C" {
-    fn CGPreflightScreenCaptureAccess() -> bool;
-}
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct PermissionsState {
@@ -23,51 +15,46 @@ pub async fn check_permissions(
     state: tauri::State<'_, PermissionsStateCache>,
     _onboarding_completed: bool
 ) -> Result<PermissionsState, String> {
-    // For MICROPHONE: ALWAYS check the system API directly
-    // This API is safe and does NOT trigger a permission dialog
+    // Check cache first - if already verified this session, return cached result
+    {
+        let cache = state.0.lock().map_err(|e| e.to_string())?;
+        if cache.mic && cache.system_audio {
+            return Ok(cache.clone());
+        }
+    }
+
+    // MICROPHONE: Use system API (reliable)
     let mic_status = av::CaptureDevice::authorization_status_for_media_type(av::MediaType::audio());
     let mic_authorized = matches!(mic_status, Ok(av::AuthorizationStatus::Authorized));
-    
-    // For SYSTEM AUDIO: Use lightweight CGPreflightScreenCaptureAccess()
-    // This checks screen capture permission without starting any recording (~0ms)
+
+    // SYSTEM AUDIO: Check if Process Tap can be created (lightweight)
+    // This verifies the permission without starting a full recording
     let system_audio_authorized = {
         let cache = state.0.lock().map_err(|e| e.to_string())?;
-
-        // If already verified this session, use cache
         if cache.system_audio {
             true
         } else {
-            drop(cache); // Release lock before check
+            drop(cache);
 
-            // CGPreflightScreenCaptureAccess returns true if permission is granted
-            // Does NOT trigger the permission dialog, safe to call anytime
-            let verified = unsafe { CGPreflightScreenCaptureAccess() };
+            // Try to create a Process Tap - this requires the permission
+            let result = crate::system_audio::check_system_audio_permission();
 
-            // Update cache with result
-            if verified {
+            if result {
                 let mut cache = state.0.lock().map_err(|e| e.to_string())?;
                 cache.system_audio = true;
             }
-            verified
+            result
         }
     };
-    
-    // Update mic cache too
-    let final_mic_authorized = {
+
+    // Update mic cache
+    {
         let mut cache = state.0.lock().map_err(|e| e.to_string())?;
-        if cache.mic {
-            // Already verified (e.g. via request_mic_permission success)
-            // Trust the cache, ignore system API latency
-            true
-        } else {
-            // Not verified yet, trust system API
-            cache.mic = mic_authorized;
-            mic_authorized
-        }
-    };
-    
+        cache.mic = mic_authorized;
+    }
+
     Ok(PermissionsState {
-        mic: final_mic_authorized,
+        mic: mic_authorized,
         system_audio: system_audio_authorized,
     })
 }
@@ -122,7 +109,7 @@ pub fn request_system_audio_permission(state: tauri::State<'_, PermissionsStateC
     eprintln!("DEBUG: Triggering System Audio permission via test recording...");
 
     // Create a temporary path for the test recording
-    let temp_path = PathBuf::from(format!("/tmp/nbp-permission-test-{}.ogg", std::process::id()));
+    let temp_path = std::path::PathBuf::from(format!("/tmp/nbp-permission-test-{}.ogg", std::process::id()));
 
     // Start system audio capture (this triggers the permission dialog)
     let mut recorder = match crate::system_audio::start_system_capture(temp_path.clone(), false) {

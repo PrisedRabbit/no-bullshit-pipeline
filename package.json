@@ -4,8 +4,12 @@
   "version": "0.3.0",
   "type": "module",
   "scripts": {
+    "dev": "cargo tauri dev --config src-tauri/tauri.dev.conf.json",
+    "build": "cargo tauri build",
     "tauri": "tauri",
-    "build:release": "./build.sh"
+    "build:release": "./build.sh",
+    "update-packages": "rustup update && cargo update && bun update",
+    "upgrade-packages": "cd src-tauri && cargo upgrade && cd .. && bun update"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.0",

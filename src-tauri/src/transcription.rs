@@ -131,6 +131,13 @@ struct DownloadProgress {
     percent: f64,
 }
 
+#[derive(Clone, Serialize)]
+struct TranscriptionProgress {
+    recording_id: String,
+    stage: String,
+    percent: u32,
+}
+
 #[tauri::command]
 pub async fn download_whisper_model(
     app_handle: tauri::AppHandle,
@@ -269,26 +276,71 @@ pub async fn transcribe_recording(
             let wav_path = recording_dir.join("temp_transcription.wav");
             convert_ogg_to_wav(&audio_path, &wav_path)?;
 
-            let sidecar = app_handle.shell().sidecar("fluidaudio-sidecar")
-                .map_err(|e| format!("Failed to create sidecar command: {}", e))?
-                .arg(wav_path.to_str().ok_or("Invalid WAV path")?);
+            // Emit initial progress
+            let _ = app_handle.emit("transcription_progress", TranscriptionProgress {
+                recording_id: recording_id.clone(),
+                stage: "Starting".to_string(),
+                percent: 0,
+            });
 
-            let sidecar_future = sidecar.output();
-            let output = tokio::time::timeout(
-                std::time::Duration::from_secs(600),
-                sidecar_future,
-            ).await
-                .map_err(|_| "FluidAudio sidecar timed out after 10 minutes".to_string())?
-                .map_err(|e| format!("Failed to run FluidAudio sidecar: {}", e))?;
+            let (mut rx, _child) = app_handle.shell().sidecar("fluidaudio-sidecar")
+                .map_err(|e| format!("Failed to create sidecar command: {}", e))?
+                .arg(wav_path.to_str().ok_or("Invalid WAV path")?)
+                .spawn()
+                .map_err(|e| format!("Failed to spawn FluidAudio sidecar: {}", e))?;
+
+            let mut stdout_buf = Vec::new();
+            let mut stderr_buf = String::new();
+            let mut exit_code: Option<i32> = None;
+
+            let timeout_duration = std::time::Duration::from_secs(600);
+            let start = std::time::Instant::now();
+
+            while let Some(event) = rx.recv().await {
+                if start.elapsed() > timeout_duration {
+                    return Err("FluidAudio sidecar timed out after 10 minutes".to_string());
+                }
+
+                use tauri_plugin_shell::process::CommandEvent;
+                match event {
+                    CommandEvent::Stdout(data) => {
+                        stdout_buf.extend_from_slice(&data);
+                    }
+                    CommandEvent::Stderr(data) => {
+                        let line = String::from_utf8_lossy(&data);
+                        stderr_buf.push_str(&line);
+
+                        // Parse progress updates: "PROGRESS:stage:percent"
+                        for l in line.lines() {
+                            if let Some(rest) = l.strip_prefix("PROGRESS:") {
+                                let parts: Vec<&str> = rest.splitn(2, ':').collect();
+                                if parts.len() == 2 {
+                                    if let Ok(pct) = parts[1].parse::<u32>() {
+                                        let _ = app_handle.emit("transcription_progress", TranscriptionProgress {
+                                            recording_id: recording_id.clone(),
+                                            stage: parts[0].to_string(),
+                                            percent: pct,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    CommandEvent::Terminated(payload) => {
+                        exit_code = payload.code;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
 
             let _ = std::fs::remove_file(&wav_path);
 
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(format!("FluidAudio sidecar failed: {}", stderr));
+            if exit_code != Some(0) {
+                return Err(format!("FluidAudio sidecar failed: {}", stderr_buf));
             }
 
-            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stdout = String::from_utf8_lossy(&stdout_buf);
             let fa_output: FluidAudioOutput = serde_json::from_str(&stdout)
                 .map_err(|e| format!("Failed to parse FluidAudio output: {}", e))?;
 

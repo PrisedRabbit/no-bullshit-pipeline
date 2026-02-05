@@ -214,15 +214,25 @@ pub fn list_recordings() -> Result<Vec<RecordingMetadata>, String> {
     Ok(recordings)
 }
 
+/// Migrate projects.json from old data dir to config dir (one-time)
+fn migrate_projects_if_needed() {
+    let old_path = get_data_dir().join("projects.json");
+    let new_path = crate::config::get_config_dir().join("projects.json");
+    if old_path.exists() && !new_path.exists() {
+        let _ = fs::rename(&old_path, &new_path);
+    }
+}
+
 /// List all projects
 #[tauri::command]
 pub fn list_projects() -> Result<Vec<Project>, String> {
-    let projects_path = get_data_dir().join("projects.json");
-    
+    migrate_projects_if_needed();
+    let projects_path = crate::config::get_config_dir().join("projects.json");
+
     if !projects_path.exists() {
         return Ok(Vec::new());
     }
-    
+
     let file = File::open(projects_path).map_err(|e| e.to_string())?;
     let projects = serde_json::from_reader(file).map_err(|e| e.to_string())?;
     Ok(projects)
@@ -231,12 +241,12 @@ pub fn list_projects() -> Result<Vec<Project>, String> {
 /// Save projects list
 #[tauri::command]
 pub fn save_projects(projects: Vec<Project>) -> Result<(), String> {
-    let data_dir = get_data_dir();
-    if !data_dir.exists() {
-        fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
+    let config_dir = crate::config::get_config_dir();
+    if !config_dir.exists() {
+        fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
     }
-    
-    let projects_path = data_dir.join("projects.json");
+
+    let projects_path = config_dir.join("projects.json");
     let file = File::create(projects_path).map_err(|e| e.to_string())?;
     serde_json::to_writer_pretty(file, &projects).map_err(|e| e.to_string())?;
     Ok(())

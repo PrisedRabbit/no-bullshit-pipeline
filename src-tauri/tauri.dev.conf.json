@@ -1,0 +1,11 @@
+{
+  "productName": "nbpskk",
+  "identifier": "com.skopanev.nbpskk",
+  "app": {
+    "windows": [
+      {
+        "title": "nbpskk"
+      }
+    ]
+  }
+}

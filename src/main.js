@@ -85,9 +85,7 @@ let isRecording = false;
 let isRecordingBusy = false; // Guard against double-click during async start/stop
 
 let allRecordings = [];
-let selectedTags = []; // Current filter tags
 let selectedRecordingId = null;
-let currentRecordingTags = []; // Tags of the recording being viewed/edited
 
 let permissions = { mic: false, system_audio: false };
 let appSettings = null;
@@ -97,9 +95,6 @@ const statusIndicator = document.getElementById("status-indicator");
 const timerDisplay = document.getElementById("timer");
 const recordToggleBtn = document.getElementById("record-toggle-btn");
 
-const activeTagChipsEl = document.getElementById("active-tag-chips");
-const allTagsListEl = document.getElementById("all-tags-list");
-
 const recordingsListEl = document.getElementById("recordings-list");
 const emptyStateEl = document.getElementById("empty-state");
 const detailViewEl = document.getElementById("detail-view");
@@ -108,7 +103,6 @@ const backBtn = document.getElementById("back-btn");
 
 const detailTitleInput = document.getElementById("detail-title");
 const detailMetaHeaderEl = document.getElementById("detail-meta-header");
-const detailTagsInput = document.getElementById("detail-tags-input");
 const detailTranscriptEl = document.getElementById("transcript-content");
 const detailStructuredEl = document.getElementById("structured-content");
 
@@ -244,6 +238,18 @@ function drawSpectrum() {
 // ===== RECORDING CONTROLS =====
 async function toggleRecording() {
   if (isRecordingBusy) return; // Prevent double-click during async operations
+
+  // If we have a recording selected and not recording → play it
+  if (selectedRecordingId && !isRecording) {
+    try {
+      await invoke('stop_audio'); // Stop any previous playback
+      await invoke('play_audio', { recordingId: selectedRecordingId });
+    } catch (err) {
+      console.error('Playback error:', err);
+    }
+    return;
+  }
+
   if (isRecording) {
     await stopRecording();
   } else {
@@ -258,16 +264,31 @@ function setRecordingUI(recording) {
     if (recordToggleBtn) {
       recordToggleBtn.innerHTML = "⏹";
       recordToggleBtn.classList.add("is-active");
+      recordToggleBtn.classList.remove("is-play-mode");
       recordToggleBtn.title = "Stop Recording";
     }
   } else {
     if (statusIndicator) statusIndicator.className = "status-idle";
     document.body.classList.remove("is-recording-active");
-    if (recordToggleBtn) {
-      recordToggleBtn.innerHTML = "⏺";
-      recordToggleBtn.classList.remove("is-active");
-      recordToggleBtn.title = "Start Recording";
-    }
+    updateMainButton();
+  }
+}
+
+// Update main button based on context: play (when recording selected) or record (default)
+function updateMainButton() {
+  if (!recordToggleBtn) return;
+  recordToggleBtn.classList.remove("is-active");
+
+  if (selectedRecordingId && !isRecording) {
+    // Show play button
+    recordToggleBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
+    recordToggleBtn.classList.add("is-play-mode");
+    recordToggleBtn.title = "Play Recording";
+  } else {
+    // Show record button
+    recordToggleBtn.innerHTML = "⏺";
+    recordToggleBtn.classList.remove("is-play-mode");
+    recordToggleBtn.title = "Start Recording";
   }
 }
 
@@ -275,10 +296,10 @@ async function startRecording() {
   isRecordingBusy = true;
   ViewManager.showRecordings();
 
-  const tags = [...selectedTags];
   const saveMixOnly = appSettings?.save_mix_only !== false;
+  console.log('DEBUG: Starting recording with saveMixOnly =', saveMixOnly);
   try {
-    const metadata = await invoke("start_recording", { tags, saveMixOnly });
+    const metadata = await invoke("start_recording", { saveMixOnly: saveMixOnly });
     isRecording = true;
     setRecordingUI(true);
 
@@ -377,7 +398,8 @@ async function updatePermissionStatus() {
       onboardingContinueBtn.textContent = bothMissing ? "I'll do that later" : "Continue";
     }
 
-    // Update Warning Banner
+    // Update Warning Banner based on actual permissions
+    // Now using real recording test instead of unreliable CGPreflightScreenCaptureAccess
     if (permissionWarning) {
       permissionWarning.style.display = (permissions.mic && permissions.system_audio) ? 'none' : 'flex';
     }
@@ -448,56 +470,11 @@ if (fixPermissionsBtn) {
   });
 }
 
-// ===== TAG FILTERING =====
-function getUniqueTags() {
-  const tagsMap = new Map();
-  allRecordings.forEach(rec => {
-    if (rec.tags) {
-      rec.tags.forEach(tag => {
-        tagsMap.set(tag, (tagsMap.get(tag) || 0) + 1);
-      });
-    }
-  });
-  return tagsMap;
-}
-
-function renderTags() {
-  if (!allTagsListEl) return;
-  const tagsMap = getUniqueTags();
-  const sortedTags = Array.from(tagsMap.entries()).sort((a, b) => b[1] - a[1]);
-
-  allTagsListEl.innerHTML = sortedTags.map(([tag, count]) => {
-    const isActive = selectedTags.includes(tag);
-    const safeTag = escapeHtml(tag);
-    return `
-      <div class="sidebar-tag-item ${isActive ? 'active' : ''}" data-tag="${safeTag}" onclick="toggleTagFilter(this.dataset.tag)">
-        <span>#${safeTag}</span>
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span class="tag-count">${count}</span>
-          ${isActive ? '<span class="tag-remove-sidebar">×</span>' : ''}
-        </div>
-      </div>
-  `;
-  }).join("");
-}
-
-window.toggleTagFilter = (tag) => {
-  const index = selectedTags.indexOf(tag);
-  if (index > -1) {
-    selectedTags.splice(index, 1);
-  } else {
-    selectedTags.push(tag);
-  }
-  renderTags();
-  renderRecordingsList();
-};
-
 // ===== RECORDINGS LIST =====
 async function loadRecordings() {
   try {
     const recordings = await invoke("list_recordings");
     allRecordings = recordings || [];
-    renderTags();
     renderRecordingsList();
   } catch (error) {
     console.error("Failed to load recordings:", error);
@@ -514,17 +491,14 @@ const dateOptions = {
 
 function renderRecordingsList() {
   if (!recordingsListEl) return;
-  const filtered = selectedTags.length === 0
-    ? allRecordings
-    : allRecordings.filter(rec => selectedTags.every(t => rec.tags && rec.tags.includes(t)));
 
-  if (filtered.length === 0) {
+  if (allRecordings.length === 0) {
     recordingsListEl.innerHTML = "";
     if (emptyStateEl) emptyStateEl.style.display = "block";
     return;
   }
   if (emptyStateEl) emptyStateEl.style.display = "none";
-  recordingsListEl.innerHTML = filtered.map(rec => {
+  recordingsListEl.innerHTML = allRecordings.map(rec => {
     const isProcessing = rec.status === 'processing';
     const isCurrentlyRecording = isRecording && selectedRecordingId === rec.id;
     const metaText = isProcessing ? '<span style="color:var(--accent)">Processing...</span>' : formatDuration(getDuration(rec));
@@ -545,9 +519,6 @@ function renderRecordingsList() {
             <span>·</span>
             <span>${metaText}</span>
           </div>
-        </div>
-        <div class="recording-tags">
-          ${(rec.tags || []).map(tag => `<span class="recording-tag">#${escapeHtml(tag)}</span>`).join("")}
         </div>
       </div>
     `;
@@ -573,7 +544,7 @@ window.showDetailView = async (id) => {
   if (!rec) return;
 
   selectedRecordingId = id;
-  currentRecordingTags = [...(rec.tags || [])];
+  updateMainButton(); // Switch to play mode
 
   if (detailTitleInput) detailTitleInput.value = rec.title || "";
 
@@ -594,8 +565,6 @@ window.showDetailView = async (id) => {
   ViewManager.showDetail();
 
   if (detailControlsEl) detailControlsEl.style.display = 'flex';
-
-  renderTagChips();
 
   // LOCK BUTTONS if Processing
   if (deleteBtnHeader) {
@@ -694,97 +663,9 @@ window.showDetailView = async (id) => {
 
 function hideDetailView() {
   selectedRecordingId = null;
+  updateMainButton(); // Switch back to record mode
   ViewManager.showRecordings();
   if (detailControlsEl) detailControlsEl.style.display = 'none';
-}
-
-function renderTagChips() {
-  const listEl = document.getElementById('detail-tags-list');
-  if (!listEl) return;
-  listEl.innerHTML = currentRecordingTags.map(tag => {
-    const safeTag = escapeHtml(tag);
-    return `
-    <div class="detail-tag-chip">
-    #${safeTag}
-<span class="tag-remove" data-tag="${safeTag}" onclick="removeRecordingTag(this.dataset.tag)">×</span>
-    </div>
-  `;
-  }).join('');
-}
-
-window.removeRecordingTag = async (tag) => {
-  currentRecordingTags = currentRecordingTags.filter(t => t !== tag);
-  renderTagChips();
-  await updateRecordingTagsOnBackend();
-};
-
-async function updateRecordingTagsOnBackend() {
-  if (!selectedRecordingId) return;
-  try {
-    await invoke('update_tags', { recordingId: selectedRecordingId, tags: currentRecordingTags });
-    await loadRecordings();
-  } catch (err) { console.error(err); }
-}
-
-const tagSuggestionsEl = document.getElementById("tag-suggestions");
-
-function renderTagSuggestions() {
-  const tagsMap = getUniqueTags();
-  // Sort by frequency, take top 10
-  const sorted = Array.from(tagsMap.entries())
-    .sort((a, b) => b[1] - a[1])
-    .filter(([tag]) => !currentRecordingTags.includes(tag))
-    .slice(0, 10);
-
-  if (sorted.length === 0) {
-    tagSuggestionsEl.style.display = "none";
-    return;
-  }
-
-  tagSuggestionsEl.innerHTML = sorted.map(([tag, count]) => {
-    const safeTag = escapeHtml(tag);
-    return `
-    <div class="suggestion-item" data-tag="${safeTag}" onclick="selectSuggestedTag(this.dataset.tag)">
-      <span>#${safeTag}</span>
-      <span class="count">${count}</span>
-    </div>
-  `;
-  }).join("");
-  tagSuggestionsEl.style.display = "block";
-}
-
-window.selectSuggestedTag = async (tag) => {
-  if (!currentRecordingTags.includes(tag)) {
-    currentRecordingTags.push(tag);
-    renderTagChips();
-    await updateRecordingTagsOnBackend();
-  }
-  tagSuggestionsEl.style.display = "none";
-  detailTagsInput.value = "";
-};
-
-if (detailTagsInput) {
-  detailTagsInput.addEventListener('focus', renderTagSuggestions);
-
-  // Hide suggestions when clicking outside, but allow time for selection click
-  detailTagsInput.addEventListener('blur', () => {
-    setTimeout(() => { tagSuggestionsEl.style.display = "none"; }, 200);
-  });
-
-  detailTagsInput.addEventListener('keypress', async (e) => {
-    if (e.key === 'Enter') {
-      const val = e.target.value.trim().toLowerCase().replace(/^#/, '');
-      if (val) {
-        if (!currentRecordingTags.includes(val)) {
-          currentRecordingTags.push(val);
-          renderTagChips();
-          await updateRecordingTagsOnBackend();
-        }
-        e.target.value = '';
-        tagSuggestionsEl.style.display = "none";
-      }
-    }
-  });
 }
 
 // ===== EVENT LISTENERS =====
@@ -915,6 +796,20 @@ if (window.__TAURI__) {
 
         const scroller = detailTranscriptEl.closest('.detail-scroller');
         if (scroller) scroller.scrollTop = scroller.scrollHeight;
+      }
+    });
+
+    // Listen for transcription progress (FluidAudio stages)
+    window.__TAURI__.event.listen('transcription_progress', (event) => {
+      const { recording_id, stage, percent } = event.payload;
+      // Only update if this is our current transcription
+      if (recording_id === transcribingRecordingId) {
+        const btn = document.getElementById('process-btn');
+        if (btn && btn.disabled) {
+          // Show percent only for actual processing stages (not downloading)
+          const text = percent > 0 ? `${stage} ${percent}%` : stage;
+          btn.innerHTML = `<span style="font-weight: 600; font-size: 12px;">${escapeHtml(text)}</span>`;
+        }
       }
     });
   } catch (e) {
@@ -1055,103 +950,6 @@ if (extractBtn) {
   });
 }
 
-// ===== SIMPLE AUDIO PLAYER =====
-const playPauseBtn = document.getElementById('play-pause-btn');
-const currentTimeEl = document.getElementById('current-time');
-const totalTimeEl = document.getElementById('total-time');
-let isPlaying = false;
-let audioDurationMs = 0;
-let playbackPollInterval = null;
-
-function formatDurationShort(seconds) {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-async function loadAudioDuration(recordingId) {
-  try {
-    // Get duration from recording metadata (single read, not full list)
-    const rec = await invoke('read_metadata', { recordingId });
-    if (rec) {
-      const duration = rec.audio?.mix?.duration_sec || rec.audio?.mic?.duration_sec || 0;
-      audioDurationMs = duration * 1000;
-      if (totalTimeEl) {
-        totalTimeEl.textContent = formatDurationShort(duration);
-      }
-    }
-  } catch (err) {
-    console.error('Failed to load audio info:', err);
-  }
-}
-
-/**
- * Start polling playback state to detect when playback finishes
- */
-function startPlaybackPolling() {
-  if (playbackPollInterval) return;
-
-  playbackPollInterval = setInterval(async () => {
-    if (!isPlaying) {
-      stopPlaybackPolling();
-      return;
-    }
-
-    try {
-      const state = await invoke('get_playback_state');
-
-      // Update current time display
-      if (currentTimeEl && state.current_position_ms) {
-        currentTimeEl.textContent = formatDurationShort(state.current_position_ms / 1000);
-      }
-
-      // Check if playback finished (status is "Stopped")
-      if (state.status === 'Stopped' && isPlaying) {
-        isPlaying = false;
-        if (playPauseBtn) {
-          playPauseBtn.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
-        }
-        if (currentTimeEl) currentTimeEl.textContent = '0:00';
-        stopPlaybackPolling();
-      }
-    } catch (err) {
-      // Ignore polling errors
-    }
-  }, 250); // Poll every 250ms
-}
-
-/**
- * Stop polling playback state
- */
-function stopPlaybackPolling() {
-  if (playbackPollInterval) {
-    clearInterval(playbackPollInterval);
-    playbackPollInterval = null;
-  }
-}
-
-// Play/Pause button
-if (playPauseBtn) {
-  playPauseBtn.addEventListener('click', async () => {
-    if (!selectedRecordingId) return;
-
-    try {
-      if (isPlaying) {
-        await invoke('pause_audio');
-        isPlaying = false;
-        playPauseBtn.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
-        stopPlaybackPolling();
-      } else {
-        await invoke('play_audio', { recordingId: selectedRecordingId });
-        isPlaying = true;
-        playPauseBtn.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>';
-        startPlaybackPolling();
-      }
-    } catch (err) {
-      console.error('Playback error:', err);
-    }
-  });
-}
 
 // ===== SETTINGS ELEMENTS =====
 const transcriptionEnabledCheckbox = document.getElementById("settings-transcription-enabled");
@@ -1223,6 +1021,7 @@ async function loadSettings() {
     // Save mix only setting
     if (saveMixOnlyCheckbox) {
       saveMixOnlyCheckbox.checked = appSettings.save_mix_only !== false; // default true
+      console.log('DEBUG: Loaded save_mix_only =', appSettings.save_mix_only, '→ checkbox =', saveMixOnlyCheckbox.checked);
     }
 
     applyTheme(appSettings.theme);
@@ -1265,6 +1064,7 @@ async function saveSettings() {
     // Save mix only setting
     if (saveMixOnlyCheckbox) {
       appSettings.save_mix_only = saveMixOnlyCheckbox.checked;
+      console.log('DEBUG: Saving save_mix_only =', saveMixOnlyCheckbox.checked);
     }
 
     await invoke("save_settings", { settings: appSettings });
@@ -1695,6 +1495,147 @@ if (deletePromptTemplateBtn) {
   });
 }
 
+// ===== SLACK INTEGRATIONS =====
+let slackIntegrations = {};
+
+const addSlackBtn = document.getElementById('add-slack-btn');
+const addSlackModal = document.getElementById('add-slack-modal');
+const slackNameInput = document.getElementById('slack-name-input');
+const slackTokenInput = document.getElementById('slack-token-input');
+const slackSaveBtn = document.getElementById('slack-save-btn');
+const slackCancelBtn = document.getElementById('slack-cancel-btn');
+const slackIntegrationsListEl = document.getElementById('slack-integrations-list');
+
+async function loadSlackIntegrations() {
+  try {
+    slackIntegrations = await invoke('list_slack_integrations');
+    renderSlackIntegrationsList();
+  } catch (err) {
+    console.error('Failed to load Slack integrations:', err);
+  }
+}
+
+function renderSlackIntegrationsList() {
+  if (!slackIntegrationsListEl) return;
+  
+  const entries = Object.entries(slackIntegrations);
+  if (entries.length === 0) {
+    slackIntegrationsListEl.innerHTML = '<div style="text-align: center; padding: 40px 0; color: var(--text-secondary); opacity: 0.6;">No Slack workspaces connected yet</div>';
+    return;
+  }
+  
+  slackIntegrationsListEl.innerHTML = entries.map(([id, data]) => {
+    const safeName = escapeHtml(data.name);
+    const safeWorkspace = escapeHtml(data.workspace_name || 'Unknown workspace');
+    return `
+      <div class="integration-item" data-id="${escapeHtml(id)}" style="
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px;
+        background: var(--surface-color);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+      ">
+        <div style="flex: 1;">
+          <div style="font-weight: 600; margin-bottom: 4px;">${safeName}</div>
+          <div style="font-size: 0.75rem; color: var(--text-secondary); opacity: 0.8; font-family: 'SF Mono', monospace;">${safeWorkspace}</div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="mini-action-btn test-slack-btn" data-id="${escapeHtml(id)}">Test</button>
+          <button class="mini-action-btn danger remove-slack-btn" data-id="${escapeHtml(id)}">Remove</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+  
+  // Attach event listeners
+  slackIntegrationsListEl.querySelectorAll('.test-slack-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      btn.disabled = true;
+      btn.textContent = 'Testing...';
+      try {
+        const workspaceName = await invoke('test_slack_integration', { id });
+        alert(`Connected to: ${workspaceName}`);
+      } catch (err) {
+        alert(`Connection failed: ${err}`);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Test';
+      }
+    });
+  });
+  
+  slackIntegrationsListEl.querySelectorAll('.remove-slack-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const integration = slackIntegrations[id];
+      if (!confirm(`Remove Slack workspace "${integration.name}"?`)) return;
+      
+      try {
+        await invoke('remove_slack_integration', { id });
+        await loadSlackIntegrations();
+      } catch (err) {
+        alert(`Failed to remove: ${err}`);
+      }
+    });
+  });
+}
+
+if (addSlackBtn) {
+  addSlackBtn.addEventListener('click', () => {
+    slackNameInput.value = '';
+    slackTokenInput.value = '';
+    addSlackModal.style.display = 'flex';
+  });
+}
+
+if (slackCancelBtn) {
+  slackCancelBtn.addEventListener('click', () => {
+    addSlackModal.style.display = 'none';
+  });
+}
+
+if (slackSaveBtn) {
+  slackSaveBtn.addEventListener('click', async () => {
+    const name = slackNameInput.value.trim();
+    const token = slackTokenInput.value.trim();
+    
+    if (!name) {
+      alert('Please enter a name');
+      return;
+    }
+    if (!token) {
+      alert('Please enter a bot token');
+      return;
+    }
+    if (!token.startsWith('xoxb-')) {
+      alert('Invalid token format. Bot tokens start with xoxb-');
+      return;
+    }
+    
+    // Generate ID from name
+    const id = name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    
+    slackSaveBtn.disabled = true;
+    slackSaveBtn.textContent = 'Saving...';
+    
+    try {
+      await invoke('add_slack_integration', { id, name, token });
+      addSlackModal.style.display = 'none';
+      await loadSlackIntegrations();
+    } catch (err) {
+      alert(`Failed to add Slack workspace: ${err}`);
+    } finally {
+      slackSaveBtn.disabled = false;
+      slackSaveBtn.textContent = 'Save';
+    }
+  });
+}
+
 // ===== PIPELINE DEFINITION MANAGEMENT =====
 let allPipelineDefs = [];
 let editingPipelineDef = null; // null = new, string = editing name
@@ -1923,6 +1864,18 @@ function showStepEditor(index) {
         <option value="PATCH" ${step.config?.method === 'PATCH' ? 'selected' : ''}>PATCH</option>
       </select></div>
     `;
+  } else if (step.connector === 'slack') {
+    const slackIntegrationOptions = Object.entries(slackIntegrations).map(([id, data]) => 
+      `<option value="${escapeHtml(id)}" ${step.config?.integration_id === id ? 'selected' : ''}>${escapeHtml(data.name)}</option>`
+    ).join('');
+    configFields = `
+      <div class="step-editor-row"><label>Workspace</label><select data-field="integration_id">
+        <option value="">Select workspace...</option>
+        ${slackIntegrationOptions}
+      </select></div>
+      <div class="step-editor-row"><label>Target</label><input data-field="target" value="${escapeHtml(step.config?.target || '')}" placeholder="#channel, email@example.com, or U123456" /></div>
+      <div class="step-editor-row"><label>Thread TS (optional)</label><input data-field="thread_ts" value="${escapeHtml(step.config?.thread_ts || '')}" placeholder="1234567890.123456" /></div>
+    `;
   } else if (step.connector === 'mcp') {
     configFields = `
       <div class="step-editor-row"><label>Server</label><input data-field="server" value="${escapeHtml(step.config?.server || '')}" placeholder="e.g. slack-mcp" /></div>
@@ -1944,6 +1897,7 @@ function showStepEditor(index) {
       <option value="llm" ${step.connector === 'llm' ? 'selected' : ''}>LLM</option>
       <option value="save" ${step.connector === 'save' ? 'selected' : ''}>Save</option>
       <option value="webhook" ${step.connector === 'webhook' ? 'selected' : ''}>Webhook</option>
+      <option value="slack" ${step.connector === 'slack' ? 'selected' : ''}>Slack</option>
       <option value="mcp" ${step.connector === 'mcp' ? 'selected' : ''}>MCP</option>
     </select></div>
     <div class="step-editor-row"><label>Input</label><select data-field="input">${inputOptions}</select></div>
@@ -2093,6 +2047,7 @@ async function init() {
   await loadTemplates();
   await loadPromptTemplates();
   await loadPipelineDefs();
+  await loadSlackIntegrations();
   try {
     const version = await invoke("get_app_version");
     const versionEl = document.getElementById("app-version");
@@ -2103,8 +2058,8 @@ async function init() {
 
   await updatePermissionStatus();
 
-  // Show onboarding only if not completed AND permissions are missing
-  if (!appSettings.onboarding_completed && (!permissions.mic || !permissions.system_audio)) {
+  // Show onboarding only if never completed before
+  if (!appSettings.onboarding_completed) {
     onboardingOverlay.style.display = 'flex';
   }
 }

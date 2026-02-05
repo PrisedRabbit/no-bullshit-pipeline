@@ -633,6 +633,15 @@ body.is-recording-active .detail-controls {
   box-shadow: 0 0 20px rgba(255, 45, 85, 0.4);
 }
 
+.capture-controls button.record-btn.is-play-mode {
+  color: var(--accent);
+}
+
+.capture-controls button.record-btn.is-play-mode:hover {
+  background: var(--accent);
+  color: var(--bg-primary);
+}
+
 .timer {
   font-family: "JetBrains Mono", monospace;
   font-size: 0.9rem;
@@ -1450,6 +1459,12 @@ body.settings-open .app-layout {
   margin: 0;
   font-size: 1.2rem;
   font-weight: 800;
+  flex: 1;
+}
+
+.settings-header-top .modal-btn.compact {
+  padding: 6px 16px;
+  font-size: 0.85rem;
 }
 
 .settings-tabs {

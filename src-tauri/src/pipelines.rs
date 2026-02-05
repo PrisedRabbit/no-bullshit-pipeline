@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::path::PathBuf;
+use crate::config::get_config_dir;
 use crate::storage::get_data_dir;
 
 /// Connector types available for pipeline steps
@@ -11,6 +12,7 @@ pub enum ConnectorType {
     Llm,
     Save,
     Webhook,
+    Slack,
     Mcp,
 }
 
@@ -35,7 +37,16 @@ pub struct Pipeline {
 
 /// Get the path to pipelines.json
 fn get_pipelines_path() -> PathBuf {
-    get_data_dir().join("pipelines.json")
+    get_config_dir().join("pipelines.json")
+}
+
+/// Migrate pipelines.json from old data dir to config dir (one-time)
+fn migrate_pipelines_if_needed() {
+    let old_path = get_data_dir().join("pipelines.json");
+    let new_path = get_config_dir().join("pipelines.json");
+    if old_path.exists() && !new_path.exists() {
+        let _ = fs::rename(&old_path, &new_path);
+    }
 }
 
 /// Validate a pipeline definition
@@ -164,6 +175,20 @@ fn validate_step_config(step: &PipelineStep) -> Result<(), String> {
                 }
             }
         }
+        ConnectorType::Slack => {
+            if step.config.get("integration_id").and_then(|v| v.as_str()).is_none() {
+                return Err(format!(
+                    "Step '{}': Slack connector requires 'integration_id' in config",
+                    step.name
+                ));
+            }
+            if step.config.get("target").and_then(|v| v.as_str()).is_none() {
+                return Err(format!(
+                    "Step '{}': Slack connector requires 'target' in config",
+                    step.name
+                ));
+            }
+        }
         ConnectorType::Mcp => {
             // MCP not yet implemented, no validation needed
         }
@@ -173,6 +198,7 @@ fn validate_step_config(step: &PipelineStep) -> Result<(), String> {
 
 /// Load all pipelines from disk
 pub fn load_pipelines() -> Result<HashMap<String, Pipeline>, String> {
+    migrate_pipelines_if_needed();
     let path = get_pipelines_path();
 
     if !path.exists() {
@@ -188,9 +214,9 @@ pub fn load_pipelines() -> Result<HashMap<String, Pipeline>, String> {
 
 /// Save all pipelines to disk
 pub fn save_pipelines_to_disk(pipelines: &HashMap<String, Pipeline>) -> Result<(), String> {
-    let data_dir = get_data_dir();
-    if !data_dir.exists() {
-        fs::create_dir_all(&data_dir).map_err(|e| format!("Failed to create data dir: {}", e))?;
+    let config_dir = get_config_dir();
+    if !config_dir.exists() {
+        fs::create_dir_all(&config_dir).map_err(|e| format!("Failed to create config dir: {}", e))?;
     }
 
     let path = get_pipelines_path();

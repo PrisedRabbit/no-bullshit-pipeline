@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::collections::VecDeque;
 use std::fs::File;
 use std::num::{NonZeroU32, NonZeroU8};
 use std::path::PathBuf;
@@ -9,6 +10,83 @@ use std::time::Duration;
 use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoder, VorbisEncoderBuilder};
 
 use super::{MIC_BUFFER, SYSTEM_BUFFER};
+
+/// Adaptive gain controller for real-time level normalization
+struct AdaptiveGain {
+    /// Sliding window of squared samples for RMS calculation
+    rms_window: VecDeque<f32>,
+    /// Window size in samples (0.5 seconds at 48kHz)
+    window_size: usize,
+    /// Sum of squared samples in window (for efficient RMS)
+    sum_sq: f64,
+    /// Current smoothed gain
+    current_gain: f32,
+    /// Target RMS level (linear, not dB)
+    target_rms: f32,
+    /// Gain smoothing factor (0-1, higher = slower adaptation)
+    smoothing: f32,
+}
+
+impl AdaptiveGain {
+    fn new(sample_rate: u32) -> Self {
+        const TARGET_RMS_DB: f32 = -20.0;
+        const WINDOW_SECONDS: f32 = 0.3; // 300ms window - good balance
+
+        Self {
+            rms_window: VecDeque::new(),
+            window_size: (sample_rate as f32 * WINDOW_SECONDS) as usize,
+            sum_sq: 0.0,
+            current_gain: 1.0,
+            target_rms: 10_f32.powf(TARGET_RMS_DB / 20.0),
+            smoothing: 0.9, // Fast adaptation (~100ms response time)
+        }
+    }
+
+    /// Update RMS estimate with new samples and return current gain
+    fn update(&mut self, samples: &[f32]) -> f32 {
+        for &sample in samples {
+            let sq = (sample * sample) as f64;
+
+            // Add to window
+            self.rms_window.push_back(sample * sample);
+            self.sum_sq += sq;
+
+            // Remove old samples if window is full
+            while self.rms_window.len() > self.window_size {
+                if let Some(old) = self.rms_window.pop_front() {
+                    self.sum_sq -= old as f64;
+                    // Prevent negative due to float errors
+                    if self.sum_sq < 0.0 { self.sum_sq = 0.0; }
+                }
+            }
+        }
+
+        // Calculate current RMS
+        if self.rms_window.is_empty() {
+            return self.current_gain;
+        }
+
+        let current_rms = (self.sum_sq / self.rms_window.len() as f64).sqrt() as f32;
+
+        // Calculate target gain
+        let target_gain = if current_rms > 0.0001 {
+            // Limit gain to reasonable range (0.1x to 10x = -20dB to +20dB)
+            (self.target_rms / current_rms).clamp(0.1, 10.0)
+        } else {
+            1.0 // No signal, use unity gain
+        };
+
+        // Smooth gain changes to avoid clicks
+        self.current_gain = self.current_gain * self.smoothing + target_gain * (1.0 - self.smoothing);
+
+        self.current_gain
+    }
+
+    /// Get current gain without updating
+    fn gain(&self) -> f32 {
+        self.current_gain
+    }
+}
 
 /// Real-time mixer that reads from shared buffers and writes mixed output
 pub struct RealtimeMixer {
@@ -47,7 +125,7 @@ impl RealtimeMixer {
 
 fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Result<()> {
     #[cfg(debug_assertions)]
-    eprintln!("Real-time mixer: Starting (buffer-based, continuous timeline)");
+    eprintln!("Real-time mixer: Starting with adaptive normalization");
 
     // Output format: 48kHz stereo
     let sample_rate = 48000u32;
@@ -62,6 +140,10 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
     )
     .bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr { target_quality: 0.5 })
     .build()?;
+
+    // Adaptive gain controllers for each source
+    let mut mic_gain = AdaptiveGain::new(sample_rate);
+    let mut sys_gain = AdaptiveGain::new(sample_rate);
 
     // Continuous timeline tracking (like mic/system recorders)
     let start_time = std::time::Instant::now();
@@ -84,6 +166,15 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
             let mic_avail = MIC_BUFFER.available();
             let sys_avail = SYSTEM_BUFFER.available();
 
+            // Debug every ~1 second
+            static DEBUG_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let cnt = DEBUG_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if cnt % 100 == 0 {
+                #[cfg(debug_assertions)]
+                eprintln!("DEBUG mixer: mic_avail={}, sys_avail={}, mic_gain={:.2}, sys_gain={:.2}",
+                    mic_avail, sys_avail, mic_gain.gain(), sys_gain.gain());
+            }
+
             let mut frames_remaining = frames_needed;
 
             // 1. Process available audio from buffers
@@ -96,17 +187,28 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
                 let (mic_left, mic_right) = MIC_BUFFER.pop(frames_to_process);
                 let (sys_left, sys_right) = SYSTEM_BUFFER.pop(frames_to_process);
 
-                // Mix
+                // Mix with adaptive normalization
                 let frame_count = mic_left.len().max(sys_left.len());
                 if frame_count > 0 {
+                    // Update gain controllers with mono mix of each source
+                    let mic_mono: Vec<f32> = (0..mic_left.len())
+                        .map(|i| (mic_left[i] + mic_right.get(i).copied().unwrap_or(mic_left[i])) * 0.5)
+                        .collect();
+                    let sys_mono: Vec<f32> = (0..sys_left.len())
+                        .map(|i| (sys_left[i] + sys_right.get(i).copied().unwrap_or(sys_left[i])) * 0.5)
+                        .collect();
+
+                    let mg = mic_gain.update(&mic_mono);
+                    let sg = sys_gain.update(&sys_mono);
+
                     let mut mixed_left = Vec::with_capacity(frame_count);
                     let mut mixed_right = Vec::with_capacity(frame_count);
 
                     for i in 0..frame_count {
-                        let ml = mic_left.get(i).copied().unwrap_or(0.0);
-                        let mr = mic_right.get(i).copied().unwrap_or(0.0);
-                        let sl = sys_left.get(i).copied().unwrap_or(0.0);
-                        let sr = sys_right.get(i).copied().unwrap_or(0.0);
+                        let ml = mic_left.get(i).copied().unwrap_or(0.0) * mg;
+                        let mr = mic_right.get(i).copied().unwrap_or(0.0) * mg;
+                        let sl = sys_left.get(i).copied().unwrap_or(0.0) * sg;
+                        let sr = sys_right.get(i).copied().unwrap_or(0.0) * sg;
 
                         // Mix with soft clipping
                         mixed_left.push(soft_clip(ml + sl));
@@ -143,8 +245,8 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
         thread::sleep(tick_duration);
     }
 
-    // Drain remaining samples from buffers
-    drain_and_encode(&mut encoder, 4096)?;
+    // Drain remaining samples from buffers (use last known gains)
+    drain_and_encode(&mut encoder, 4096, mic_gain.gain(), sys_gain.gain())?;
 
     // Final padding to match wall-clock duration
     let elapsed = start_time.elapsed().as_secs_f64();
@@ -171,8 +273,8 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
     Ok(())
 }
 
-/// Drain remaining samples from buffers
-fn drain_and_encode(encoder: &mut VorbisEncoder<File>, block_size: usize) -> Result<()> {
+/// Drain remaining samples from buffers with given gains
+fn drain_and_encode(encoder: &mut VorbisEncoder<File>, block_size: usize, mg: f32, sg: f32) -> Result<()> {
     loop {
         let mic_avail = MIC_BUFFER.available();
         let sys_avail = SYSTEM_BUFFER.available();
@@ -194,10 +296,10 @@ fn drain_and_encode(encoder: &mut VorbisEncoder<File>, block_size: usize) -> Res
         let mut mixed_right = Vec::with_capacity(frame_count);
 
         for i in 0..frame_count {
-            let ml = mic_left.get(i).copied().unwrap_or(0.0);
-            let mr = mic_right.get(i).copied().unwrap_or(0.0);
-            let sl = sys_left.get(i).copied().unwrap_or(0.0);
-            let sr = sys_right.get(i).copied().unwrap_or(0.0);
+            let ml = mic_left.get(i).copied().unwrap_or(0.0) * mg;
+            let mr = mic_right.get(i).copied().unwrap_or(0.0) * mg;
+            let sl = sys_left.get(i).copied().unwrap_or(0.0) * sg;
+            let sr = sys_right.get(i).copied().unwrap_or(0.0) * sg;
 
             mixed_left.push(soft_clip(ml + sl));
             mixed_right.push(soft_clip(mr + sr));

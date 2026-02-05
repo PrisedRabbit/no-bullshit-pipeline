@@ -114,14 +114,6 @@
           </button>
         </div>
 
-        <!-- Tag filters -->
-        <div class="sidebar-section sidebar-tags-section">
-          <h2>FILTERS</h2>
-          <div id="all-tags-list" class="all-tags-sidebar-list">
-            <!-- All available tags rendered as a list -->
-          </div>
-        </div>
-
         <div class="sidebar-footer">
           <button id="settings-btn" class="sidebar-action-btn">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -161,38 +153,6 @@
                 placeholder="Untitled Recording"
               />
 
-              <div class="detail-tags-section">
-                <div id="detail-tags-list" class="detail-tags-list">
-                  <!-- Tag chips -->
-                </div>
-                <div class="tag-input-wrapper">
-                  <input
-                    id="detail-tags-input"
-                    class="detail-tags-add"
-                    placeholder="Add tag..."
-                    autocomplete="off"
-                  />
-                  <div
-                    id="tag-suggestions"
-                    class="tag-suggestions-dropdown"
-                    style="display: none"
-                  ></div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Simple Audio Player -->
-            <div class="audio-player-section" id="audio-player-section">
-              <div class="audio-player-simple">
-                <button id="play-pause-btn" class="play-btn-large" title="Play">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                  </svg>
-                </button>
-                <div class="audio-time-display">
-                  <span id="current-time">0:00</span> / <span id="total-time">0:00</span>
-                </div>
-              </div>
             </div>
 
             <div class="detail-content-grid" id="detail-content-grid">
@@ -240,53 +200,6 @@
                 </div>
               </div>
 
-              <div class="content-block" id="structured-section">
-                <div class="block-header">
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    class="block-icon"
-                  >
-                    <polyline points="16 18 22 12 16 6"></polyline>
-                    <polyline points="8 6 2 12 8 18"></polyline>
-                  </svg>
-                  <h3>AI Processing</h3>
-                  <div class="ai-actions" style="margin-left: auto; display: flex; gap: 8px;">
-                    <select id="template-select" class="mini-select">
-                      <option value="">Select template...</option>
-                      <option value="meeting-notes">Meeting Notes</option>
-                      <option value="brainstorm">Brainstorm</option>
-                      <option value="journal">Journal</option>
-                    </select>
-                    <button
-                      id="summarize-btn"
-                      class="mini-action-btn"
-                      title="Summarize"
-                      style="height: 28px; padding: 0 12px"
-                    >
-                      <span style="font-weight: 600; font-size: 12px">Summarize</span>
-                    </button>
-                    <button
-                      id="extract-btn"
-                      class="mini-action-btn"
-                      title="Extract with Template"
-                      style="height: 28px; padding: 0 12px"
-                      disabled
-                    >
-                      <span style="font-weight: 600; font-size: 12px">Extract</span>
-                    </button>
-                  </div>
-                </div>
-                <pre id="structured-content" class="content-body empty">
-Not processed yet.</pre
-                >
-              </div>
             </div>
           </div>
         </div>
@@ -304,9 +217,11 @@ Not processed yet.</pre
               Back
             </button>
             <h1 class="settings-header-title">Settings</h1>
+            <button id="save-settings-btn" class="modal-btn primary compact">Save</button>
           </div>
           <div class="settings-tabs" id="settings-tabs">
             <button class="settings-tab active" data-tab="audio">Audio</button>
+            <button class="settings-tab" data-tab="integrations">Integrations</button>
             <button class="settings-tab" data-tab="templates">Templates</button>
             <button class="settings-tab" data-tab="pipelines">Pipelines</button>
             <button class="settings-tab" data-tab="theme">Theme</button>
@@ -681,6 +596,30 @@ Not processed yet.</pre
               </div>
             </div><!-- end pipelines tab -->
 
+            <div class="settings-grid settings-tab-content" data-tab="integrations">
+              <!-- Integrations Configuration -->
+              <div class="settings-section">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                  <h3 style="margin: 0;">Slack Workspaces</h3>
+                  <button id="add-slack-btn" class="mini-action-btn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="12" y1="5" x2="12" y2="19"></line>
+                      <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    Add Workspace
+                  </button>
+                </div>
+
+                <!-- List of integrations -->
+                <div id="slack-integrations-list" style="display: flex; flex-direction: column; gap: 12px;">
+                  <!-- Dynamic: for each integration -->
+                  <div style="text-align: center; padding: 40px 0; color: var(--text-secondary); opacity: 0.6;">
+                    No Slack workspaces connected yet
+                  </div>
+                </div>
+              </div>
+            </div><!-- end integrations tab -->
+
             <div class="settings-grid settings-tab-content" data-tab="theme">
               <!-- Theme Configuration -->
               <div class="settings-section">
@@ -719,11 +658,6 @@ Not processed yet.</pre
 
             </div><!-- end theme tab -->
 
-            <div class="settings-footer">
-              <button id="save-settings-btn" class="modal-btn primary">
-                Save Changes
-              </button>
-            </div>
           </div>
         </div>
       </section>
@@ -742,6 +676,46 @@ Not processed yet.</pre
           <button id="confirm-delete-btn" class="modal-btn danger">
             Delete
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add Slack Workspace Modal -->
+    <div id="add-slack-modal" class="modal-overlay" style="display: none">
+      <div class="modal-card">
+        <h3>Add Slack Workspace</h3>
+        <div style="display: flex; flex-direction: column; gap: 16px; margin: 20px 0;">
+          <div>
+            <label style="display: block; margin-bottom: 8px; font-weight: 600;">Name</label>
+            <input
+              id="slack-name-input"
+              type="text"
+              placeholder="Work Slack"
+              class="settings-input-text"
+              style="width: 100%;"
+            />
+          </div>
+          <div>
+            <label style="display: block; margin-bottom: 8px; font-weight: 600;">Bot Token (xoxb-...)</label>
+            <div style="position: relative;">
+              <input
+                id="slack-token-input"
+                type="text"
+                placeholder="xoxb-..."
+                class="settings-input-text"
+                style="width: 100%; font-family: 'SF Mono', monospace; font-size: 0.85rem;"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </div>
+            <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 8px; opacity: 0.8;">
+              Create a Slack App → OAuth & Permissions → Bot User OAuth Token
+            </p>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button id="slack-cancel-btn" class="modal-btn secondary">Cancel</button>
+          <button id="slack-save-btn" class="modal-btn primary">Save</button>
         </div>
       </div>
     </div>

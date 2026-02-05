@@ -50,6 +50,7 @@ mod prompt_templates;
 mod connectors;
 mod pipeline_engine;
 mod transcript_migration;
+mod integrations;
 use audio::AudioState;
 use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
 use tauri::Manager;
@@ -68,6 +69,9 @@ fn get_audio_level() -> f32 {
 }
 
 pub fn run() {
+    // Load settings for managed state
+    let settings = std::sync::Arc::new(std::sync::Mutex::new(config::load_settings()));
+    
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -76,6 +80,7 @@ pub fn run() {
         .manage(permissions::PermissionsStateCache(std::sync::Arc::new(std::sync::Mutex::new(
             permissions::PermissionsState::default()
         ))))
+        .manage(settings)
         .setup(|app| {
             // Create custom menu with only NBP submenu (no File, Edit, etc.)
             let about_metadata = AboutMetadataBuilder::new()
@@ -168,6 +173,12 @@ pub fn run() {
             pipeline_engine::get_all_pipeline_states,
             pipeline_engine::get_step_outputs,
             pipeline_engine::assign_pipeline,
+            // Integrations
+            integrations::list_slack_integrations,
+            integrations::add_slack_integration,
+            integrations::remove_slack_integration,
+            integrations::test_slack_integration,
+            integrations::list_slack_channels,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

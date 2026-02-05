@@ -41,7 +41,7 @@ impl AudioState {
 }
 
 #[tauri::command]
-pub fn start_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>, tags: Vec<String>, save_mix_only: Option<bool>) -> Result<storage::RecordingMetadata, String> {
+pub fn start_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>, save_mix_only: bool) -> Result<storage::RecordingMetadata, String> {
     let mut is_recording = state.is_recording.lock().map_err(|e| e.to_string())?;
     if *is_recording {
         return Err("Already recording".to_string());
@@ -54,9 +54,9 @@ pub fn start_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState
     let data_dir = storage::get_data_dir();
     check_disk_space(&data_dir)?;
 
-    let title = tags.join(" ");
-    let metadata = storage::create_recording(title, tags)?;
-    let mix_only = save_mix_only.unwrap_or(true);
+    let metadata = storage::create_recording(String::new(), vec![])?;
+    let mix_only = save_mix_only;
+    eprintln!("DEBUG: start_recording received save_mix_only={}", mix_only);
 
     *state.save_mix_only.lock().map_err(|e| e.to_string())? = mix_only;
 
@@ -84,12 +84,14 @@ pub fn start_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState
 
     // --- System Audio ---
     let system_path = storage::get_recording_dir(&metadata.id).join("raw_system.ogg");
+    eprintln!("DEBUG: Starting system audio capture to {:?}", system_path);
     match crate::system_audio::start_system_capture(system_path, mix_only) {
         Ok(recorder) => {
+            eprintln!("DEBUG: System audio capture started successfully");
             *state.system_recorder.lock().map_err(|e| e.to_string())? = Some(recorder);
         },
         Err(e) => {
-            eprintln!("WARNING: System audio capture failed: {}. Recording mic only.", e);
+            eprintln!("ERROR: System audio capture failed: {:?}", e);
             let _ = app_handle.emit("recording_warning", format!("System audio unavailable: {}", e));
         }
     }

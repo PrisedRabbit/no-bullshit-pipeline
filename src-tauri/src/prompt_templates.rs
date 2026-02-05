@@ -4,7 +4,7 @@ use std::fs::{self, File};
 use std::path::PathBuf;
 use chrono::Utc;
 use crate::storage::get_data_dir;
-use crate::config::get_templates_dir;
+use crate::config::{get_config_dir, get_templates_dir};
 
 /// A reusable prompt template
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -18,7 +18,16 @@ pub struct PromptTemplate {
 
 /// Get the path to prompt-templates.json
 fn get_prompt_templates_path() -> PathBuf {
-    get_data_dir().join("prompt-templates.json")
+    get_config_dir().join("prompt-templates.json")
+}
+
+/// Migrate prompt-templates.json from old data dir to config dir (one-time)
+fn migrate_prompt_templates_if_needed() {
+    let old_path = get_data_dir().join("prompt-templates.json");
+    let new_path = get_config_dir().join("prompt-templates.json");
+    if old_path.exists() && !new_path.exists() {
+        let _ = fs::rename(&old_path, &new_path);
+    }
 }
 
 /// Get built-in default templates
@@ -148,6 +157,7 @@ fn migrate_existing_templates(templates: &mut HashMap<String, PromptTemplate>) {
 
 /// Load all prompt templates from disk
 pub fn load_prompt_templates() -> Result<HashMap<String, PromptTemplate>, String> {
+    migrate_prompt_templates_if_needed();
     let path = get_prompt_templates_path();
 
     if !path.exists() {
@@ -170,10 +180,10 @@ pub fn load_prompt_templates() -> Result<HashMap<String, PromptTemplate>, String
 fn save_prompt_templates_to_disk(
     templates: &HashMap<String, PromptTemplate>,
 ) -> Result<(), String> {
-    let data_dir = get_data_dir();
-    if !data_dir.exists() {
-        fs::create_dir_all(&data_dir)
-            .map_err(|e| format!("Failed to create data dir: {}", e))?;
+    let config_dir = get_config_dir();
+    if !config_dir.exists() {
+        fs::create_dir_all(&config_dir)
+            .map_err(|e| format!("Failed to create config dir: {}", e))?;
     }
 
     let path = get_prompt_templates_path();

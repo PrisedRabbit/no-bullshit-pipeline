@@ -220,6 +220,17 @@ pub async fn execute_pipeline_internal(
                 )
                 .await
             }
+            ConnectorType::Slack => {
+                connectors::slack::execute(
+                    &input_path,
+                    &step.config,
+                    &output_dir,
+                    &step.name,
+                    &step.input,
+                    step.description.as_deref(),
+                )
+                .await
+            }
             ConnectorType::Mcp => {
                 Err("MCP connector not yet implemented".to_string())
             }
@@ -243,7 +254,7 @@ pub async fn execute_pipeline_internal(
                     );
                 }
             }
-            Err(error) => {
+            Err(ref error) => {
                 // Step failed - set pipeline to partial and stop
                 if let Some(app) = app_handle {
                     use tauri::Emitter;

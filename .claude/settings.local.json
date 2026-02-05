@@ -76,7 +76,9 @@
       "Bash(rustc:*)",
       "Bash(swift build:*)",
       "Bash(done)",
-      "Bash(claude mcp list-tools:*)"
+      "Bash(claude mcp list-tools:*)",
+      "Bash(swift package:*)",
+      "Bash(ffprobe:*)"
     ]
   }
 }

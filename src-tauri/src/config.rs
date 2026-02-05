@@ -3,6 +3,7 @@ use std::fs::{self, File};
 use std::path::PathBuf;
 use std::os::unix::fs::PermissionsExt;
 use crate::storage::get_data_dir;
+use crate::integrations::IntegrationsConfig;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum TranscriptionProvider {
@@ -71,6 +72,8 @@ pub struct AppSettings {
     /// Save only the mixed audio file (default: true)
     #[serde(default = "default_true")]
     pub save_mix_only: bool,
+    #[serde(default)]
+    pub integrations: IntegrationsConfig,
 }
 
 fn default_true() -> bool {
@@ -87,6 +90,7 @@ impl Default for AppSettings {
             transcription: TranscriptionConfig::default(),
             show_recording_notification: true,
             save_mix_only: true,
+            integrations: IntegrationsConfig::default(),
         }
     }
 }

@@ -20,6 +20,32 @@ func writeError(_ message: String) -> Never {
     exit(1)
 }
 
+/// Write progress update to stderr (parsed by Rust side)
+func writeProgress(_ stage: String, _ percent: Int) {
+    FileHandle.standardError.write(Data("PROGRESS:\(stage):\(percent)\n".utf8))
+}
+
+/// Check if FluidAudio models are already cached
+func modelsAreCached() -> Bool {
+    let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+    guard let modelsDir = appSupport?.appendingPathComponent("FluidAudio/Models") else { return false }
+
+    let asrModel = modelsDir.appendingPathComponent("parakeet-tdt-0.6b-v3-coreml")
+    let diarModel = modelsDir.appendingPathComponent("speaker-diarization-coreml")
+
+    return FileManager.default.fileExists(atPath: asrModel.path) &&
+           FileManager.default.fileExists(atPath: diarModel.path)
+}
+
+/// Join sub-word tokens into text, respecting word boundaries.
+/// Parakeet-tdt tokens use leading space or ▁ (U+2581) to mark word starts;
+/// concatenating without extra separator preserves correct spacing.
+func joinTokens(_ tokens: [String]) -> String {
+    tokens.joined()
+        .replacingOccurrences(of: "\u{2581}", with: " ")
+        .trimmingCharacters(in: .whitespaces)
+}
+
 /// Merge ASR word timings with diarization segments.
 /// Each word is assigned to the speaker whose diarization segment overlaps the word's midpoint.
 /// Returns (segments, speakerCount) where speakerCount reflects speakers present in the output.
@@ -97,7 +123,7 @@ func mergeAsrWithDiarization(
                     speakerId: currentSpeaker,
                     startTime: segmentStart,
                     endTime: segmentEnd,
-                    text: currentWords.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+                    text: joinTokens(currentWords)
                 ))
             }
             currentSpeaker = word.speakerId
@@ -116,7 +142,7 @@ func mergeAsrWithDiarization(
             speakerId: currentSpeaker,
             startTime: segmentStart,
             endTime: segmentEnd,
-            text: currentWords.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+            text: joinTokens(currentWords)
         ))
     }
 
@@ -159,23 +185,30 @@ struct FluidAudioSidecar {
         }
 
         do {
-            // Step 1: Initialize ASR
+            let cached = modelsAreCached()
+
+            // Step 1: Initialize ASR (~300MB CoreML model)
+            if !cached { writeProgress("Downloading ASR model", 0) }
             let asrModels = try await AsrModels.downloadAndLoad(version: .v3)
             let asrManager = AsrManager(config: .default)
             try await asrManager.initialize(models: asrModels)
 
-            // Step 2: Initialize offline diarizer
+            // Step 2: Initialize offline diarizer (~180MB CoreML model)
+            if !cached { writeProgress("Downloading diarizer", 0) }
             let diarizerConfig = OfflineDiarizerConfig()
             let diarizerManager = OfflineDiarizerManager(config: diarizerConfig)
             try await diarizerManager.prepareModels()
 
             // Step 3: Run ASR
+            writeProgress("Transcribing", 30)
             let asrResult = try await asrManager.transcribe(fileURL, source: .system)
 
             // Step 4: Run diarization
+            writeProgress("Diarization", 70)
             let diarizationResult = try await diarizerManager.process(fileURL)
 
             // Step 5: Merge results
+            writeProgress("Finalizing", 95)
             let timings = asrResult.tokenTimings ?? []
             let (segments, speakerCount) = mergeAsrWithDiarization(
                 tokenTimings: timings,
@@ -194,6 +227,7 @@ struct FluidAudioSidecar {
             encoder.outputFormatting = [.sortedKeys]
             let json = try encoder.encode(output)
 
+            writeProgress("Complete", 100)
             FileHandle.standardOutput.write(json)
             FileHandle.standardOutput.write(Data("\n".utf8))
 
