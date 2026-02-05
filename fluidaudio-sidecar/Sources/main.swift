@@ -195,7 +195,9 @@ struct FluidAudioSidecar {
 
             // Step 2: Initialize offline diarizer (~180MB CoreML model)
             if !cached { writeProgress("Downloading diarizer", 0) }
+            // Force minimum 2 speakers
             let diarizerConfig = OfflineDiarizerConfig()
+                .withSpeakers(min: 2)
             let diarizerManager = OfflineDiarizerManager(config: diarizerConfig)
             try await diarizerManager.prepareModels()
 
@@ -203,9 +205,22 @@ struct FluidAudioSidecar {
             writeProgress("Transcribing", 30)
             let asrResult = try await asrManager.transcribe(fileURL, source: .system)
 
+            // Debug: log ASR results
+            let timingsCount = asrResult.tokenTimings?.count ?? 0
+            FileHandle.standardError.write(Data("DEBUG asr: text_len=\(asrResult.text.count), timings=\(timingsCount)\n".utf8))
+
             // Step 4: Run diarization
             writeProgress("Diarization", 70)
             let diarizationResult = try await diarizerManager.process(fileURL)
+
+            // Debug: log diarization results
+            FileHandle.standardError.write(Data("DEBUG diarization: \(diarizationResult.segments.count) segments, threshold=\(diarizerConfig.clusteringThreshold)\n".utf8))
+            for (i, seg) in diarizationResult.segments.enumerated() {
+                FileHandle.standardError.write(Data("  [\(i)] speaker=\(seg.speakerId) time=\(seg.startTimeSeconds)-\(seg.endTimeSeconds)\n".utf8))
+            }
+            // Log unique speakers found
+            let uniqueSpeakers = Set(diarizationResult.segments.map { $0.speakerId })
+            FileHandle.standardError.write(Data("DEBUG unique speakers: \(uniqueSpeakers.sorted())\n".utf8))
 
             // Step 5: Merge results
             writeProgress("Finalizing", 95)

@@ -166,15 +166,6 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
             let mic_avail = MIC_BUFFER.available();
             let sys_avail = SYSTEM_BUFFER.available();
 
-            // Debug every ~1 second
-            static DEBUG_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            let cnt = DEBUG_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if cnt % 100 == 0 {
-                #[cfg(debug_assertions)]
-                eprintln!("DEBUG mixer: mic_avail={}, sys_avail={}, mic_gain={:.2}, sys_gain={:.2}",
-                    mic_avail, sys_avail, mic_gain.gain(), sys_gain.gain());
-            }
-
             let mut frames_remaining = frames_needed;
 
             // 1. Process available audio from buffers

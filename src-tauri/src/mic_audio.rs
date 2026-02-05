@@ -456,9 +456,6 @@ fn run_audio_processing(
 
         if total_frames_written < expected_frames {
             let missing_frames = expected_frames - total_frames_written;
-            #[cfg(debug_assertions)]
-            eprintln!("Mic Audio Underrun: Padding with {} frames of silence ({:.2}s)",
-                 missing_frames, missing_frames as f64 / sample_rate as f64);
 
             // Create silence block
             let silence_limit_chunk = 4096;

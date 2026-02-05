@@ -336,6 +336,13 @@ pub async fn transcribe_recording(
 
             let _ = std::fs::remove_file(&wav_path);
 
+            // Print debug output from sidecar (all non-PROGRESS lines)
+            for line in stderr_buf.lines() {
+                if !line.starts_with("PROGRESS:") && !line.is_empty() {
+                    eprintln!("{}", line);
+                }
+            }
+
             if exit_code != Some(0) {
                 return Err(format!("FluidAudio sidecar failed: {}", stderr_buf));
             }

@@ -162,10 +162,6 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
         let num_buffers = input_data.number_buffers;
         let buffers = &input_data.buffers;
 
-        // DEBUG: Log callback info occasionally
-        static DEBUG_CALL_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let call_count = DEBUG_CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
         if num_buffers >= 2 {
             // PLANAR: L in buffer[0], R in buffer[1]
             let buf_l = &buffers[0];
@@ -181,14 +177,6 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
             if !ptr_l.is_null() && !ptr_r.is_null() && len_l > 0 {
                 let samples_l = unsafe { std::slice::from_raw_parts(ptr_l, len_l) };
                 let samples_r = unsafe { std::slice::from_raw_parts(ptr_r, len_r) };
-
-                // DEBUG: Check actual sample values
-                if call_count % 500 == 0 {
-                    let max_l = samples_l.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
-                    let max_r = samples_r.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
-                    eprintln!("DEBUG audio_proc: num_buffers={}, len_l={}, len_r={}, max_l={:.6}, max_r={:.6}",
-                        num_buffers, len_l, len_r, max_l, max_r);
-                }
 
                 let frame_count = len_l.min(len_r);
                 let mut interleaved = Vec::with_capacity(frame_count * 2);
@@ -209,17 +197,10 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
             let ptr = buffer.data as *const f32;
             let len = (buffer.data_bytes_size as usize) / std::mem::size_of::<f32>();
 
-            // DEBUG: Log single buffer case
-            if call_count % 500 == 0 {
-                eprintln!("DEBUG audio_proc: SINGLE BUFFER num_buffers={}, len={}", num_buffers, len);
-            }
-
             if !ptr.is_null() && len > 0 {
                 let samples = unsafe { std::slice::from_raw_parts(ptr, len) };
                 ctx.producer.push_slice(samples);
             }
-        } else if call_count % 500 == 0 {
-            eprintln!("DEBUG audio_proc: NO BUFFERS! num_buffers={}", num_buffers);
         }
 
         os::Status::NO_ERR
@@ -267,8 +248,6 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
     // Tick every 10ms to maintain timeline
     let tick_duration = std::time::Duration::from_millis(10);
 
-    let mut debug_counter = 0u64;
-    let mut total_audio_samples = 0u64;
 
     while !should_stop.load(Ordering::Relaxed) {
         // Calculate how many frames SHOULD exist by now
@@ -284,15 +263,6 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
             // Try to get real audio from ring buffer
             let available = consumer.occupied_len();
 
-            // Debug: log every second
-            debug_counter += 1;
-            if debug_counter % 100 == 0 {
-                // Check if samples are actually non-zero
-                let peek_samples: Vec<f32> = buffer[..available.min(10)].to_vec();
-                let max_sample = peek_samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
-                eprintln!("DEBUG system_audio: available={}, total_audio={}, elapsed={:.1}s, max_sample={:.6}, samples={:?}",
-                    available, total_audio_samples, elapsed_secs, max_sample, &peek_samples[..peek_samples.len().min(5)]);
-            }
             let mut frames_remaining = frames_needed;
             
             // 1. Consume available audio first
@@ -308,7 +278,6 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
                 let n = consumer.pop_slice(&mut buffer[..samples_to_read]);
                 
                 if n > 0 {
-                    total_audio_samples += n as u64;
                     let raw_samples = &buffer[..n];
 
                     // Update audio level for visualization (dynamic scaling)
@@ -439,15 +408,8 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
         let elapsed = start_time.elapsed().as_secs_f64();
         let expected_frames = (elapsed * sample_rate as f64) as u64;
 
-        #[cfg(debug_assertions)]
-        eprintln!("System Audio Stop: Timer={:.3}s, Rate={}, Written={}, Expected={}, Diff={}",
-            elapsed, sample_rate, total_frames_written, expected_frames, expected_frames as i64 - total_frames_written as i64);
-
         if total_frames_written < expected_frames {
             let missing_frames = expected_frames - total_frames_written;
-            #[cfg(debug_assertions)]
-            eprintln!("System Audio Underrun: Padding with {} frames of silence ({:.2}s)",
-                missing_frames, missing_frames as f64 / sample_rate as f64);
 
             // Create silence block (e.g., 4096 frames at a time)
             let silence_chunk_size = 4096;
@@ -471,15 +433,9 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
                 }
                 remaining -= chunk;
             }
-        } else {
-            #[cfg(debug_assertions)]
-            eprintln!("System Audio: No padding needed (Written >= Expected)");
         }
 
-        // Finish encoding
         enc.finish()?;
-        #[cfg(debug_assertions)]
-        eprintln!("System Audio: Encoder finished.");
     }
 
     Ok(())
