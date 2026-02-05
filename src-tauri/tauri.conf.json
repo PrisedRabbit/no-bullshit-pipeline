@@ -11,8 +11,8 @@
     "windows": [
       {
         "title": "nbp",
-        "width": 1200,
-        "height": 850
+        "width": 1050,
+        "height": 700
       }
     ],
     "security": {
