@@ -195,12 +195,13 @@ struct FluidAudioSidecar {
 
             // Step 2: Initialize offline diarizer (~180MB CoreML model)
             if !cached { writeProgress("Downloading diarizer", 0) }
-            // Optimized diarization settings
+            // Balanced diarization settings
             var diarizerConfig = OfflineDiarizerConfig()
-            diarizerConfig.clusteringThreshold = 0.2
-            diarizerConfig.embeddingExcludeOverlap = false  // Include overlaps
-            diarizerConfig.minSegmentDuration = 0.3         // Shorter segments
-            diarizerConfig.clustering.minSpeakers = 2       // At least 2 speakers
+            diarizerConfig.clusteringThreshold = 0.12
+            diarizerConfig.embeddingExcludeOverlap = false
+            diarizerConfig.minSegmentDuration = 0.1        // Very short segments OK
+            diarizerConfig.minGapDuration = 0.3            // Merge close segments
+            diarizerConfig.clustering.minSpeakers = 2
             let diarizerManager = OfflineDiarizerManager(config: diarizerConfig)
             try await diarizerManager.prepareModels()
 
@@ -208,9 +209,15 @@ struct FluidAudioSidecar {
             writeProgress("Transcribing", 30)
             let asrResult = try await asrManager.transcribe(fileURL, source: .system)
 
-            // Debug: log ASR results
+            // Debug: log ASR results with word timings
             let timingsCount = asrResult.tokenTimings?.count ?? 0
             FileHandle.standardError.write(Data("DEBUG asr: text_len=\(asrResult.text.count), timings=\(timingsCount)\n".utf8))
+            // Print words with timestamps
+            if let timings = asrResult.tokenTimings {
+                for t in timings {
+                    FileHandle.standardError.write(Data("  \(String(format: "%.2f", t.startTime))-\(String(format: "%.2f", t.endTime)): \(t.token)\n".utf8))
+                }
+            }
 
             // Step 4: Run diarization
             writeProgress("Diarization", 70)

@@ -81,7 +81,10 @@
       "Bash(ffprobe:*)",
       "Bash(/Users/skopanev/Projects/nbp/src-tauri/binaries/fluidaudio-sidecar-aarch64-apple-darwin:*)",
       "Bash(pip3 install:*)",
-      "Bash(/Users/skopanev/Projects/nbp/fluidaudio-sidecar/.build/release/fluidaudio-sidecar:*)"
+      "Bash(/Users/skopanev/Projects/nbp/fluidaudio-sidecar/.build/release/fluidaudio-sidecar:*)",
+      "Bash(for id in 254219f3-183a-4b36-9a2b-7f64f8ab8a47 2597fcf4-3f7b-460f-8c91-5f84eade111e 70a72402-2246-4c8e-b63c-47106180542b)",
+      "Bash(do echo \"=== Testing $id ===\" ffmpeg -y -i \"/Users/skopanev/nbp-data/$id/audio_mix.ogg\" -ar 16000 -ac 1 /tmp/test_$id.wav /Users/skopanev/Projects/nbp/fluidaudio-sidecar/.build/release/fluidaudio-sidecar /tmp/test_$id.wav)",
+      "Bash(.build/release/fluidaudio-sidecar:*)"
     ]
   }
 }
