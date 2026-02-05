@@ -79,7 +79,9 @@
       "Bash(claude mcp list-tools:*)",
       "Bash(swift package:*)",
       "Bash(ffprobe:*)",
-      "Bash(/Users/skopanev/Projects/nbp/src-tauri/binaries/fluidaudio-sidecar-aarch64-apple-darwin:*)"
+      "Bash(/Users/skopanev/Projects/nbp/src-tauri/binaries/fluidaudio-sidecar-aarch64-apple-darwin:*)",
+      "Bash(pip3 install:*)",
+      "Bash(/Users/skopanev/Projects/nbp/fluidaudio-sidecar/.build/release/fluidaudio-sidecar:*)"
     ]
   }
 }

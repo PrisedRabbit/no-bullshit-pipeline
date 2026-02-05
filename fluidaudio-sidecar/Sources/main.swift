@@ -195,9 +195,12 @@ struct FluidAudioSidecar {
 
             // Step 2: Initialize offline diarizer (~180MB CoreML model)
             if !cached { writeProgress("Downloading diarizer", 0) }
-            // Force minimum 2 speakers
-            let diarizerConfig = OfflineDiarizerConfig()
-                .withSpeakers(min: 2)
+            // Optimized diarization settings
+            var diarizerConfig = OfflineDiarizerConfig()
+            diarizerConfig.clusteringThreshold = 0.2
+            diarizerConfig.embeddingExcludeOverlap = false  // Include overlaps
+            diarizerConfig.minSegmentDuration = 0.3         // Shorter segments
+            diarizerConfig.clustering.minSpeakers = 2       // At least 2 speakers
             let diarizerManager = OfflineDiarizerManager(config: diarizerConfig)
             try await diarizerManager.prepareModels()
 
