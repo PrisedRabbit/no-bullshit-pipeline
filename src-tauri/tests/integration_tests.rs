@@ -209,7 +209,6 @@ fn test_settings_with_transcription_providers() {
     // Test all providers can be serialized
     for provider in [
         TranscriptionProvider::LocalWhisper,
-        TranscriptionProvider::FluidAudio,
         TranscriptionProvider::OpenAI,
         TranscriptionProvider::Google,
         TranscriptionProvider::Anthropic,

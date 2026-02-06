@@ -8,10 +8,12 @@ use crate::storage::{get_data_dir, read_metadata};
 #[serde(rename_all = "lowercase")]
 pub enum TranscriptSource {
     Local,        // Local Whisper
-    Fluidaudio,   // FluidAudio (local ASR + diarization)
     Openai,       // OpenAI Whisper-1 API
     Google,       // Google Gemini
     Anthropic,    // Anthropic Claude
+    /// Catch-all for removed sources (e.g. fluidaudio)
+    #[serde(other)]
+    Unknown,
 }
 
 /// Transcript metadata stored in YAML frontmatter
@@ -23,10 +25,6 @@ pub struct TranscriptMetadata {
     pub duration_sec: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub segments_count: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub speaker_count: Option<usize>,
 }
 
 /// Parsed transcript with optional metadata
@@ -129,8 +127,6 @@ fn migrate_transcript(path: &Path) -> Result<bool, String> {
         created_at,
         duration_sec,
         language: Some("en".to_string()),
-        segments_count: None,
-        speaker_count: None,
     };
 
     write_transcript_with_metadata(path, &content, &transcript_meta)?;
@@ -242,8 +238,6 @@ mod tests {
             created_at: "2026-02-03T14:30:00Z".to_string(),
             duration_sec: 180.5,
             language: Some("en".to_string()),
-            segments_count: Some(45),
-            speaker_count: None,
         };
 
         let yaml = serde_yaml::to_string(&metadata).unwrap();
@@ -296,8 +290,6 @@ mod tests {
             created_at: "2026-02-03T14:30:00Z".to_string(),
             duration_sec: 180.5,
             language: Some("en".to_string()),
-            segments_count: None,
-            speaker_count: None,
         };
 
         let temp_dir = tempfile::tempdir().unwrap();
@@ -328,7 +320,6 @@ mod tests {
     fn test_transcript_source_variants() {
         let sources = vec![
             ("local", TranscriptSource::Local),
-            ("fluidaudio", TranscriptSource::Fluidaudio),
             ("openai", TranscriptSource::Openai),
             ("google", TranscriptSource::Google),
             ("anthropic", TranscriptSource::Anthropic),
@@ -340,45 +331,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_speaker_count_roundtrip() {
-        let metadata = TranscriptMetadata {
-            source: TranscriptSource::Fluidaudio,
-            model: "parakeet-tdt-v3".to_string(),
-            created_at: "2026-02-04T10:00:00Z".to_string(),
-            duration_sec: 120.0,
-            language: Some("auto".to_string()),
-            segments_count: None,
-            speaker_count: Some(3),
-        };
-
-        let temp_dir = tempfile::tempdir().unwrap();
-        let path = temp_dir.path().join("transcript.md");
-
-        write_transcript_with_metadata(&path, "Test speaker content", &metadata).unwrap();
-
-        let result = read_transcript(&path).unwrap();
-        assert!(result.metadata.is_some());
-        let meta = result.metadata.unwrap();
-        assert!(matches!(meta.source, TranscriptSource::Fluidaudio));
-        assert_eq!(meta.model, "parakeet-tdt-v3");
-        assert_eq!(meta.speaker_count, Some(3));
-        assert_eq!(result.content, "Test speaker content");
-    }
-
-    #[test]
-    fn test_speaker_count_none_not_serialized() {
-        let metadata = TranscriptMetadata {
-            source: TranscriptSource::Local,
-            model: "whisper-base".to_string(),
-            created_at: "2026-02-04T10:00:00Z".to_string(),
-            duration_sec: 60.0,
-            language: None,
-            segments_count: None,
-            speaker_count: None,
-        };
-
-        let yaml = serde_yaml::to_string(&metadata).unwrap();
-        assert!(!yaml.contains("speaker_count"));
-    }
 }

@@ -4,7 +4,6 @@ use crate::storage::{get_data_dir, read_metadata};
 use crate::cloud_ai;
 use crate::transcript_migration::{TranscriptMetadata, TranscriptSource};
 use tauri::Emitter;
-use tauri_plugin_shell::ShellExt;
 
 const BASE_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
 
@@ -19,35 +18,7 @@ pub struct ModelInfo {
     pub path: String,
 }
 
-#[derive(Deserialize, Debug)]
-#[allow(dead_code)]
-struct FluidAudioSegment {
-    #[serde(rename = "speakerId")]
-    speaker_id: String,
-    #[serde(rename = "startTime")]
-    start_time: f64,
-    #[serde(rename = "endTime")]
-    end_time: f64,
-    text: String,
-}
-
-#[derive(Deserialize, Debug)]
-struct FluidAudioOutput {
-    #[serde(rename = "speakerCount")]
-    speaker_count: usize,
-    model: String,
-    segments: Vec<FluidAudioSegment>,
-}
-
-/// JSON transcript segment (for FluidAudio diarized output)
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct TranscriptSegment {
-    speaker_id: String,
-    start_time: f64,
-    end_time: f64,
-    text: String,
-}
+// TODO: speaker diarization (SP1/SP2 labels, segments, speaker_count)
 
 /// JSON transcript stored as transcript.json (source of truth)
 #[derive(Serialize, Deserialize, Debug)]
@@ -58,10 +29,6 @@ pub(crate) struct TranscriptJson {
     duration_sec: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     language: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    speaker_count: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    segments: Option<Vec<TranscriptSegment>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     text: Option<String>,
 }
@@ -131,13 +98,6 @@ struct DownloadProgress {
     percent: f64,
 }
 
-#[derive(Clone, Serialize)]
-struct TranscriptionProgress {
-    recording_id: String,
-    stage: String,
-    percent: u32,
-}
-
 #[tauri::command]
 pub async fn download_whisper_model(
     app_handle: tauri::AppHandle,
@@ -200,7 +160,6 @@ pub async fn delete_whisper_model(size: WhisperModelSize) -> Result<(), String> 
 
 #[tauri::command]
 pub async fn transcribe_recording(
-    app_handle: tauri::AppHandle,
     recording_id: String
 ) -> Result<String, String> {
     let settings = load_settings();
@@ -223,8 +182,7 @@ pub async fn transcribe_recording(
 
     // Shared metadata fields
     let source = match provider {
-        TranscriptionProvider::LocalWhisper => TranscriptSource::Local,
-        TranscriptionProvider::FluidAudio => TranscriptSource::Fluidaudio,
+        TranscriptionProvider::LocalWhisper | TranscriptionProvider::Unknown => TranscriptSource::Local,
         TranscriptionProvider::OpenAI => TranscriptSource::Openai,
         TranscriptionProvider::Google => TranscriptSource::Google,
         TranscriptionProvider::Anthropic => TranscriptSource::Anthropic,
@@ -267,113 +225,7 @@ pub async fn transcribe_recording(
                 created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
                 duration_sec,
                 language: Some("auto".to_string()),
-                speaker_count: None,
-                segments: None,
                 text: Some(transcript),
-            }
-        },
-        TranscriptionProvider::FluidAudio => {
-            let wav_path = recording_dir.join("temp_transcription.wav");
-            convert_ogg_to_wav(&audio_path, &wav_path)?;
-
-            // Emit initial progress
-            let _ = app_handle.emit("transcription_progress", TranscriptionProgress {
-                recording_id: recording_id.clone(),
-                stage: "Starting".to_string(),
-                percent: 0,
-            });
-
-            let (mut rx, _child) = app_handle.shell().sidecar("fluidaudio-sidecar")
-                .map_err(|e| format!("Failed to create sidecar command: {}", e))?
-                .arg(wav_path.to_str().ok_or("Invalid WAV path")?)
-                .spawn()
-                .map_err(|e| format!("Failed to spawn FluidAudio sidecar: {}", e))?;
-
-            let mut stdout_buf = Vec::new();
-            let mut stderr_buf = String::new();
-            let mut exit_code: Option<i32> = None;
-
-            let timeout_duration = std::time::Duration::from_secs(600);
-            let start = std::time::Instant::now();
-
-            while let Some(event) = rx.recv().await {
-                if start.elapsed() > timeout_duration {
-                    return Err("FluidAudio sidecar timed out after 10 minutes".to_string());
-                }
-
-                use tauri_plugin_shell::process::CommandEvent;
-                match event {
-                    CommandEvent::Stdout(data) => {
-                        stdout_buf.extend_from_slice(&data);
-                    }
-                    CommandEvent::Stderr(data) => {
-                        let line = String::from_utf8_lossy(&data);
-                        stderr_buf.push_str(&line);
-
-                        // Parse progress updates: "PROGRESS:stage:percent"
-                        for l in line.lines() {
-                            if let Some(rest) = l.strip_prefix("PROGRESS:") {
-                                let parts: Vec<&str> = rest.splitn(2, ':').collect();
-                                if parts.len() == 2 {
-                                    if let Ok(pct) = parts[1].parse::<u32>() {
-                                        let _ = app_handle.emit("transcription_progress", TranscriptionProgress {
-                                            recording_id: recording_id.clone(),
-                                            stage: parts[0].to_string(),
-                                            percent: pct,
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    CommandEvent::Terminated(payload) => {
-                        exit_code = payload.code;
-                        break;
-                    }
-                    _ => {}
-                }
-            }
-
-            let _ = std::fs::remove_file(&wav_path);
-
-            // Print debug output from sidecar (all non-PROGRESS lines)
-            for line in stderr_buf.lines() {
-                if !line.starts_with("PROGRESS:") && !line.is_empty() {
-                    eprintln!("{}", line);
-                }
-            }
-
-            if exit_code != Some(0) {
-                return Err(format!("FluidAudio sidecar failed: {}", stderr_buf));
-            }
-
-            let stdout = String::from_utf8_lossy(&stdout_buf);
-            let fa_output: FluidAudioOutput = serde_json::from_str(&stdout)
-                .map_err(|e| format!("Failed to parse FluidAudio output: {}", e))?;
-
-            let segments: Vec<TranscriptSegment> = fa_output.segments.iter().map(|seg| {
-                TranscriptSegment {
-                    speaker_id: seg.speaker_id.clone(),
-                    start_time: seg.start_time,
-                    end_time: seg.end_time,
-                    text: seg.text.trim().to_string(),
-                }
-            }).collect();
-
-            let duration_sec = read_metadata(&recording_id)
-                .ok()
-                .and_then(|m| m.audio.mix.as_ref().map(|a| a.duration_sec))
-                .unwrap_or(0.0);
-
-            TranscriptJson {
-                source,
-                model: fa_output.model,
-                created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-                duration_sec,
-                language: Some("auto".to_string()),
-                speaker_count: Some(fa_output.speaker_count),
-                segments: Some(segments),
-                text: None,
             }
         },
         TranscriptionProvider::OpenAI => {
@@ -392,8 +244,6 @@ pub async fn transcribe_recording(
                 created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
                 duration_sec,
                 language: Some("auto".to_string()),
-                speaker_count: None,
-                segments: None,
                 text: Some(transcript),
             }
         },
@@ -402,6 +252,9 @@ pub async fn transcribe_recording(
         },
         TranscriptionProvider::Anthropic => {
             return Err("Anthropic provider doesn't support audio transcription. Use Local Whisper or OpenAI for transcription, then use Anthropic for structured extraction.".to_string());
+        },
+        TranscriptionProvider::Unknown => {
+            return Err("Unknown transcription provider. Please select a valid provider in settings.".to_string());
         },
     };
 
@@ -419,18 +272,9 @@ pub async fn transcribe_recording(
     Ok(render_transcript_from_json(&transcript_json))
 }
 
-/// Render compact text from a TranscriptJson struct
+/// Render text from a TranscriptJson struct
 pub(crate) fn render_transcript_from_json(tj: &TranscriptJson) -> String {
-    if let Some(segments) = &tj.segments {
-        segments.iter().map(|seg| {
-            let short_id = seg.speaker_id.replace("Speaker ", "SP");
-            format!("{}: {}", short_id, seg.text)
-        }).collect::<Vec<_>>().join("\n")
-    } else if let Some(text) = &tj.text {
-        text.clone()
-    } else {
-        String::new()
-    }
+    tj.text.clone().unwrap_or_default()
 }
 
 /// Render transcript text on the fly from transcript.json (with .md fallback)
@@ -509,7 +353,7 @@ pub async fn summarize_recording(
                 &transcript
             ).await?
         },
-        TranscriptionProvider::LocalWhisper | TranscriptionProvider::FluidAudio => {
+        TranscriptionProvider::LocalWhisper | TranscriptionProvider::Unknown => {
             return Err("Local transcription providers cannot generate summaries. Please configure a cloud AI provider (OpenAI, Google, or Anthropic).".to_string());
         },
     };
@@ -562,7 +406,7 @@ pub async fn process_with_template(
                 .ok_or("Anthropic API key not configured")?;
             cloud_ai::process_with_claude(&api_key, &template.prompt, &transcript).await?
         },
-        TranscriptionProvider::LocalWhisper | TranscriptionProvider::FluidAudio => {
+        TranscriptionProvider::LocalWhisper | TranscriptionProvider::Unknown => {
             return Err("Local transcription providers cannot process templates. Please configure a cloud AI provider.".to_string());
         },
     };
@@ -606,8 +450,6 @@ pub async fn export_transcript_md(
             created_at: tj.created_at,
             duration_sec: tj.duration_sec,
             language: tj.language,
-            segments_count: tj.segments.as_ref().map(|s| s.len()),
-            speaker_count: tj.speaker_count,
         };
         let frontmatter = serde_yaml::to_string(&metadata)
             .map_err(|e| format!("Failed to serialize metadata: {}", e))?;

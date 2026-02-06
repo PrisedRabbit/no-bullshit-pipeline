@@ -2541,38 +2541,3 @@ body.is-recording-active .record-btn {
   to { opacity: 0; }
 }
 
-/* Speaker Diarization Transcript Styles */
-.speaker-segment {
-  margin-bottom: 12px;
-}
-
-.speaker-segment:last-child {
-  margin-bottom: 0;
-}
-
-.speaker-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-
-.speaker-name {
-  font-weight: 600;
-  font-size: 12px;
-}
-
-.speaker-time {
-  font-size: 11px;
-  color: var(--text-secondary);
-  opacity: 0.7;
-  font-family: "JetBrains Mono", monospace;
-}
-
-.speaker-text {
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--text-primary);
-  opacity: 0.9;
-  padding-left: 0;
-}

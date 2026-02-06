@@ -79,14 +79,14 @@ fn resolve_input_path(
             // transcript.md (markdown with YAML frontmatter).
             //
             // RATIONALE:
-            // - transcript.json is the source of truth (metadata + segments/text)
+            // - transcript.json is the source of truth (metadata + text)
             // - transcript_rendered.txt is an ephemeral cache for connector consumption
             // - Connectors process content, not metadata
             // - Metadata stays in transcript.json where it belongs
             // - Separation of concerns: storage (JSON) vs processing (plain text)
             //
             // This is INTENTIONAL design, not a bug. The rendered text file:
-            // 1. Contains only the transcript body (speaker-labeled or plain text)
+            // 1. Contains only the transcript body (plain text)
             // 2. Has no YAML frontmatter (metadata lives in .json)
             // 3. Is generated on-demand for each pipeline execution
             // 4. Is cleaned up after pipeline completes (see execute_pipeline_internal)

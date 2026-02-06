@@ -21,29 +21,6 @@ Whisper is OpenAI's speech recognition model. whisper.cpp is a C/C++ port by Geo
 
 ---
 
-## FluidAudio (On-Device ASR + Diarization)
-
-### FluidAudio
-- **Source:** https://github.com/FluidInference/FluidAudio
-- **Version:** 0.12.0
-- **License:** MIT
-- **Copyright:** Copyright (c) 2024 Fluid Inference
-
-Provides on-device speech recognition using Parakeet TDT v3 and speaker diarization via CoreML.
-
-### Parakeet TDT v3
-- **Source:** https://github.com/NVIDIA/NeMo (original model)
-- **CoreML conversion:** FluidAudio
-- **License:** Apache-2.0
-- **Usage:** ASR model (~300MB CoreML)
-
-### Speaker Diarization Model
-- **Source:** FluidAudio
-- **License:** MIT
-- **Usage:** Speaker identification (~180MB CoreML)
-
----
-
 ## Core Audio & System Integration
 
 ### cidre

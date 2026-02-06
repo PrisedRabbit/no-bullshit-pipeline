@@ -1,60 +1,9 @@
 const { invoke } = window.__TAURI__.core;
 
-// ===== SPEAKER TRANSCRIPT FORMATTING =====
-// Matches compact format: "SP1: text" or "SP2: text"
-const SPEAKER_LINE_PATTERN = /^(SP\d+):\s*(.+)$/m;
-const SPEAKER_COLORS = ['var(--accent)', 'var(--success)', '#f59e0b', '#ec4899', '#06b6d4', '#8b5cf6'];
-
-function hasSpeakerLabels(text) {
-  return SPEAKER_LINE_PATTERN.test(text);
-}
-
 function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
-}
-
-function formatSpeakerTranscript(text) {
-  const lines = text.split('\n');
-  const speakerOrder = [];
-
-  // First pass: discover unique speakers in order
-  for (const line of lines) {
-    const m = line.match(SPEAKER_LINE_PATTERN);
-    if (m && !speakerOrder.includes(m[1])) {
-      speakerOrder.push(m[1]);
-    }
-  }
-
-  // Second pass: render with color by speaker identity
-  return lines.map(line => {
-    const match = line.match(SPEAKER_LINE_PATTERN);
-    if (match) {
-      const speakerLabel = escapeHtml(match[1]);
-      const content = escapeHtml(match[2]);
-      const colorIdx = speakerOrder.indexOf(match[1]) % SPEAKER_COLORS.length;
-      const color = SPEAKER_COLORS[colorIdx];
-      return `<div class="speaker-segment">` +
-        `<div class="speaker-label">` +
-          `<span class="speaker-name" style="color:${color}">${speakerLabel}</span>` +
-        `</div>` +
-        `<div class="speaker-text">${content}</div>` +
-      `</div>`;
-    }
-    if (line.trim()) {
-      return `<div>${escapeHtml(line)}</div>`;
-    }
-    return '';
-  }).join('');
-}
-
-function renderTranscript(element, text) {
-  if (hasSpeakerLabels(text)) {
-    element.innerHTML = formatSpeakerTranscript(text);
-  } else {
-    element.textContent = text;
-  }
 }
 
 // ===== VIEW STATE MANAGER =====
@@ -621,7 +570,7 @@ window.showDetailView = async (id) => {
     try {
       const transcript = await invoke("get_transcript", { recordingId: id });
       if (transcript) {
-        renderTranscript(detailTranscriptEl, transcript);
+        detailTranscriptEl.textContent = transcript;
         detailTranscriptEl.classList.remove('empty');
         if (saveTranscriptBtn) saveTranscriptBtn.style.display = '';
       } else {
@@ -798,20 +747,6 @@ if (window.__TAURI__) {
         if (scroller) scroller.scrollTop = scroller.scrollHeight;
       }
     });
-
-    // Listen for transcription progress (FluidAudio stages)
-    window.__TAURI__.event.listen('transcription_progress', (event) => {
-      const { recording_id, stage, percent } = event.payload;
-      // Only update if this is our current transcription
-      if (recording_id === transcribingRecordingId) {
-        const btn = document.getElementById('process-btn');
-        if (btn && btn.disabled) {
-          // Show percent only for actual processing stages (not downloading)
-          const text = percent > 0 ? `${stage} ${percent}%` : stage;
-          btn.innerHTML = `<span style="font-weight: 600; font-size: 12px;">${escapeHtml(text)}</span>`;
-        }
-      }
-    });
   } catch (e) {
     console.error("Failed to setup transcription listener:", e);
   }
@@ -839,7 +774,7 @@ if (prBtn) {
 
       // Final update to ensure everything is matched correctly
       if (detailTranscriptEl) {
-        renderTranscript(detailTranscriptEl, transcript);
+        detailTranscriptEl.textContent = transcript;
         detailTranscriptEl.classList.remove('empty');
       }
       if (saveTranscriptBtn) saveTranscriptBtn.style.display = '';
@@ -1093,10 +1028,6 @@ async function updateProviderVisibility() {
 
     // Fetch model info when showing this section
     await loadWhisperModelsAndState();
-  } else if (provider === "FluidAudio") {
-    // FluidAudio needs no config — hide both sections
-    providerLocalSection.style.display = 'none';
-    providerApiSection.style.display = 'none';
   } else {
     providerLocalSection.style.display = 'none';
     providerApiSection.style.display = 'flex';

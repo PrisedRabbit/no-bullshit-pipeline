@@ -8,10 +8,12 @@ use crate::integrations::IntegrationsConfig;
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum TranscriptionProvider {
     LocalWhisper,
-    FluidAudio,
     OpenAI,
     Google,
     Anthropic,
+    /// Catch-all for removed providers (e.g. FluidAudio); deserializes to this, defaults to LocalWhisper
+    #[serde(other)]
+    Unknown,
 }
 
 /// API keys for cloud AI services
