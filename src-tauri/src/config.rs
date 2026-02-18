@@ -157,3 +157,8 @@ pub fn save_settings(settings: AppSettings) -> Result<(), String> {
 pub fn get_templates_dir() -> PathBuf {
     get_config_dir().join("templates")
 }
+
+/// Get integrations directory path (~/.nbp/integrations/)
+pub fn get_integrations_dir() -> PathBuf {
+    get_config_dir().join("integrations")
+}
