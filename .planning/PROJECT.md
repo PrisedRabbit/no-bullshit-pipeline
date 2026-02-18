@@ -53,8 +53,8 @@ Zero post-recording work: select pipeline → record → stop → everything hap
 - [ ] Integrations settings page (three-layer architecture)
 - [ ] Save paths as named integrations
 - [ ] Delivery step picker shows only connected integrations
-- [ ] Notion connector with schema-aware setup wizard
-- [ ] Integration profiles (schema, people mappings, defaults)
+- [x] Notion connector with structured property mapping — Phase 2
+- [x] Integration profiles (schema, people mappings, defaults) — Phase 1
 - [ ] Prompt augmentation: auto-inject format specs from downstream schema
 - [ ] Structured output parser for schema-aware connectors
 - [ ] UI health check: automated element audit on app start
@@ -116,9 +116,12 @@ Zero post-recording work: select pipeline → record → stop → everything hap
 | Global default provider/model | 95% of users use one provider. Per-step override hidden in Advanced. | — Pending |
 | Auto input chaining | 90% of pipelines are linear chains. Previous step output by default. | — Pending |
 | Save paths as integrations | Pre-configured named locations, consistent with other integrations. | — Pending |
-| Schema-aware setup wizard for Notion | Reads DB schema → stores profile → augments AI prompts automatically. | — Pending |
-| API key for Notion v1 | Simpler than OAuth. Internal integration is sufficient for single-user app. | — Pending |
+| Schema-aware setup wizard for Notion | Reads DB schema → stores profile → augments AI prompts automatically. | Phase 1 backend (schema read, people mapping), Phase 4 UI |
+| API key for Notion v1 | Simpler than OAuth. Internal integration is sufficient for single-user app. | Phase 1 — Keychain storage |
+| Notion connector: profile-driven property mapping | Iterate profile.properties (not JSON keys) to build typed PageProperty map. Avoids Notion 400s for unknown fields. | Phase 2 — connectors/notion.rs |
+| Notion connector: explicit User construction | notion-client User may not impl Default; list all 4 fields explicitly (id, name, avator_url, user_type). | Phase 2 — connectors/notion.rs |
+| NOTN-03/04/05 reclassified Phase 2→4 | These are setup wizard UI requirements, not connector concerns. Backend built in Phase 1, UI in Phase 4. | Phase 2 verification |
 | UI health check built-in | Verifies all interactive elements work. Lightweight, not a test framework. | — Pending |
 
 ---
-*Last updated: 2026-02-18 after initialization*
+*Last updated: 2026-02-18 after Phase 2*

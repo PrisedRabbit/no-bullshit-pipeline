@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-18)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** Phase 2 (Notion Connector) — COMPLETE (2/2 plans complete)
+**Current focus:** Phase 3 (Prompt Augmentation) — ready to plan
 
 ## Current Position
 
-Phase: 2 of 8 (Notion Connector) — COMPLETE
-Plan: 2 of 2 in current phase — both plans complete
-Status: 02-02 complete — ConnectorType::Notion wired into pipelines.rs and pipeline_engine.rs
-Last activity: 2026-02-18 — 02-02 executed (pipeline wiring complete, Phase 2 done)
+Phase: 3 of 8 (Prompt Augmentation) — ready to plan
+Plan: 0 of 2 in current phase — not started
+Status: Phase 2 complete (2/2 plans), Phase 3 needs planning
+Last activity: 2026-02-18 — Phase 2 executed and verified, NOTN-03/04/05 reclassified to Phase 4
 
 Progress: [██░░░░░░░░] 22% (5/23 plans)
 
@@ -80,7 +80,7 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Completed 02-02-PLAN.md — ConnectorType::Notion wired into pipeline system, Phase 2 complete
+Stopped at: Phase 2 complete and verified, ready to plan Phase 3
 Resume file: None
 
 ## Next Step
