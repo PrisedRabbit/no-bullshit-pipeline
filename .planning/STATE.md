@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-18)
 ## Current Position
 
 Phase: 4 of 8 (Integrations Settings UI) — in progress
-Plan: 1 of 3 in current phase — plan 04-01 complete
-Status: Phase 4 executing — 04-01 done, 04-02 (Notion wizard) next
-Last activity: 2026-02-18 — 04-01 integrations settings foundation complete
+Plan: 2 of 3 in current phase — plan 04-02 complete
+Status: Phase 4 executing — 04-02 done, 04-03 (save path backend + delivery picker) next
+Last activity: 2026-02-18 — 04-02 Notion setup wizard complete
 
-Progress: [███░░░░░░░] 35% (8/23 plans)
+Progress: [████░░░░░░] 39% (9/23 plans)
 
 ## Performance Metrics
 
@@ -40,6 +40,7 @@ Progress: [███░░░░░░░] 35% (8/23 plans)
 | Phase 03-prompt-augmentation P01 | 5 | 2 tasks | 2 files |
 | Phase 03-prompt-augmentation P02 | 3 | 2 tasks | 1 file |
 | Phase 04-integrations-settings-ui P01 | 8 | 1 tasks | 6 files |
+| Phase 04-integrations-settings-ui P02 | 2 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,9 @@ Recent decisions affecting current work:
 - [Phase 04-01]: integrations-settings.js loads after main.js — escapeHtml and invoke available as globals without re-declaration
 - [Phase 04-01]: MutationObserver on integrations tab class fires loadAllIntegrations only when tab becomes active (lazy loading)
 - [Phase 04-01]: var declarations for notionProfiles and _slackIntegrations put them on window — accessible from main.js for pipeline step editor
+- [Phase 04-integrations-settings-ui]: Cancel wired once in openNotionWizard() via node clone — not re-attached on each step render
+- [Phase 04-integrations-settings-ui]: replaceNextBtn() clones Next button node on each step to prevent stacked async event listeners
+- [Phase 04-integrations-settings-ui]: Finish skips update_notion_people_mappings call entirely when cleanMappings array is empty
 
 ### Pending Todos
 
@@ -94,11 +98,11 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Completed 04-01-PLAN.md — integrations settings foundation done
+Stopped at: Completed 04-02-PLAN.md — Notion setup wizard complete
 Resume file: None
 
 ## Next Step
 
-**Action:** execute 04-02 (Notion setup wizard)
+**Action:** execute 04-03 (save path backend + delivery picker wiring)
 **Command:** /gsd:execute-phase 4
-**Context:** 04-01 complete — Connected/Available layout, list_notion_profiles Tauri command, integrations-settings.js module, integration cards with Test/Remove handlers. 04-02 builds the Notion setup wizard on this foundation (openNotionWizard() placeholder already wired). 04-03 adds save path backend and delivery picker wiring.
+**Context:** 04-02 complete — 5-step Notion wizard (API key -> share instructions -> DB picker -> schema -> people mapping) working end-to-end with all Phase 1 Tauri command integrations. openNotionWizard() now fully defined. 04-03 adds save path backend and wires the delivery picker.

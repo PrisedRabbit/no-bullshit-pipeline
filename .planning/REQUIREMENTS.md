@@ -48,9 +48,9 @@ Requirements for the Pipelines v2 milestone. Each maps to roadmap phases.
 
 - [x] **NOTN-01**: User can add Notion integration via API key (internal integration token)
 - [x] **NOTN-02**: Notion API key stored securely in macOS Keychain
-- [ ] **NOTN-03**: Setup wizard: user picks database from list fetched via Notion API
-- [ ] **NOTN-04**: Setup wizard: app reads database schema (properties, select options, people) automatically
-- [ ] **NOTN-05**: Setup wizard: user maps conversation aliases to Notion workspace users (people mapping)
+- [x] **NOTN-03**: Setup wizard: user picks database from list fetched via Notion API
+- [x] **NOTN-04**: Setup wizard: app reads database schema (properties, select options, people) automatically
+- [x] **NOTN-05**: Setup wizard: user maps conversation aliases to Notion workspace users (people mapping)
 - [x] **NOTN-06**: Schema and people mappings stored as Integration Profile
 - [x] **NOTN-07**: Schema re-sync available via manual button in integration settings
 - [x] **NOTN-08**: Notion connector creates pages in the selected database with structured property values
@@ -149,9 +149,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INTG-05 | Phase 1 | Complete (01-01) |
 | NOTN-01 | Phase 1 | Complete |
 | NOTN-02 | Phase 1 | Complete (01-01) |
-| NOTN-03 | Phase 4 | Pending |
-| NOTN-04 | Phase 4 | Pending |
-| NOTN-05 | Phase 4 | Pending |
+| NOTN-03 | Phase 4 | Complete |
+| NOTN-04 | Phase 4 | Complete |
+| NOTN-05 | Phase 4 | Complete |
 | NOTN-06 | Phase 1 | Complete (01-01) |
 | NOTN-07 | Phase 1 | Complete |
 | NOTN-08 | Phase 2 | Complete (02-01) |
