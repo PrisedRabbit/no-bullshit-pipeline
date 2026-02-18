@@ -179,6 +179,10 @@ pub fn run() {
             integrations::remove_slack_integration,
             integrations::test_slack_integration,
             integrations::list_slack_channels,
+            // Notion integrations
+            integrations::notion::add_notion_integration,
+            integrations::notion::list_notion_databases,
+            integrations::notion::sync_notion_schema,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

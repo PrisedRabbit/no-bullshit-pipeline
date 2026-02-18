@@ -1,6 +1,10 @@
-// Notion integration module — types and profile I/O
-// Note: No Tauri commands in this file — those come in Plan 02.
+// Notion integration module — types, profile I/O, and Tauri commands
 
+use notion_client::endpoints::Client;
+use notion_client::endpoints::search::title::request::{
+    Filter, FilterProperty, FilterValue, SearchByTitleRequest,
+};
+use notion_client::objects::database::DatabaseProperty;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -51,6 +55,13 @@ pub struct NotionIntegrationProfile {
     #[serde(default)]
     pub workspace_users: Vec<WorkspaceUser>,
     pub synced_at: String,
+}
+
+/// Minimal database info returned from list_notion_databases.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct NotionDatabaseInfo {
+    pub id: String,
+    pub name: String,
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -158,4 +169,330 @@ pub fn get_notion_token(integration_id: &str) -> Result<String, String> {
 /// Delete Notion API token for an integration.
 pub fn delete_notion_token(integration_id: &str) -> Result<(), String> {
     super::delete_token(&format!("notion:{}", integration_id))
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Internal helpers
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Build a Notion client from a raw API token (used during add_notion_integration validation).
+fn make_client_from_token(token: String) -> Result<Client, String> {
+    Client::new(token, None)
+        .map_err(|e| format!("Failed to initialize Notion client: {:?}", e))
+}
+
+/// Build a Notion client from a stored integration token.
+fn make_client(integration_id: &str) -> Result<Client, String> {
+    let token = get_notion_token(integration_id)?;
+    make_client_from_token(token)
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Tauri commands
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Validate a Notion API key and create a new integration profile.
+/// Returns the new integration ID on success.
+/// The API key is never stored in the profile JSON — only in the dev bypass or Keychain.
+#[tauri::command]
+pub async fn add_notion_integration(name: String, api_key: String) -> Result<String, String> {
+    // Validate by calling the bot user endpoint — if this fails, the key is invalid
+    let client = make_client_from_token(api_key.clone())?;
+    client
+        .users
+        .retrieve_your_tokens_bot_user()
+        .await
+        .map_err(|e| format!("Invalid Notion API key: {:?}", e))?;
+
+    // Generate a stable UUID for this integration
+    let id = uuid::Uuid::new_v4().to_string();
+
+    // Store the token securely (dev-mode file or Keychain)
+    save_notion_token(&id, &api_key)?;
+
+    // Create an initial empty profile
+    let profile = NotionIntegrationProfile {
+        id: id.clone(),
+        name,
+        database_id: String::new(),
+        database_name: String::new(),
+        properties: Vec::new(),
+        people_mappings: Vec::new(),
+        workspace_users: Vec::new(),
+        synced_at: String::new(),
+    };
+
+    // Persist the profile to disk
+    save_notion_profile(&profile)?;
+
+    Ok(id)
+}
+
+/// List all Notion databases that the integration has been connected to.
+/// Returns a helpful error if no databases are found (prompting the user to
+/// share the integration with a database in the Notion UI).
+#[tauri::command]
+pub async fn list_notion_databases(
+    integration_id: String,
+) -> Result<Vec<NotionDatabaseInfo>, String> {
+    let client = make_client(&integration_id)?;
+
+    let request = SearchByTitleRequest {
+        filter: Some(Filter {
+            property: FilterProperty::Object,
+            value: FilterValue::Database,
+        }),
+        query: None,
+        sort: None,
+        start_cursor: None,
+        page_size: Some(100),
+    };
+
+    let response = client
+        .search
+        .search_by_title(request)
+        .await
+        .map_err(|e| format!("Failed to list databases: {:?}", e))?;
+
+    // Extract database entries from the search results.
+    // The response contains Vec<PageOrDatabase> — we extract id/title from each.
+    let mut databases: Vec<NotionDatabaseInfo> = Vec::new();
+
+    for item in &response.results {
+        // Use serde_json to extract id and title from each result item
+        // to avoid depending on the exact PageOrDatabase enum structure.
+        let value = serde_json::to_value(item)
+            .map_err(|e| format!("Failed to serialize search result: {}", e))?;
+
+        let object_type = value.get("object").and_then(|v| v.as_str()).unwrap_or("");
+        if object_type != "database" {
+            continue;
+        }
+
+        let id = match value.get("id").and_then(|v| v.as_str()) {
+            Some(id) => id.to_string(),
+            None => continue,
+        };
+
+        // Database titles are in `title` array — extract plain_text from first item
+        let name = extract_title_text(&value);
+
+        databases.push(NotionDatabaseInfo { id, name });
+    }
+
+    if databases.is_empty() {
+        return Err(
+            "No databases found. In Notion, open your database, click '...' menu, \
+             then 'Connections', and add your integration."
+                .to_string(),
+        );
+    }
+
+    Ok(databases)
+}
+
+/// Sync the schema of a Notion database into the integration profile.
+/// Reads all database properties and workspace users, then saves the updated profile.
+/// Returns the updated profile so the frontend can display the synced schema.
+#[tauri::command]
+pub async fn sync_notion_schema(
+    integration_id: String,
+    database_id: String,
+    database_name: String,
+) -> Result<NotionIntegrationProfile, String> {
+    let client = make_client(&integration_id)?;
+
+    // Fetch the database schema
+    let database = client
+        .databases
+        .retrieve_a_database(&database_id)
+        .await
+        .map_err(|e| format!("Failed to read database schema: {:?}", e))?;
+
+    // Convert database properties to our internal type
+    let mut properties: Vec<NotionPropertyDef> = Vec::new();
+    for (prop_name, prop) in &database.properties {
+        let prop_def = convert_database_property(prop_name, prop);
+        properties.push(prop_def);
+    }
+
+    // Sort properties for deterministic output
+    properties.sort_by(|a, b| a.name.cmp(&b.name));
+
+    // Fetch all workspace users with pagination
+    let mut workspace_users: Vec<WorkspaceUser> = Vec::new();
+    let mut cursor: Option<String> = None;
+
+    loop {
+        let response = client
+            .users
+            .list_all_users(cursor.as_deref(), Some(100))
+            .await
+            .map_err(|e| format!("Failed to list workspace users: {:?}", e))?;
+
+        for user in &response.results {
+            workspace_users.push(WorkspaceUser {
+                id: user.id.clone(),
+                name: user.name.clone(),
+            });
+        }
+
+        if response.has_more {
+            cursor = response.next_cursor.clone();
+        } else {
+            break;
+        }
+    }
+
+    // Load the existing profile to preserve people_mappings and name
+    let (existing_people_mappings, existing_name) = match load_notion_profile(&integration_id) {
+        Ok(existing) => (existing.people_mappings, existing.name),
+        Err(_) => (Vec::new(), database_name.clone()),
+    };
+
+    // Build the updated profile
+    let profile = NotionIntegrationProfile {
+        id: integration_id.clone(),
+        name: existing_name,
+        database_id,
+        database_name,
+        properties,
+        people_mappings: existing_people_mappings,
+        workspace_users,
+        synced_at: chrono::Utc::now().to_rfc3339(),
+    };
+
+    // Persist the updated profile
+    save_notion_profile(&profile)?;
+
+    Ok(profile)
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Internal helpers for data conversion
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Extract plain-text title from a Notion API JSON value.
+/// Database titles are stored as an array of rich text objects.
+fn extract_title_text(value: &serde_json::Value) -> String {
+    value
+        .get("title")
+        .and_then(|t| t.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|item| item.get("plain_text"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("Untitled")
+        .to_string()
+}
+
+/// Convert a notion-client `DatabaseProperty` to our internal `NotionPropertyDef`.
+/// Handles Select/MultiSelect option extraction and maps all property types to
+/// a stable string key used by the prompt augmentation system.
+fn convert_database_property(name: &str, prop: &DatabaseProperty) -> NotionPropertyDef {
+    match prop {
+        DatabaseProperty::Title { .. } => NotionPropertyDef {
+            name: name.to_string(),
+            property_type: "title".to_string(),
+            select_options: Vec::new(),
+        },
+        DatabaseProperty::RichText { .. } => NotionPropertyDef {
+            name: name.to_string(),
+            property_type: "rich_text".to_string(),
+            select_options: Vec::new(),
+        },
+        DatabaseProperty::Select { select, .. } => {
+            let options = select
+                .options
+                .iter()
+                .map(|o| o.name.clone())
+                .collect();
+            NotionPropertyDef {
+                name: name.to_string(),
+                property_type: "select".to_string(),
+                select_options: options,
+            }
+        }
+        DatabaseProperty::MultiSelect { multi_select, .. } => {
+            let options = multi_select
+                .options
+                .iter()
+                .map(|o| o.name.clone())
+                .collect();
+            NotionPropertyDef {
+                name: name.to_string(),
+                property_type: "multi_select".to_string(),
+                select_options: options,
+            }
+        }
+        DatabaseProperty::People { .. } => NotionPropertyDef {
+            name: name.to_string(),
+            property_type: "people".to_string(),
+            select_options: Vec::new(),
+        },
+        DatabaseProperty::Date { .. } => NotionPropertyDef {
+            name: name.to_string(),
+            property_type: "date".to_string(),
+            select_options: Vec::new(),
+        },
+        DatabaseProperty::Number { .. } => NotionPropertyDef {
+            name: name.to_string(),
+            property_type: "number".to_string(),
+            select_options: Vec::new(),
+        },
+        DatabaseProperty::Checkbox { .. } => NotionPropertyDef {
+            name: name.to_string(),
+            property_type: "checkbox".to_string(),
+            select_options: Vec::new(),
+        },
+        DatabaseProperty::Url { .. } => NotionPropertyDef {
+            name: name.to_string(),
+            property_type: "url".to_string(),
+            select_options: Vec::new(),
+        },
+        DatabaseProperty::Email { .. } => NotionPropertyDef {
+            name: name.to_string(),
+            property_type: "email".to_string(),
+            select_options: Vec::new(),
+        },
+        DatabaseProperty::PhoneNumber { .. } => NotionPropertyDef {
+            name: name.to_string(),
+            property_type: "phone_number".to_string(),
+            select_options: Vec::new(),
+        },
+        DatabaseProperty::Formula { .. } => NotionPropertyDef {
+            name: name.to_string(),
+            property_type: "formula".to_string(),
+            select_options: Vec::new(),
+        },
+        DatabaseProperty::Relation { .. } => NotionPropertyDef {
+            name: name.to_string(),
+            property_type: "relation".to_string(),
+            select_options: Vec::new(),
+        },
+        DatabaseProperty::Rollup { .. } => NotionPropertyDef {
+            name: name.to_string(),
+            property_type: "rollup".to_string(),
+            select_options: Vec::new(),
+        },
+        DatabaseProperty::CreatedTime { .. } => NotionPropertyDef {
+            name: name.to_string(),
+            property_type: "created_time".to_string(),
+            select_options: Vec::new(),
+        },
+        DatabaseProperty::LastEditedTime { .. } => NotionPropertyDef {
+            name: name.to_string(),
+            property_type: "last_edited_time".to_string(),
+            select_options: Vec::new(),
+        },
+        DatabaseProperty::Status { .. } => NotionPropertyDef {
+            name: name.to_string(),
+            property_type: "status".to_string(),
+            select_options: Vec::new(),
+        },
+        _ => NotionPropertyDef {
+            name: name.to_string(),
+            property_type: "unknown".to_string(),
+            select_options: Vec::new(),
+        },
+    }
 }
