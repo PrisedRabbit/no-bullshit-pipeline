@@ -368,6 +368,97 @@ pub async fn sync_notion_schema(
     Ok(profile)
 }
 
+/// Update the people mappings (alias-to-user) for a Notion integration.
+/// Validates that all referenced Notion user IDs exist in the profile's workspace_users.
+/// Returns an error if any mapping references a user ID not in the workspace.
+#[tauri::command]
+pub async fn update_notion_people_mappings(
+    integration_id: String,
+    mappings: Vec<PeopleMapping>,
+) -> Result<(), String> {
+    let mut profile = load_notion_profile(&integration_id)?;
+
+    // Validate every mapping references a known workspace user
+    for mapping in &mappings {
+        let found = profile
+            .workspace_users
+            .iter()
+            .any(|u| u.id == mapping.notion_user_id);
+        if !found {
+            return Err(format!(
+                "User ID '{}' not found in workspace users. Re-sync the schema to refresh the user list.",
+                mapping.notion_user_id
+            ));
+        }
+    }
+
+    profile.people_mappings = mappings;
+    save_notion_profile(&profile)?;
+
+    Ok(())
+}
+
+/// Test whether a Notion integration's stored API token is still valid.
+/// Calls the bot user endpoint — if it succeeds, the token is active.
+/// Returns "Connected" on success, or a descriptive error without revealing the token.
+#[tauri::command]
+pub async fn test_notion_integration(integration_id: String) -> Result<String, String> {
+    let client = make_client(&integration_id)?;
+
+    client
+        .users
+        .retrieve_your_tokens_bot_user()
+        .await
+        .map_err(|e| {
+            format!(
+                "Notion connection failed: {:?}. The API key may have been revoked.",
+                e
+            )
+        })?;
+
+    Ok("Connected".to_string())
+}
+
+/// Remove a Notion integration: deletes the stored credential and the profile JSON.
+/// Attempts both deletions even if one fails — both errors are collected and returned together.
+/// Missing credential or missing profile file is treated as success (idempotent).
+#[tauri::command]
+pub async fn remove_notion_integration(integration_id: String) -> Result<(), String> {
+    let mut errors: Vec<String> = Vec::new();
+
+    // Delete the stored credential (token). Missing token is not an error.
+    match delete_notion_token(&integration_id) {
+        Ok(()) => {}
+        Err(e) => {
+            // Log a warning but only propagate if the error is not "not found"
+            eprintln!(
+                "Warning: could not delete Notion token for '{}': {}",
+                integration_id, e
+            );
+            // Only collect as a real error if not a "not found" style message
+            if !e.contains("not found") && !e.contains("Not found") {
+                errors.push(format!("Token deletion failed: {}", e));
+            }
+        }
+    }
+
+    // Delete the profile file. Missing file is not an error.
+    match delete_notion_profile(&integration_id) {
+        Ok(()) => {}
+        Err(e) => {
+            if !e.contains("not found") && !e.contains("No such file") {
+                errors.push(format!("Profile deletion failed: {}", e));
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Internal helpers for data conversion
 // ──────────────────────────────────────────────────────────────────────────────

@@ -183,6 +183,9 @@ pub fn run() {
             integrations::notion::add_notion_integration,
             integrations::notion::list_notion_databases,
             integrations::notion::sync_notion_schema,
+            integrations::notion::update_notion_people_mappings,
+            integrations::notion::test_notion_integration,
+            integrations::notion::remove_notion_integration,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
