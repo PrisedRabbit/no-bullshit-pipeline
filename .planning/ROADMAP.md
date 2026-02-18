@@ -63,11 +63,11 @@ Plans:
   2. If the integration profile is missing or inaccessible, the pipeline fails before the LLM call with a clear "sync schema in Settings" error (not a cryptic parse failure after an expensive API call)
   3. AI output is validated against the integration profile schema before the Notion API call; invalid output shows raw LLM response alongside the error
   4. The format spec injected into the prompt stays within a reasonable token budget even for Notion databases with many properties
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 03-01: Implement `build_augmented_prompt()` in `pipeline_engine.rs` with N+1 look-ahead; return `Result<String, String>` (hard fail, no silent fallthrough)
-- [ ] 03-02: Implement `build_notion_format_spec()` from integration profile with field relevance filtering; wire validation of AI JSON output against profile schema before delivery
+- [ ] 03-01-PLAN.md — N+1 look-ahead in pipeline engine, build_augmented_prompt(), build_notion_format_spec(), LLM connector augmented_prompt parameter
+- [ ] 03-02-PLAN.md — validate_llm_output_for_notion() wired into Notion connector execute() flow; strengthen error messages with raw LLM output
 
 ### Phase 4: Integrations Settings UI
 **Goal**: Users can connect, configure, and verify integrations (Notion and named save paths) through the app UI without editing any config files
@@ -161,7 +161,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 |-------|----------------|--------|-----------|
 | 1. Notion Integration Infrastructure | 3/3 | Complete    | 2026-02-18 |
 | 2. Notion Connector | 2/2 | Complete    | 2026-02-18 |
-| 3. Prompt Augmentation | 0/2 | Not started | - |
+| 3. Prompt Augmentation | 0/2 | Planned     | - |
 | 4. Integrations Settings UI | 0/3 | Not started | - |
 | 5. Pipeline Builder Redesign | 0/3 | Not started | - |
 | 6. Pre-Assignment UX and Execution | 0/3 | Not started | - |
