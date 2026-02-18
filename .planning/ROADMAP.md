@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Notion Integration Infrastructure** - Rust backend for integration profile storage, Keychain credential management, and Notion API client
 - [x] **Phase 2: Notion Connector** - Rust backend for structured JSON parsing, people alias resolution, and Notion page creation (completed 2026-02-18)
 - [x] **Phase 3: Prompt Augmentation** - Pipeline engine look-ahead that auto-injects schema-derived format specs into LLM prompts (completed 2026-02-18)
-- [ ] **Phase 4: Integrations Settings UI** - Frontend wizard for adding Notion integration with schema sync and people mapping
+- [x] **Phase 4: Integrations Settings UI** - Frontend wizard for adding Notion integration with schema sync and people mapping (completed 2026-02-18)
 - [ ] **Phase 5: Pipeline Builder Redesign** - Categorized preset picker, drag-and-drop reordering, and assembly preview replacing the developer-oriented builder
 - [ ] **Phase 6: Pre-Assignment UX and Execution** - Pipeline chip bar, one-click recording, run status visibility, and multiple pipeline support
 - [ ] **Phase 7: Pipeline Data Model and Tags Migration** - Unified pipeline-as-label model with lazy tags migration
@@ -162,7 +162,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 1. Notion Integration Infrastructure | 3/3 | Complete    | 2026-02-18 |
 | 2. Notion Connector | 2/2 | Complete    | 2026-02-18 |
 | 3. Prompt Augmentation | 2/2 | Complete   | 2026-02-18 |
-| 4. Integrations Settings UI | 2/3 | In Progress|  |
+| 4. Integrations Settings UI | 3/3 | Complete   | 2026-02-18 |
 | 5. Pipeline Builder Redesign | 0/3 | Not started | - |
 | 6. Pre-Assignment UX and Execution | 0/3 | Not started | - |
 | 7. Pipeline Data Model and Tags Migration | 0/2 | Not started | - |

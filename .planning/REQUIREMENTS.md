@@ -40,8 +40,8 @@ Requirements for the Pipelines v2 milestone. Each maps to roadmap phases.
 
 - [x] **INTG-01**: Integrations settings page shows Connected and Available sections
 - [x] **INTG-02**: Each connected integration shows Test and Remove actions inline
-- [ ] **INTG-03**: Save paths are first-class integrations with named locations (e.g., "Notes folder" → ~/Documents/notes/)
-- [ ] **INTG-04**: Delivery step picker in pipeline builder shows only connected integrations
+- [x] **INTG-03**: Save paths are first-class integrations with named locations (e.g., "Notes folder" → ~/Documents/notes/)
+- [x] **INTG-04**: Delivery step picker in pipeline builder shows only connected integrations
 - [x] **INTG-05**: Integration profiles stored as separate JSON files per integration (not in settings.json)
 
 ### Notion Connector
@@ -144,8 +144,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BLDR-08 | Phase 5 | Pending |
 | INTG-01 | Phase 4 | Complete |
 | INTG-02 | Phase 4 | Complete |
-| INTG-03 | Phase 4 | Pending |
-| INTG-04 | Phase 4 | Pending |
+| INTG-03 | Phase 4 | Complete |
+| INTG-04 | Phase 4 | Complete |
 | INTG-05 | Phase 1 | Complete (01-01) |
 | NOTN-01 | Phase 1 | Complete |
 | NOTN-02 | Phase 1 | Complete (01-01) |

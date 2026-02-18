@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-18)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** Phase 4 (Integrations Settings UI) — executing
+**Current focus:** Phase 5 (next phase) — Phase 4 complete
 
 ## Current Position
 
-Phase: 4 of 8 (Integrations Settings UI) — in progress
-Plan: 2 of 3 in current phase — plan 04-02 complete
-Status: Phase 4 executing — 04-02 done, 04-03 (save path backend + delivery picker) next
-Last activity: 2026-02-18 — 04-02 Notion setup wizard complete
+Phase: 4 of 8 (Integrations Settings UI) — complete (all 3 plans done)
+Plan: 3 of 3 in current phase — plan 04-03 complete
+Status: Phase 4 complete — save path backend + delivery picker wiring done
+Last activity: 2026-02-18 — 04-03 save path backend + delivery picker complete
 
-Progress: [████░░░░░░] 39% (9/23 plans)
+Progress: [█████░░░░░] 43% (10/23 plans)
 
 ## Performance Metrics
 
@@ -41,6 +41,7 @@ Progress: [████░░░░░░] 39% (9/23 plans)
 | Phase 03-prompt-augmentation P02 | 3 | 2 tasks | 1 file |
 | Phase 04-integrations-settings-ui P01 | 8 | 1 tasks | 6 files |
 | Phase 04-integrations-settings-ui P02 | 2 | 2 tasks | 3 files |
+| Phase 04 P03 | 2 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -83,6 +84,9 @@ Recent decisions affecting current work:
 - [Phase 04-integrations-settings-ui]: Cancel wired once in openNotionWizard() via node clone — not re-attached on each step render
 - [Phase 04-integrations-settings-ui]: replaceNextBtn() clones Next button node on each step to prevent stacked async event listeners
 - [Phase 04-integrations-settings-ui]: Finish skips update_notion_people_mappings call entirely when cleanMappings array is empty
+- [Phase 04]: save_path.rs follows notion.rs I/O pattern — same directory, 0o600 permissions, idempotent remove via ErrorKind::NotFound
+- [Phase 04]: Save connector falls back to free-text path input when no save path integrations exist — preserves backward compatibility with existing pipelines
+- [Phase 04]: notionProfiles and savePathIntegrations accessed in main.js via typeof guard — safe before integrations tab has loaded
 
 ### Pending Todos
 
@@ -98,11 +102,11 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Completed 04-02-PLAN.md — Notion setup wizard complete
+Stopped at: Completed 04-03-PLAN.md — save path backend + delivery picker wiring complete
 Resume file: None
 
 ## Next Step
 
-**Action:** execute 04-03 (save path backend + delivery picker wiring)
-**Command:** /gsd:execute-phase 4
-**Context:** 04-02 complete — 5-step Notion wizard (API key -> share instructions -> DB picker -> schema -> people mapping) working end-to-end with all Phase 1 Tauri command integrations. openNotionWizard() now fully defined. 04-03 adds save path backend and wires the delivery picker.
+**Action:** execute Phase 5 (next phase per ROADMAP.md)
+**Command:** /gsd:execute-phase 5
+**Context:** Phase 4 complete — Integrations Settings UI fully done: foundation (04-01), Notion setup wizard (04-02), save path CRUD backend + delivery picker wiring (04-03). savePathIntegrations and notionProfiles globals available on window for pipeline builder. Phase 5 is next.
