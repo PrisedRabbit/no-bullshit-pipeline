@@ -122,58 +122,58 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PIPE-01 | TBD | Pending |
-| PIPE-02 | TBD | Pending |
-| PIPE-03 | TBD | Pending |
-| PIPE-04 | TBD | Pending |
-| PIPE-05 | TBD | Pending |
-| ASGN-01 | TBD | Pending |
-| ASGN-02 | TBD | Pending |
-| ASGN-03 | TBD | Pending |
-| ASGN-04 | TBD | Pending |
-| ASGN-05 | TBD | Pending |
-| ASGN-06 | TBD | Pending |
-| ASGN-07 | TBD | Pending |
-| BLDR-01 | TBD | Pending |
-| BLDR-02 | TBD | Pending |
-| BLDR-03 | TBD | Pending |
-| BLDR-04 | TBD | Pending |
-| BLDR-05 | TBD | Pending |
-| BLDR-06 | TBD | Pending |
-| BLDR-07 | TBD | Pending |
-| BLDR-08 | TBD | Pending |
-| INTG-01 | TBD | Pending |
-| INTG-02 | TBD | Pending |
-| INTG-03 | TBD | Pending |
-| INTG-04 | TBD | Pending |
-| INTG-05 | TBD | Pending |
-| NOTN-01 | TBD | Pending |
-| NOTN-02 | TBD | Pending |
-| NOTN-03 | TBD | Pending |
-| NOTN-04 | TBD | Pending |
-| NOTN-05 | TBD | Pending |
-| NOTN-06 | TBD | Pending |
-| NOTN-07 | TBD | Pending |
-| NOTN-08 | TBD | Pending |
-| AUGM-01 | TBD | Pending |
-| AUGM-02 | TBD | Pending |
-| AUGM-03 | TBD | Pending |
-| AUGM-04 | TBD | Pending |
-| AUGM-05 | TBD | Pending |
-| EXEC-01 | TBD | Pending |
-| EXEC-02 | TBD | Pending |
-| EXEC-03 | TBD | Pending |
-| EXEC-04 | TBD | Pending |
-| HLTH-01 | TBD | Pending |
-| HLTH-02 | TBD | Pending |
-| HLTH-03 | TBD | Pending |
-| HLTH-04 | TBD | Pending |
+| PIPE-01 | Phase 7 | Pending |
+| PIPE-02 | Phase 7 | Pending |
+| PIPE-03 | Phase 7 | Pending |
+| PIPE-04 | Phase 7 | Pending |
+| PIPE-05 | Phase 7 | Pending |
+| ASGN-01 | Phase 6 | Pending |
+| ASGN-02 | Phase 6 | Pending |
+| ASGN-03 | Phase 6 | Pending |
+| ASGN-04 | Phase 6 | Pending |
+| ASGN-05 | Phase 6 | Pending |
+| ASGN-06 | Phase 6 | Pending |
+| ASGN-07 | Phase 6 | Pending |
+| BLDR-01 | Phase 5 | Pending |
+| BLDR-02 | Phase 5 | Pending |
+| BLDR-03 | Phase 5 | Pending |
+| BLDR-04 | Phase 5 | Pending |
+| BLDR-05 | Phase 5 | Pending |
+| BLDR-06 | Phase 5 | Pending |
+| BLDR-07 | Phase 5 | Pending |
+| BLDR-08 | Phase 5 | Pending |
+| INTG-01 | Phase 4 | Pending |
+| INTG-02 | Phase 4 | Pending |
+| INTG-03 | Phase 4 | Pending |
+| INTG-04 | Phase 4 | Pending |
+| INTG-05 | Phase 1 | Pending |
+| NOTN-01 | Phase 1 | Pending |
+| NOTN-02 | Phase 1 | Pending |
+| NOTN-03 | Phase 2 | Pending |
+| NOTN-04 | Phase 2 | Pending |
+| NOTN-05 | Phase 2 | Pending |
+| NOTN-06 | Phase 1 | Pending |
+| NOTN-07 | Phase 1 | Pending |
+| NOTN-08 | Phase 2 | Pending |
+| AUGM-01 | Phase 3 | Pending |
+| AUGM-02 | Phase 3 | Pending |
+| AUGM-03 | Phase 3 | Pending |
+| AUGM-04 | Phase 3 | Pending |
+| AUGM-05 | Phase 3 | Pending |
+| EXEC-01 | Phase 6 | Pending |
+| EXEC-02 | Phase 6 | Pending |
+| EXEC-03 | Phase 6 | Pending |
+| EXEC-04 | Phase 2 | Pending |
+| HLTH-01 | Phase 8 | Pending |
+| HLTH-02 | Phase 8 | Pending |
+| HLTH-03 | Phase 8 | Pending |
+| HLTH-04 | Phase 8 | Pending |
 
 **Coverage:**
-- v1 requirements: 40 total
-- Mapped to phases: 0
-- Unmapped: 40
+- v1 requirements: 46 total
+- Mapped to phases: 46
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-18*
-*Last updated: 2026-02-18 after initial definition*
+*Last updated: 2026-02-18 — traceability populated after roadmap creation*
