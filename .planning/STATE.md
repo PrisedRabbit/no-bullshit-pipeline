@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-18)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** Phase 3 (Prompt Augmentation) — complete, ready to advance to Phase 4
+**Current focus:** Phase 4 (Integrations Settings UI) — executing
 
 ## Current Position
 
-Phase: 3 of 8 (Prompt Augmentation) — complete
-Plan: 2 of 2 in current phase — 03-02 complete (phase done)
-Status: Phase 3 complete — AUGM-01 through AUGM-05 satisfied
-Last activity: 2026-02-18 — 03-02 Notion output validation implemented
+Phase: 4 of 8 (Integrations Settings UI) — in progress
+Plan: 1 of 3 in current phase — plan 04-01 complete
+Status: Phase 4 executing — 04-01 done, 04-02 (Notion wizard) next
+Last activity: 2026-02-18 — 04-01 integrations settings foundation complete
 
-Progress: [███░░░░░░░] 30% (7/23 plans)
+Progress: [███░░░░░░░] 35% (8/23 plans)
 
 ## Performance Metrics
 
@@ -39,6 +39,7 @@ Progress: [███░░░░░░░] 30% (7/23 plans)
 | Phase 02-notion-connector P02 | 2 | 2 tasks | 2 files |
 | Phase 03-prompt-augmentation P01 | 5 | 2 tasks | 2 files |
 | Phase 03-prompt-augmentation P02 | 3 | 2 tasks | 1 file |
+| Phase 04-integrations-settings-ui P01 | 8 | 1 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,9 @@ Recent decisions affecting current work:
 - [03-02]: validate_llm_output_for_notion() uses fully-qualified std::collections::HashSet path — no new use statement needed
 - [03-02]: WRITABLE_TYPES in connectors/notion.rs is separate from pipeline_engine.rs — intentional per-module independence
 - [03-02]: Empty array check fires before per-element checks — most common LLM failure mode gets a distinct message
+- [Phase 04-01]: integrations-settings.js loads after main.js — escapeHtml and invoke available as globals without re-declaration
+- [Phase 04-01]: MutationObserver on integrations tab class fires loadAllIntegrations only when tab becomes active (lazy loading)
+- [Phase 04-01]: var declarations for notionProfiles and _slackIntegrations put them on window — accessible from main.js for pipeline step editor
 
 ### Pending Todos
 
@@ -90,11 +94,11 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Completed 03-02 — Notion output validation (Phase 3 complete)
+Stopped at: Completed 04-01-PLAN.md — integrations settings foundation done
 Resume file: None
 
 ## Next Step
 
-**Action:** execute Phase 4 (next phase)
+**Action:** execute 04-02 (Notion setup wizard)
 **Command:** /gsd:execute-phase 4
-**Context:** Phase 3 complete — AUGM-01 through AUGM-05 all satisfied. Prompt augmentation fully wired: profile spec injected into LLM prompt, LLM output validated against schema before Notion delivery.
+**Context:** 04-01 complete — Connected/Available layout, list_notion_profiles Tauri command, integrations-settings.js module, integration cards with Test/Remove handlers. 04-02 builds the Notion setup wizard on this foundation (openNotionWizard() placeholder already wired). 04-03 adds save path backend and delivery picker wiring.

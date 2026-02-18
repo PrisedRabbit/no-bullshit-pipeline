@@ -38,8 +38,8 @@ Requirements for the Pipelines v2 milestone. Each maps to roadmap phases.
 
 ### Integrations
 
-- [ ] **INTG-01**: Integrations settings page shows Connected and Available sections
-- [ ] **INTG-02**: Each connected integration shows Test and Remove actions inline
+- [x] **INTG-01**: Integrations settings page shows Connected and Available sections
+- [x] **INTG-02**: Each connected integration shows Test and Remove actions inline
 - [ ] **INTG-03**: Save paths are first-class integrations with named locations (e.g., "Notes folder" → ~/Documents/notes/)
 - [ ] **INTG-04**: Delivery step picker in pipeline builder shows only connected integrations
 - [x] **INTG-05**: Integration profiles stored as separate JSON files per integration (not in settings.json)
@@ -142,8 +142,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BLDR-06 | Phase 5 | Pending |
 | BLDR-07 | Phase 5 | Pending |
 | BLDR-08 | Phase 5 | Pending |
-| INTG-01 | Phase 4 | Pending |
-| INTG-02 | Phase 4 | Pending |
+| INTG-01 | Phase 4 | Complete |
+| INTG-02 | Phase 4 | Complete |
 | INTG-03 | Phase 4 | Pending |
 | INTG-04 | Phase 4 | Pending |
 | INTG-05 | Phase 1 | Complete (01-01) |
