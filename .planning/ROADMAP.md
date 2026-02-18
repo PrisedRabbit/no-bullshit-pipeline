@@ -79,12 +79,12 @@ Plans:
   3. The wizard includes an explicit, illustrated step instructing the user to share the integration with their database via the Notion UI; the 404 error handler shows this same instruction
   4. Named save path integrations appear in the Connected section alongside Notion and can be added, renamed, and removed
   5. The delivery step picker in the pipeline builder shows only integrations that appear in the Connected section
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 04-01: Implement `integrations-settings.js` module; Connected/Available section layout; Test/Remove buttons wired to `test_notion_integration`/`remove_notion_integration` commands
-- [ ] 04-02: Implement multi-step Notion setup wizard (API key → DB picker → schema display with last-synced timestamp → people mapping); include mandatory database-sharing instruction step
-- [ ] 04-03: Implement named save path integrations UI; wire delivery picker filter to show only connected integrations
+- [ ] 04-01-PLAN.md — Expose list_notion_profiles command; create integrations-settings.js module with Connected/Available layout; Test/Remove buttons for Notion and Slack
+- [ ] 04-02-PLAN.md — Multi-step Notion setup wizard (API key → share instruction → DB picker → schema display → people mapping) as modal overlay
+- [ ] 04-03-PLAN.md — Save path integration Rust backend and UI; wire pipeline builder Notion connector to show connected integrations
 
 ### Phase 5: Pipeline Builder Redesign
 **Goal**: Users can build pipelines by picking from labeled presets in two categories, with automatic step chaining, drag-and-drop reordering, and a visual assembly preview
