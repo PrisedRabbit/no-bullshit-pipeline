@@ -48,12 +48,11 @@ Plans:
   2. Select property values from LLM output match case-insensitively (LLM outputs "high", Notion receives "High")
   3. People aliases in the integration profile resolve to Notion user IDs before the API call
   4. AI output that is not valid JSON fails with a clear error showing the specific parse failure rather than a generic Notion API error
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 02-01: Implement `connectors/notion.rs` with `extract_json_array()`, `resolve_people_aliases()`, `resolve_select_value()`; add `jsonschema` crate for AI output validation
-- [ ] 02-02: Extend `pipelines.rs` with `ConnectorType::Notion` and `integration_id` field; wire `notion-client` page creation with property type mapping table
-- [ ] 02-03: Implement `EXEC-04` property normalization: case-insensitive select match with profile default fallback, people alias to user ID resolution
+- [ ] 02-01-PLAN.md — Create `connectors/notion.rs` with execute(), extract_json_array(), resolve_people_aliases(), resolve_select_value(), build_notion_properties(); register in connectors/mod.rs
+- [ ] 02-02-PLAN.md — Add ConnectorType::Notion to pipelines.rs with validation; wire match arm in pipeline_engine.rs; add unit tests
 
 ### Phase 3: Prompt Augmentation
 **Goal**: When a pipeline's LLM step feeds a schema-aware connector, the AI is automatically prompted with the exact output format the connector expects
@@ -161,7 +160,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Notion Integration Infrastructure | 3/3 | Complete    | 2026-02-18 |
-| 2. Notion Connector | 0/3 | Not started | - |
+| 2. Notion Connector | 0/2 | Not started | - |
 | 3. Prompt Augmentation | 0/2 | Not started | - |
 | 4. Integrations Settings UI | 0/3 | Not started | - |
 | 5. Pipeline Builder Redesign | 0/3 | Not started | - |
