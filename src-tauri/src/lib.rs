@@ -187,6 +187,11 @@ pub fn run() {
             integrations::notion::test_notion_integration,
             integrations::notion::remove_notion_integration,
             integrations::notion::list_notion_profiles,
+            // Save path integrations
+            integrations::save_path::add_save_path_integration,
+            integrations::save_path::list_save_path_integrations,
+            integrations::save_path::update_save_path_integration,
+            integrations::save_path::remove_save_path_integration,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

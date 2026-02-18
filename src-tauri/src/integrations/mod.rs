@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 pub mod slack;
 pub mod notion;
+pub mod save_path;
 
 pub const KEYCHAIN_SERVICE: &str = "com.skopanev.nbp";
 
