@@ -110,6 +110,173 @@ fn resolve_input_path(
     }
 }
 
+/// Writable property types that the LLM should populate.
+/// Read-only/computed types are excluded from the format spec.
+const WRITABLE_TYPES: &[&str] = &[
+    "title", "rich_text", "select", "multi_select", "people",
+    "date", "number", "checkbox", "url", "email", "phone_number", "status",
+];
+
+/// Maximum number of select/multi_select options to include per field.
+/// Prevents token budget overflow for databases with many options.
+const MAX_OPTIONS_IN_SPEC: usize = 12;
+
+/// Build an augmented prompt for an LLM step that feeds into a Notion delivery step.
+/// Loads the prompt template, substitutes the transcript, then appends a format spec
+/// derived from the Notion integration profile.
+///
+/// Returns `Err` if the profile is missing, corrupt, or has no synced properties —
+/// this is a HARD FAIL that prevents the expensive LLM API call.
+fn build_augmented_prompt(
+    step_config: &serde_json::Value,
+    input_path: &std::path::Path,
+    notion_integration_id: &str,
+) -> Result<String, String> {
+    // Load prompt template name from LLM step config
+    let prompt_template_name = step_config
+        .get("prompt_template")
+        .and_then(|v| v.as_str())
+        .ok_or("LLM step missing prompt_template in config")?;
+
+    // Load template and build base prompt (same logic as connectors/llm.rs)
+    let template = crate::prompt_templates::get_prompt_template_internal(prompt_template_name)?;
+    let raw_input = std::fs::read_to_string(input_path)
+        .map_err(|e| format!("Failed to read input file for augmentation: {}", e))?;
+    let input_content = crate::connectors::strip_frontmatter(&raw_input);
+    let base_prompt = crate::prompt_templates::substitute_variables(&template.prompt, input_content);
+
+    // Load Notion integration profile — hard fail if missing
+    let profile = crate::integrations::notion::load_notion_profile(notion_integration_id)
+        .map_err(|_| format!(
+            "Cannot augment prompt: Notion integration '{}' profile not found. \
+             Sync schema in Settings > Integrations before running this pipeline.",
+            notion_integration_id
+        ))?;
+
+    // Verify profile has synced properties (not just an empty initial profile)
+    if profile.properties.is_empty() || profile.database_id.is_empty() {
+        return Err(format!(
+            "Cannot augment prompt: Notion integration '{}' has no schema synced. \
+             Open Settings > Integrations > {} > Sync Schema before running this pipeline.",
+            notion_integration_id,
+            profile.name
+        ));
+    }
+
+    // Build format spec from profile
+    let format_spec = build_notion_format_spec(&profile);
+
+    // Append format spec to base prompt
+    Ok(format!("{}\n\n{}", base_prompt, format_spec))
+}
+
+/// Build a compact JSON format specification from a Notion integration profile.
+/// The spec instructs the LLM to output a JSON array matching the database schema.
+/// Token budget: typically 100-300 tokens for 5-15 property databases.
+fn build_notion_format_spec(
+    profile: &crate::integrations::notion::NotionIntegrationProfile,
+) -> String {
+    let mut lines: Vec<String> = Vec::new();
+
+    lines.push("Output a JSON array where each element is an object with these fields:".to_string());
+    lines.push(format!("Database: {}", profile.database_name));
+    lines.push(String::new());
+
+    for prop in &profile.properties {
+        if !WRITABLE_TYPES.contains(&prop.property_type.as_str()) {
+            continue;
+        }
+
+        let field_spec = match prop.property_type.as_str() {
+            "title" => format!("- \"{}\" (string, REQUIRED): page title", prop.name),
+            "rich_text" => format!("- \"{}\" (string): long text", prop.name),
+            "number" => format!("- \"{}\" (number): numeric value", prop.name),
+            "checkbox" => format!("- \"{}\" (boolean): true or false", prop.name),
+            "url" => format!("- \"{}\" (string): URL", prop.name),
+            "email" => format!("- \"{}\" (string): email address", prop.name),
+            "phone_number" => format!("- \"{}\" (string): phone number", prop.name),
+            "date" => format!("- \"{}\" (string): ISO 8601 date, e.g. \"2026-02-18\"", prop.name),
+            "people" => {
+                let aliases: Vec<&str> = profile.people_mappings.iter()
+                    .map(|m| m.alias.as_str())
+                    .collect();
+                if aliases.is_empty() {
+                    format!("- \"{}\" (array of strings): person aliases", prop.name)
+                } else {
+                    format!(
+                        "- \"{}\" (array of strings): known aliases are: {}",
+                        prop.name,
+                        aliases.join(", ")
+                    )
+                }
+            }
+            "select" | "status" => {
+                if prop.select_options.is_empty() {
+                    format!("- \"{}\" (string): one of the defined options", prop.name)
+                } else {
+                    let (shown, overflow) = if prop.select_options.len() > MAX_OPTIONS_IN_SPEC {
+                        (&prop.select_options[..MAX_OPTIONS_IN_SPEC],
+                         prop.select_options.len() - MAX_OPTIONS_IN_SPEC)
+                    } else {
+                        (&prop.select_options[..], 0)
+                    };
+                    let options_str: Vec<&str> = shown.iter().map(|s| s.as_str()).collect();
+                    if overflow > 0 {
+                        format!(
+                            "- \"{}\" (string): one of: {} (+ {} more)",
+                            prop.name,
+                            options_str.join(", "),
+                            overflow
+                        )
+                    } else {
+                        format!(
+                            "- \"{}\" (string): one of: {}",
+                            prop.name,
+                            options_str.join(", ")
+                        )
+                    }
+                }
+            }
+            "multi_select" => {
+                if prop.select_options.is_empty() {
+                    format!("- \"{}\" (array of strings): multiple values from defined options", prop.name)
+                } else {
+                    let (shown, overflow) = if prop.select_options.len() > MAX_OPTIONS_IN_SPEC {
+                        (&prop.select_options[..MAX_OPTIONS_IN_SPEC],
+                         prop.select_options.len() - MAX_OPTIONS_IN_SPEC)
+                    } else {
+                        (&prop.select_options[..], 0)
+                    };
+                    let options_str: Vec<&str> = shown.iter().map(|s| s.as_str()).collect();
+                    if overflow > 0 {
+                        format!(
+                            "- \"{}\" (array of strings): values from: {} (+ {} more)",
+                            prop.name,
+                            options_str.join(", "),
+                            overflow
+                        )
+                    } else {
+                        format!(
+                            "- \"{}\" (array of strings): values from: {}",
+                            prop.name,
+                            options_str.join(", ")
+                        )
+                    }
+                }
+            }
+            _ => continue,
+        };
+        lines.push(field_spec);
+    }
+
+    lines.push(String::new());
+    lines.push("Omit any field you cannot determine from the transcript. Use null for unknown optional fields.".to_string());
+    lines.push("People fields: use the person's name or alias as a string.".to_string());
+    lines.push("Return ONLY the JSON array. No prose, no markdown, no code fences.".to_string());
+
+    lines.join("\n")
+}
+
 /// Execute a pipeline for a recording
 pub async fn execute_pipeline_internal(
     recording_id: &str,
@@ -186,6 +353,27 @@ pub async fn execute_pipeline_internal(
 
         let step_result = match step.connector {
             ConnectorType::Llm => {
+                // N+1 look-ahead: augment prompt if next step is Notion
+                // Only augments the LLM step directly before a Notion step (v1 scope).
+                // Non-contiguous chains like [LLM, Save, Notion] are not augmented.
+                let augmented = if let Some(next_step) = pipeline.steps.get(i + 1) {
+                    if next_step.connector == ConnectorType::Notion {
+                        let integration_id = next_step.config
+                            .get("integration_id")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| format!(
+                                "Step '{}': Notion step missing integration_id in config \
+                                 (required for prompt augmentation)",
+                                next_step.name
+                            ))?;
+                        Some(build_augmented_prompt(&step.config, &input_path, integration_id)?)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
                 connectors::llm::execute(
                     &input_path,
                     &step.config,
@@ -193,6 +381,7 @@ pub async fn execute_pipeline_internal(
                     &step.name,
                     &step.input,
                     step.description.as_deref(),
+                    augmented.as_deref(),
                 )
                 .await
             }
