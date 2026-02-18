@@ -2541,3 +2541,78 @@ body.is-recording-active .record-btn {
   to { opacity: 0; }
 }
 
+/* ===== INTEGRATION CARDS ===== */
+.integration-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.integration-card-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1rem;
+  flex-shrink: 0;
+  margin-right: 12px;
+}
+
+.integration-card-icon.notion { background: #000; color: #fff; }
+.integration-card-icon.slack { background: #4A154B; color: #fff; }
+.integration-card-icon.save-path { background: var(--accent); color: #fff; }
+
+.integration-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.integration-card-name {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.integration-card-detail {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  opacity: 0.8;
+}
+
+.integration-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.available-integration-card {
+  display: flex;
+  align-items: center;
+  padding: 14px 16px;
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.available-integration-card:hover {
+  border-color: var(--accent);
+}
+
+.available-integration-card .integration-card-icon {
+  opacity: 0.7;
+}
+
+.available-add-label {
+  font-size: 0.8rem;
+  color: var(--accent);
+  margin-left: auto;
+  font-weight: 600;
+}

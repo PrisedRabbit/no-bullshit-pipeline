@@ -596,26 +596,20 @@
             </div><!-- end pipelines tab -->
 
             <div class="settings-grid settings-tab-content" data-tab="integrations">
-              <!-- Integrations Configuration -->
+              <!-- Connected Integrations -->
               <div class="settings-section">
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
-                  <h3 style="margin: 0;">Slack Workspaces</h3>
-                  <button id="add-slack-btn" class="mini-action-btn">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                      <line x1="12" y1="5" x2="12" y2="19"></line>
-                      <line x1="5" y1="12" x2="19" y2="12"></line>
-                    </svg>
-                    Add Workspace
-                  </button>
-                </div>
-
-                <!-- List of integrations -->
-                <div id="slack-integrations-list" style="display: flex; flex-direction: column; gap: 12px;">
-                  <!-- Dynamic: for each integration -->
+                <h3>Connected</h3>
+                <div id="connected-integrations-list" style="display: flex; flex-direction: column; gap: 12px;">
                   <div style="text-align: center; padding: 40px 0; color: var(--text-secondary); opacity: 0.6;">
-                    No Slack workspaces connected yet
+                    Loading integrations...
                   </div>
                 </div>
+              </div>
+
+              <!-- Available Integrations -->
+              <div class="settings-section" style="margin-top: 24px;">
+                <h3>Available</h3>
+                <div id="available-integrations-list" style="display: flex; flex-direction: column; gap: 12px;"></div>
               </div>
             </div><!-- end integrations tab -->
 
@@ -761,5 +755,6 @@
     </div>
 
     <script src="main.js"></script>
+    <script src="integrations-settings.js"></script>
   </body>
 </html>

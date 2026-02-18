@@ -1516,13 +1516,8 @@ function renderSlackIntegrationsList() {
   });
 }
 
-if (addSlackBtn) {
-  addSlackBtn.addEventListener('click', () => {
-    slackNameInput.value = '';
-    slackTokenInput.value = '';
-    addSlackModal.style.display = 'flex';
-  });
-}
+// add-slack-btn handler removed — integrations-settings.js now handles opening the modal
+// via the "Available" section Slack card click handler.
 
 if (slackCancelBtn) {
   slackCancelBtn.addEventListener('click', () => {

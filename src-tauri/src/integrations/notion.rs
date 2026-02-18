@@ -120,6 +120,7 @@ pub fn delete_notion_profile(integration_id: &str) -> Result<(), String> {
 
 /// List all Notion integration profiles from disk.
 /// Reads all `notion-*.json` files from the integrations directory.
+#[tauri::command]
 pub fn list_notion_profiles() -> Result<Vec<NotionIntegrationProfile>, String> {
     let dir = crate::config::get_integrations_dir();
 
