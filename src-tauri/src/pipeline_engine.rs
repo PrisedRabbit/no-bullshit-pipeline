@@ -231,6 +231,17 @@ pub async fn execute_pipeline_internal(
                 )
                 .await
             }
+            ConnectorType::Notion => {
+                connectors::notion::execute(
+                    &input_path,
+                    &step.config,
+                    &output_dir,
+                    &step.name,
+                    &step.input,
+                    step.description.as_deref(),
+                )
+                .await
+            }
             ConnectorType::Mcp => {
                 Err("MCP connector not yet implemented".to_string())
             }
