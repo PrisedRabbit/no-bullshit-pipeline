@@ -82,13 +82,14 @@ NBP (No Bullshit Pipeline) is a Tauri 2 desktop application that captures microp
 
 ### Audio Capture
 
-| Module | File | Technology | Purpose |
-|--------|------|------------|---------|
-| Mic Audio | `mic_audio.rs` | cpal | Cross-platform microphone capture |
-| System Audio | `system_audio.rs` | cidre (Core Audio) | macOS system audio loopback via Process Taps |
-| Device Enumeration | `devices.rs` | cpal | Input device listing and selection |
+| Module             | File              | Technology         | Purpose                                      |
+| ------------------ | ----------------- | ------------------ | -------------------------------------------- |
+| Mic Audio          | `mic_audio.rs`    | cpal               | Cross-platform microphone capture            |
+| System Audio       | `system_audio.rs` | cidre (Core Audio) | macOS system audio loopback via Process Taps |
+| Device Enumeration | `devices.rs`      | cpal               | Input device listing and selection           |
 
 **Key Design Decisions:**
+
 - Uses ring buffers (`ringbuf`) for lock-free audio streaming
 - Continuous timeline tracking ensures accurate duration
 - Silence padding fills gaps to maintain sync
@@ -97,13 +98,14 @@ NBP (No Bullshit Pipeline) is a Tauri 2 desktop application that captures microp
 
 ### Audio Processing
 
-| Module | File | Purpose |
-|--------|------|---------|
-| Normalizer | `normalizer.rs` | EBU R128 loudness normalization to -23 LUFS |
-| Mixer | `mixer.rs` | Post-recording mix with resampling |
-| Realtime Mixer | `realtime_mixer.rs` | Live mixing during recording |
+| Module         | File                | Purpose                                     |
+| -------------- | ------------------- | ------------------------------------------- |
+| Normalizer     | `normalizer.rs`     | EBU R128 loudness normalization to -23 LUFS |
+| Mixer          | `mixer.rs`          | Post-recording mix with resampling          |
+| Realtime Mixer | `realtime_mixer.rs` | Live mixing during recording                |
 
 **Processing Pipeline:**
+
 1. **Capture** → Raw audio from devices
 2. **Normalize** → Apply gain + true peak limiting
 3. **Encode** → OGG Vorbis (quality 0.4 VBR)
@@ -131,6 +133,7 @@ NBP (No Bullshit Pipeline) is a Tauri 2 desktop application that captures microp
 ```
 
 **Invariants:**
+
 1. One recording = one directory
 2. Raw files are immutable after recording stops
 3. Derived files can be deleted and regenerated
@@ -138,14 +141,15 @@ NBP (No Bullshit Pipeline) is a Tauri 2 desktop application that captures microp
 
 ### Transcription
 
-| Feature | Implementation |
-|---------|----------------|
-| Engine | whisper-rs with Metal acceleration |
-| Models | Tiny (74MB) → Large (2.9GB) |
-| Storage | `~/.nbp/models/` |
-| Output | Markdown transcript |
+| Feature | Implementation                     |
+| ------- | ---------------------------------- |
+| Engine  | whisper-rs with Metal acceleration |
+| Models  | Tiny (74MB) → Large (2.9GB)        |
+| Storage | `~/.nbp/models/`                   |
+| Output  | Markdown transcript                |
 
 **Pipeline:**
+
 1. Convert OGG → 16kHz mono WAV
 2. Load Whisper model (Metal GPU)
 3. Run inference with greedy decoding
@@ -153,17 +157,18 @@ NBP (No Bullshit Pipeline) is a Tauri 2 desktop application that captures microp
 
 ### Processing Pipelines
 
-| Module | File | Purpose |
-|--------|------|---------|
-| Pipeline Definitions | `pipelines.rs` | Pipeline CRUD, validation, storage |
-| Pipeline Engine | `pipeline_engine.rs` | Sequential step execution, state tracking |
-| LLM Connector | `connectors/llm.rs` | AI processing via OpenAI/Google/Anthropic |
-| Save Connector | `connectors/save.rs` | File copy with path variable substitution |
-| Webhook Connector | `connectors/webhook.rs` | HTTP POST/PUT/PATCH to external endpoints |
-| Prompt Templates | `prompt_templates.rs` | Reusable prompt CRUD and variable substitution |
+| Module               | File                      | Purpose                                              |
+| -------------------- | ------------------------- | ---------------------------------------------------- |
+| Pipeline Definitions | `pipelines.rs`            | Pipeline CRUD, validation, storage                   |
+| Pipeline Engine      | `pipeline_engine.rs`      | Sequential step execution, state tracking            |
+| LLM Connector        | `connectors/llm.rs`       | AI processing via OpenAI/Google/Anthropic            |
+| Save Connector       | `connectors/save.rs`      | File copy with path variable substitution            |
+| Webhook Connector    | `connectors/webhook.rs`   | HTTP POST/PUT/PATCH to external endpoints            |
+| Prompt Templates     | `prompt_templates.rs`     | Reusable prompt CRUD and variable substitution       |
 | Transcript Migration | `transcript_migration.rs` | Convert plain text transcripts to frontmatter format |
 
 **Key Design Decisions:**
+
 - File-based execution context (no in-memory state between steps)
 - Sequential step execution via tokio background tasks
 - Each step output is markdown with YAML frontmatter
@@ -216,12 +221,14 @@ body.deep-obsidian         /* Deep Obsidian theme applied */
 ## IPC Commands
 
 ### Recording
+
 - `start_recording(tags: Vec<String>)` → `RecordingMetadata`
 - `stop_recording()` → `()`
 - `pause_recording()` → `()`
 - `resume_recording()` → `()`
 
 ### Storage
+
 - `list_recordings()` → `Vec<RecordingMetadata>`
 - `read_metadata(recording_id)` → `RecordingMetadata`
 - `update_tags(recording_id, tags)` → `()`
@@ -231,6 +238,7 @@ body.deep-obsidian         /* Deep Obsidian theme applied */
 - `save_projects(projects)` → `()`
 
 ### Transcription
+
 - `get_whisper_models_info()` → `Vec<ModelInfo>`
 - `download_whisper_model(size)` → `String`
 - `delete_whisper_model(size)` → `()`
@@ -238,20 +246,24 @@ body.deep-obsidian         /* Deep Obsidian theme applied */
 - `get_transcript(recording_id)` → `Option<String>`
 
 ### Configuration
+
 - `load_settings()` → `AppSettings`
 - `save_settings(settings)` → `()`
 
 ### Permissions
+
 - `check_permissions(onboarding_completed)` → `PermissionsState`
 - `request_mic_permission()` → `bool`
 - `request_system_audio_permission()` → `bool`
 - `open_privacy_settings(pane)` → `()`
 
 ### Audio Devices
+
 - `get_input_devices()` → `Vec<AudioDeviceInfo>`
 - `get_audio_level()` → `f32`
 
 ### Pipelines
+
 - `list_pipelines()` → `HashMap<String, Pipeline>`
 - `get_pipeline(name)` → `Pipeline`
 - `save_pipeline(name, pipeline)` → `()`
@@ -263,6 +275,7 @@ body.deep-obsidian         /* Deep Obsidian theme applied */
 - `assign_pipeline(recording_id, pipeline_name)` → `()`
 
 ### Prompt Templates
+
 - `list_prompt_templates()` → `HashMap<String, PromptTemplate>`
 - `get_prompt_template(name)` → `PromptTemplate`
 - `save_prompt_template(name, template)` → `()`
@@ -298,13 +311,13 @@ body.deep-obsidian         /* Deep Obsidian theme applied */
 
 ## Security & Privacy
 
-| Principle | Implementation |
-|-----------|----------------|
-| Local-first | All data in `~/nbp-data/`, no cloud by default |
-| No telemetry | Zero tracking, zero analytics |
-| Explicit consent | API keys only when user provides them |
-| Permission checks | macOS permissions verified at startup |
-| API key storage | Stored in `~/.nbp/settings.json` (encrypted JSON, not Keychain) |
+| Principle         | Implementation                                                  |
+| ----------------- | --------------------------------------------------------------- |
+| Local-first       | All data in `~/nbp-data/`, no cloud by default                  |
+| No telemetry      | Zero tracking, zero analytics                                   |
+| Explicit consent  | API keys only when user provides them                           |
+| Permission checks | macOS permissions verified at startup                           |
+| API key storage   | Stored in `~/.nbp/settings.json` (encrypted JSON, not Keychain) |
 
 **API Key Storage Decision:**
 API keys are stored in the settings JSON file with the settings file set to user-only permissions (600). macOS Keychain integration (NFR8) is deferred to a future release. Current approach stores keys in settings alongside other configuration for simplicity. The settings file at `~/.nbp/settings.json` uses restrictive file permissions to prevent unauthorized access.
@@ -335,6 +348,7 @@ Transcribed content here.
 **Core Concept:** Named, ordered sequences of steps that process recording data. Replaces flat tags with actionable workflows.
 
 **Pipeline States:**
+
 - `waiting` - No transcript available yet
 - `running` - Steps currently executing
 - `done` - All steps completed successfully
@@ -378,6 +392,7 @@ error: null
 ---
 
 ## Meeting Notes
+
 - Decision: Launch in March
 - Owner: SK takes frontend
 ```
@@ -386,11 +401,11 @@ error: null
 
 **Built-in (3 types):**
 
-| Connector | Purpose | I/O |
-|-----------|---------|-----|
-| `llm` | AI processing with prompt template | md → md |
-| `save` | Copy file to specified path | md → md (status) |
-| `webhook` | HTTP POST to URL | md → md (status) |
+| Connector | Purpose                            | I/O              |
+| --------- | ---------------------------------- | ---------------- |
+| `llm`     | AI processing with prompt template | md → md          |
+| `save`    | Copy file to specified path        | md → md (status) |
+| `webhook` | HTTP POST to URL                   | md → md (status) |
 
 **External (MCP):**
 
@@ -476,10 +491,12 @@ Reusable prompts stored in `~/nbp-data/prompt-templates.json`:
 Existing template system converts to pipelines:
 
 **Before (v0.3):**
+
 - Recording has tags: `["meeting", "team"]`
 - User manually applies template after transcription
 
 **After (v0.4 with Pipelines):**
+
 - Recording assigned pipeline: `"hltm"`
 - Pipeline auto-executes when transcript appears
 - Steps produce files in `pipelines/hltm/`
@@ -489,16 +506,19 @@ Built-in templates (Meeting Notes, Brainstorm, Journal) migrate to prompt templa
 ## Future Extensibility
 
 **Platform Isolation:**
+
 - `cidre` (Core Audio) is macOS-specific
 - Other modules use cross-platform crates
 - Potential for Linux (PulseAudio) or Windows (WASAPI) support
 
 **API Integration Points:**
+
 - `TranscriptionProvider` enum supports `LocalWhisper`, `OpenAI`, `Google`
 - API key storage ready in settings
 - MCP connector enables unlimited third-party integrations
 
 **Pipeline Extensibility:**
+
 - User-defined pipelines via JSON config
 - Shareable pipeline templates
 - Visual pipeline constructor (future)

@@ -1,9 +1,0 @@
-phase: idle
-blueprint: desktop-app
-epic: null
-story: null
-step: null
-attempt: 1
-recovery_used: false
-blocked: false
-waiting_for_answers: false
