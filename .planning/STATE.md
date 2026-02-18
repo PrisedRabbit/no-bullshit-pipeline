@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-18)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** Phase 3 (Prompt Augmentation) — planned, ready to execute
+**Current focus:** Phase 3 (Prompt Augmentation) — complete, ready to advance to Phase 4
 
 ## Current Position
 
-Phase: 3 of 8 (Prompt Augmentation) — executing
-Plan: 1 of 2 in current phase — 03-01 complete
-Status: Phase 3 executing (2 plans, 2 waves) — 03-01 done, 03-02 pending
-Last activity: 2026-02-18 — 03-01 N+1 look-ahead prompt augmentation implemented
+Phase: 3 of 8 (Prompt Augmentation) — complete
+Plan: 2 of 2 in current phase — 03-02 complete (phase done)
+Status: Phase 3 complete — AUGM-01 through AUGM-05 satisfied
+Last activity: 2026-02-18 — 03-02 Notion output validation implemented
 
-Progress: [██░░░░░░░░] 26% (6/23 plans)
+Progress: [███░░░░░░░] 30% (7/23 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
-- Average duration: 3.5 min
-- Total execution time: 22 min
+- Total plans completed: 7
+- Average duration: 3.4 min
+- Total execution time: 25 min
 
 **By Phase:**
 
@@ -29,15 +29,16 @@ Progress: [██░░░░░░░░] 26% (6/23 plans)
 |-------|-------|-------|----------|
 | 01-notion-integration-infrastructure | 3 | 11 min | 3.7 min |
 | 02-notion-connector | 2 | 6 min | 3.0 min |
-| 03-prompt-augmentation | 1 | 5 min | 5.0 min |
+| 03-prompt-augmentation | 2 | 8 min | 4.0 min |
 
 **Recent Trend:**
-- Last 5 plans: 3 min, 4 min, 4 min, 2 min, 5 min
-- Trend: fast (3.5 min avg)
+- Last 5 plans: 4 min, 4 min, 2 min, 5 min, 3 min
+- Trend: fast (3.4 min avg)
 
 *Updated after each plan completion*
 | Phase 02-notion-connector P02 | 2 | 2 tasks | 2 files |
 | Phase 03-prompt-augmentation P01 | 5 | 2 tasks | 2 files |
+| Phase 03-prompt-augmentation P02 | 3 | 2 tasks | 1 file |
 
 ## Accumulated Context
 
@@ -71,6 +72,9 @@ Recent decisions affecting current work:
 - [03-01]: build_augmented_prompt() hard-fails when profile missing or properties/database_id empty — prevents expensive LLM API call with guaranteed non-JSON output
 - [03-01]: WRITABLE_TYPES excludes formula/relation/rollup/computed fields — only LLM-settable fields in format spec
 - [03-01]: MAX_OPTIONS_IN_SPEC=12 caps select options to prevent token budget overflow; overflow count shown in spec
+- [03-02]: validate_llm_output_for_notion() uses fully-qualified std::collections::HashSet path — no new use statement needed
+- [03-02]: WRITABLE_TYPES in connectors/notion.rs is separate from pipeline_engine.rs — intentional per-module independence
+- [03-02]: Empty array check fires before per-element checks — most common LLM failure mode gets a distinct message
 
 ### Pending Todos
 
@@ -86,11 +90,11 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Completed 03-01 — N+1 look-ahead prompt augmentation
+Stopped at: Completed 03-02 — Notion output validation (Phase 3 complete)
 Resume file: None
 
 ## Next Step
 
-**Action:** execute Phase 3 Plan 02 (Output Validation)
-**Command:** /gsd:execute-phase 3
-**Context:** 03-01 complete (AUGM-01, AUGM-02, AUGM-03 done). 03-02 pending: validate_llm_output_for_notion() in notion.rs + error message strengthening. Covers AUGM-04, AUGM-05.
+**Action:** execute Phase 4 (next phase)
+**Command:** /gsd:execute-phase 4
+**Context:** Phase 3 complete — AUGM-01 through AUGM-05 all satisfied. Prompt augmentation fully wired: profile spec injected into LLM prompt, LLM output validated against schema before Notion delivery.
