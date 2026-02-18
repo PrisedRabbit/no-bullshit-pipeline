@@ -120,6 +120,9 @@ impl StepFrontmatter {
 /// - `step_name`: name of the current step
 /// - `step_input`: input reference name (for frontmatter)
 /// - `step_description`: optional description
+/// - `augmented_prompt`: optional pre-built prompt (used when LLM feeds into Notion step).
+///   When `Some`, skips internal template loading and uses the provided prompt directly.
+///   When `None`, behavior is identical to the pre-Phase-3 code path.
 pub async fn execute(
     input_path: &Path,
     config: &serde_json::Value,
@@ -127,38 +130,63 @@ pub async fn execute(
     step_name: &str,
     step_input: &str,
     step_description: Option<&str>,
+    augmented_prompt: Option<&str>,
 ) -> Result<PathBuf, String> {
     let llm_config = LlmConfig::from_value(config)?;
     let created_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
 
-    // Read input content
-    let raw_input = fs::read_to_string(input_path)
-        .map_err(|e| format!("Failed to read input file: {}", e))?;
+    let (prompt_to_send, truncated) = if let Some(augmented) = augmented_prompt {
+        // Engine has pre-built the complete prompt — skip template loading and file reading.
+        // Still apply token estimation and context limit truncation.
+        let approx_tokens = estimate_tokens(augmented);
+        let context_limit = context_limit_for_provider(&llm_config.provider);
+        let truncated = approx_tokens > context_limit;
 
-    // Strip frontmatter from input if present
-    let input_content = super::strip_frontmatter(&raw_input);
-
-    // Load prompt template
-    let template = get_prompt_template_internal(&llm_config.prompt_template)?;
-
-    // Substitute variables
-    let full_prompt = substitute_variables(&template.prompt, input_content);
-
-    // Estimate token count and check against provider limits
-    let approx_tokens = estimate_tokens(&full_prompt);
-    let context_limit = context_limit_for_provider(&llm_config.provider);
-    let truncated = approx_tokens > context_limit;
-
-    let prompt_to_send = if truncated {
-        // Truncate to fit within context window (chars ~ tokens * 3.5)
-        let max_chars = context_limit * 4;
-        if full_prompt.len() > max_chars {
-            full_prompt[..max_chars].to_string()
+        let prompt_to_send = if truncated {
+            let max_chars = context_limit * 4;
+            if augmented.len() > max_chars {
+                augmented[..max_chars].to_string()
+            } else {
+                augmented.to_string()
+            }
         } else {
-            full_prompt.clone()
-        }
+            augmented.to_string()
+        };
+
+        (prompt_to_send, truncated)
     } else {
-        full_prompt
+        // Standard path: read input file, strip frontmatter, load template, substitute variables.
+        // Read input content
+        let raw_input = fs::read_to_string(input_path)
+            .map_err(|e| format!("Failed to read input file: {}", e))?;
+
+        // Strip frontmatter from input if present
+        let input_content = super::strip_frontmatter(&raw_input);
+
+        // Load prompt template
+        let template = get_prompt_template_internal(&llm_config.prompt_template)?;
+
+        // Substitute variables
+        let full_prompt = substitute_variables(&template.prompt, input_content);
+
+        // Estimate token count and check against provider limits
+        let approx_tokens = estimate_tokens(&full_prompt);
+        let context_limit = context_limit_for_provider(&llm_config.provider);
+        let truncated = approx_tokens > context_limit;
+
+        let prompt_to_send = if truncated {
+            // Truncate to fit within context window (chars ~ tokens * 3.5)
+            let max_chars = context_limit * 4;
+            if full_prompt.len() > max_chars {
+                full_prompt[..max_chars].to_string()
+            } else {
+                full_prompt.clone()
+            }
+        } else {
+            full_prompt
+        };
+
+        (prompt_to_send, truncated)
     };
 
     // Get API key from settings
