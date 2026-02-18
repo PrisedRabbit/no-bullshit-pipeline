@@ -1,8 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use security_framework::passwords::{set_generic_password, get_generic_password, delete_generic_password};
-
-const KEYCHAIN_SERVICE: &str = "com.skopanev.nbp";
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct SlackIntegration {
@@ -11,12 +8,6 @@ pub struct SlackIntegration {
     pub workspace_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_url: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub struct IntegrationsConfig {
-    #[serde(default)]
-    pub slack: HashMap<String, SlackIntegration>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -54,27 +45,19 @@ struct SlackChannelRaw {
     is_private: bool,
 }
 
-/// Save Slack token to macOS Keychain
+/// Save Slack token using shared credential helper (dev-mode bypass in debug)
 fn save_slack_token(integration_id: &str, token: &str) -> Result<(), String> {
-    let account = format!("slack:{}", integration_id);
-    set_generic_password(KEYCHAIN_SERVICE, &account, token.as_bytes())
-        .map_err(|e| format!("Failed to save token to Keychain: {}", e))
+    super::save_token(&format!("slack:{}", integration_id), token)
 }
 
-/// Get Slack token from macOS Keychain
+/// Get Slack token using shared credential helper (dev-mode bypass in debug)
 pub fn get_slack_token(integration_id: &str) -> Result<String, String> {
-    let account = format!("slack:{}", integration_id);
-    let password = get_generic_password(KEYCHAIN_SERVICE, &account)
-        .map_err(|e| format!("Token not found in Keychain: {}", e))?;
-    String::from_utf8(password.to_vec())
-        .map_err(|e| format!("Invalid token encoding: {}", e))
+    super::get_token(&format!("slack:{}", integration_id))
 }
 
-/// Delete Slack token from macOS Keychain
+/// Delete Slack token using shared credential helper (dev-mode bypass in debug)
 fn delete_slack_token(integration_id: &str) -> Result<(), String> {
-    let account = format!("slack:{}", integration_id);
-    delete_generic_password(KEYCHAIN_SERVICE, &account)
-        .map_err(|e| format!("Failed to delete token from Keychain: {}", e))
+    super::delete_token(&format!("slack:{}", integration_id))
 }
 
 /// Test Slack connection and fetch workspace info
@@ -111,12 +94,12 @@ pub async fn add_slack_integration(
 ) -> Result<(), String> {
     // Validate token by calling auth.test
     let auth_result = test_slack_connection(&token).await?;
-    
+
     if !auth_result.ok {
         return Err(auth_result.error.unwrap_or_else(|| "Invalid token".to_string()));
     }
 
-    // Save token to Keychain
+    // Save token via shared credential helper
     save_slack_token(&id, &token)?;
 
     // Save metadata to settings
@@ -139,7 +122,7 @@ pub fn remove_slack_integration(
     id: String,
     settings: tauri::State<'_, std::sync::Arc<std::sync::Mutex<crate::config::AppSettings>>>
 ) -> Result<(), String> {
-    // Delete token from Keychain
+    // Delete token via shared credential helper
     delete_slack_token(&id)?;
 
     // Remove from settings
@@ -157,7 +140,7 @@ pub fn remove_slack_integration(
 pub async fn test_slack_integration(id: String) -> Result<String, String> {
     let token = get_slack_token(&id)?;
     let auth_result = test_slack_connection(&token).await?;
-    
+
     if !auth_result.ok {
         return Err(auth_result.error.unwrap_or_else(|| "Connection failed".to_string()));
     }
@@ -169,7 +152,7 @@ pub async fn test_slack_integration(id: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn list_slack_channels(integration_id: String) -> Result<Vec<SlackChannel>, String> {
     let token = get_slack_token(&integration_id)?;
-    
+
     let client = reqwest::Client::new();
     let resp = client
         .get("https://slack.com/api/conversations.list")

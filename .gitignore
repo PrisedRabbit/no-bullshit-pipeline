@@ -28,6 +28,9 @@ recordings/
 *.ogg
 *.wav
 
+# Dev credentials (dev-mode Keychain bypass)
+.dev-credentials.json
+
 # System
 .DS_Store
 Thumbs.db
