@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-02-18)
 ## Current Position
 
 Phase: 1 of 8 (Notion Integration Infrastructure)
-Plan: 1 of 3 in current phase
-Status: In progress — Plan 01 complete, Plans 02-03 remaining
-Last activity: 2026-02-18 — Plan 01 complete (module restructure, dev-mode bypass, Notion types)
+Plan: 2 of 3 in current phase
+Status: In progress — Plans 01-02 complete, Plan 03 remaining
+Last activity: 2026-02-18 — Plan 02 complete (add_notion_integration, list_notion_databases, sync_notion_schema commands)
 
-Progress: [█░░░░░░░░░] 4% (1/24 plans)
+Progress: [█░░░░░░░░░] 8% (2/24 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
-- Average duration: 4 min
-- Total execution time: 4 min
+- Total plans completed: 2
+- Average duration: 3.5 min
+- Total execution time: 7 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-notion-integration-infrastructure | 1 | 4 min | 4 min |
+| 01-notion-integration-infrastructure | 2 | 7 min | 3.5 min |
 
 **Recent Trend:**
-- Last 5 plans: 4 min
-- Trend: establishing baseline
+- Last 5 plans: 4 min, 3 min
+- Trend: fast (3.5 min avg)
 
 *Updated after each plan completion*
 
@@ -52,6 +52,8 @@ Recent decisions affecting current work:
 - [01-01]: Dev-mode credential bypass uses .dev-credentials.json (gitignored) at project root — avoids macOS Keychain permission dialogs during development
 - [01-01]: get_integrations_dir() returns ~/.nbp/integrations/ (not ~/.nbp/config/integrations/) — matches existing ~/.nbp/ config root convention
 - [01-01]: pub use slack::* in mod.rs preserves crate::integrations::get_slack_token backward-compatible path for connectors/slack.rs
+- [Phase 01]: JSON-based PageOrDatabase extraction via serde_json::to_value avoids brittle enum pattern matching on external crate type
+- [Phase 01]: Status database property returns empty select_options (inner struct field unverified); can be extended in Plan 03 once confirmed
 
 ### Pending Todos
 
@@ -59,18 +61,19 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 1, Plan 02]: `notion-client 1.0.11` method signatures not fully verified — run `cargo doc` after adding dependency to confirm exact API surface before writing integration commands in Plan 02
+- [Phase 1, Plan 02]: cargo check not available in execution environment — code verified structurally. First actual compilation verification will happen when Plan 03 adds more notion commands.
+- [Phase 1, Plan 03]: `Status` DatabaseProperty options extraction deferred — inner struct field access not in research docs. Can be added once cargo doc confirms field names.
 - [Phase 3]: Prompt augmentation token budget estimate ("< 500 tokens") needs validation against real Notion databases with 10-20 properties before field relevance filter is deprioritized
 - [Phase 7]: Exact shape of existing `metadata.json` files with `tags` field should be audited against real data before writing migration code
 
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Plan 01-01 complete. Next: execute Plan 01-02 (Notion core commands).
+Stopped at: Plan 01-02 complete. Next: execute Plan 01-03 (Notion secondary commands).
 Resume file: None
 
 ## Next Step
 
-**Action:** execute plan 02 of phase 01
+**Action:** execute plan 03 of phase 01
 **Command:** /gsd:execute-phase 1
-**Context:** Notion Integration Infrastructure — Plan 02 implements core Tauri commands (add/remove/list/sync) using infrastructure from Plan 01
+**Context:** Notion Integration Infrastructure — Plan 03 implements secondary commands (remove, list integrations, update people mappings, test)
