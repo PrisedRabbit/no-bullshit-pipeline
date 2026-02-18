@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-02-18)
 ## Current Position
 
 Phase: 1 of 8 (Notion Integration Infrastructure)
-Plan: 0 of 3 in current phase
-Status: Ready to plan
-Last activity: 2026-02-18 — Roadmap created, requirements mapped, ready to begin Phase 1
+Plan: 1 of 3 in current phase
+Status: In progress — Plan 01 complete, Plans 02-03 remaining
+Last activity: 2026-02-18 — Plan 01 complete (module restructure, dev-mode bypass, Notion types)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 4% (1/24 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: -
+- Total plans completed: 1
+- Average duration: 4 min
+- Total execution time: 4 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 01-notion-integration-infrastructure | 1 | 4 min | 4 min |
 
 **Recent Trend:**
-- Last 5 plans: -
-- Trend: -
+- Last 5 plans: 4 min
+- Trend: establishing baseline
 
 *Updated after each plan completion*
 
@@ -49,6 +49,9 @@ Recent decisions affecting current work:
 - [Pre-roadmap]: SortableJS loaded as local vendor file — native HTML5 DnD is unreliable in macOS WKWebView
 - [Pre-roadmap]: Integration profiles stored as separate JSON files in `~/.nbp/config/integrations/` — never inside `settings.json`
 - [Pre-roadmap]: Pipeline builder uses state-first full re-render pattern before any drag-and-drop code — prevents DOM/state desync
+- [01-01]: Dev-mode credential bypass uses .dev-credentials.json (gitignored) at project root — avoids macOS Keychain permission dialogs during development
+- [01-01]: get_integrations_dir() returns ~/.nbp/integrations/ (not ~/.nbp/config/integrations/) — matches existing ~/.nbp/ config root convention
+- [01-01]: pub use slack::* in mod.rs preserves crate::integrations::get_slack_token backward-compatible path for connectors/slack.rs
 
 ### Pending Todos
 
@@ -56,18 +59,18 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 1]: `notion-client 1.0.11` method signatures not fully verified — run `cargo doc` after adding dependency to confirm exact API surface before writing integration module
+- [Phase 1, Plan 02]: `notion-client 1.0.11` method signatures not fully verified — run `cargo doc` after adding dependency to confirm exact API surface before writing integration commands in Plan 02
 - [Phase 3]: Prompt augmentation token budget estimate ("< 500 tokens") needs validation against real Notion databases with 10-20 properties before field relevance filter is deprioritized
 - [Phase 7]: Exact shape of existing `metadata.json` files with `tags` field should be audited against real data before writing migration code
 
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Project initialized — all planning artifacts committed. Next: plan phase 1.
+Stopped at: Plan 01-01 complete. Next: execute Plan 01-02 (Notion core commands).
 Resume file: None
 
 ## Next Step
 
-**Action:** plan phase 1
-**Command:** /gsd:plan-phase 1
-**Context:** Notion Integration Infrastructure — securely store Notion credentials, read DB schemas
+**Action:** execute plan 02 of phase 01
+**Command:** /gsd:execute-phase 1
+**Context:** Notion Integration Infrastructure — Plan 02 implements core Tauri commands (add/remove/list/sync) using infrastructure from Plan 01

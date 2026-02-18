@@ -35,7 +35,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Module restructuring, notion-client dependency, dev-mode Keychain bypass, Notion profile types and I/O
+- [x] 01-01-PLAN.md — Module restructuring, notion-client dependency, dev-mode Keychain bypass, Notion profile types and I/O
 - [ ] 01-02-PLAN.md — Core Notion commands: add_notion_integration, list_notion_databases, sync_notion_schema
 - [ ] 01-03-PLAN.md — Secondary Notion commands: update_notion_people_mappings, test_notion_integration, remove_notion_integration
 
@@ -160,7 +160,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Notion Integration Infrastructure | 0/3 | Planning complete | - |
+| 1. Notion Integration Infrastructure | 1/3 | In progress | - |
 | 2. Notion Connector | 0/3 | Not started | - |
 | 3. Prompt Augmentation | 0/2 | Not started | - |
 | 4. Integrations Settings UI | 0/3 | Not started | - |
