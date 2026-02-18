@@ -70,7 +70,7 @@ Each task was committed atomically:
 1. **Task 1: Add validate_llm_output_for_notion() and wire into execute()** - `52640d6` (feat)
 2. **Task 2: Strengthen extract_json_array() error message** - `52640d6` (feat — committed together as single file change)
 
-**Plan metadata:** (docs commit follows)
+**Plan metadata:** `77e2ca5` (docs: complete plan)
 
 ## Files Created/Modified
 - `src-tauri/src/connectors/notion.rs` - Added `WRITABLE_TYPES`, `validate_llm_output_for_notion()`, validation call in `execute()`, updated `extract_json_array()` error label
@@ -94,6 +94,13 @@ None - no external service configuration required.
 - Phase 3 complete (both plans done): AUGM-01 through AUGM-05 satisfied
 - Prompt augmentation pipeline fully wired: profile spec injected into LLM prompt (03-01), LLM output validated against profile schema before Notion delivery (03-02)
 - Ready to advance to Phase 4
+
+## Self-Check: PASSED
+
+- FOUND: src-tauri/src/connectors/notion.rs
+- FOUND: .planning/phases/03-prompt-augmentation/03-02-SUMMARY.md
+- FOUND: commit 52640d6 (feat: validation function + error message)
+- FOUND: commit 77e2ca5 (docs: plan metadata)
 
 ---
 *Phase: 03-prompt-augmentation*
