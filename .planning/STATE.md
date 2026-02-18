@@ -5,36 +5,37 @@
 See: .planning/PROJECT.md (updated 2026-02-18)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** Phase 2 (Notion Connector) — IN PROGRESS (1/2 plans complete)
+**Current focus:** Phase 2 (Notion Connector) — COMPLETE (2/2 plans complete)
 
 ## Current Position
 
-Phase: 2 of 8 (Notion Connector) — IN PROGRESS
-Plan: 1 of 2 in current phase — plan 01 complete, plan 02 ready
-Status: 02-01 complete — connectors/notion.rs implemented with execute(), JSON extraction, property mapping
-Last activity: 2026-02-18 — 02-01 executed (connectors/notion.rs created)
+Phase: 2 of 8 (Notion Connector) — COMPLETE
+Plan: 2 of 2 in current phase — both plans complete
+Status: 02-02 complete — ConnectorType::Notion wired into pipelines.rs and pipeline_engine.rs
+Last activity: 2026-02-18 — 02-02 executed (pipeline wiring complete, Phase 2 done)
 
-Progress: [█░░░░░░░░░] 17% (4/23 plans)
+Progress: [██░░░░░░░░] 22% (5/23 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
-- Average duration: 3.8 min
-- Total execution time: 15 min
+- Total plans completed: 5
+- Average duration: 3.4 min
+- Total execution time: 17 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-notion-integration-infrastructure | 3 | 11 min | 3.7 min |
-| 02-notion-connector | 1 | 4 min | 4.0 min |
+| 02-notion-connector | 2 | 6 min | 3.0 min |
 
 **Recent Trend:**
-- Last 5 plans: 4 min, 3 min, 4 min, 4 min
-- Trend: fast (3.8 min avg)
+- Last 5 plans: 4 min, 3 min, 4 min, 4 min, 2 min
+- Trend: fast (3.4 min avg)
 
 *Updated after each plan completion*
+| Phase 02-notion-connector P02 | 2 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -62,6 +63,8 @@ Recent decisions affecting current work:
 - [02-01]: Empty people array skipped entirely — sending empty Vec<User> could clear existing Notion page assignees
 - [02-01]: Profile-driven property iteration (not JSON keys) — prevents sending unknown property names that Notion API would reject with 400
 - [02-01]: DateOrDateTime variant selected by T-character detection — handles both YYYY-MM-DD and YYYY-MM-DDTHH:MM:SSZ without additional parsing
+- [Phase 02-02]: integration_id only required in Notion step config — database_id comes from stored integration profile loaded at execute() time
+- [Phase 02-02]: Notion match arm placed between Slack and Mcp in pipeline_engine.rs — preserves ordering (implemented before stub)
 
 ### Pending Todos
 
@@ -77,11 +80,11 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Completed 02-01-PLAN.md — connectors/notion.rs implemented, pipeline wiring (02-02) ready
+Stopped at: Completed 02-02-PLAN.md — ConnectorType::Notion wired into pipeline system, Phase 2 complete
 Resume file: None
 
 ## Next Step
 
-**Action:** execute Phase 2 Plan 02 (pipeline wiring)
-**Command:** /gsd:execute-phase 2
-**Context:** 02-01 complete. 02-02 must add ConnectorType::Notion to pipelines.rs and wire connectors::notion::execute() into pipeline_engine.rs match arm. Wave 2 (02-02) depends on Wave 1 (02-01) which is now done.
+**Action:** execute Phase 3 (prompt augmentation)
+**Command:** /gsd:execute-phase 3
+**Context:** Phase 2 complete. Notion connector is fully implemented (notion.rs) and wired (ConnectorType::Notion in pipelines.rs + pipeline_engine.rs). Phase 3 adds LLM prompt templates for structured Notion output and the prompt augmentation system.

@@ -13,7 +13,7 @@ Eight phases deliver the Pipelines v2 redesign in strict backend-before-frontend
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Notion Integration Infrastructure** - Rust backend for integration profile storage, Keychain credential management, and Notion API client
-- [ ] **Phase 2: Notion Connector** - Rust backend for structured JSON parsing, people alias resolution, and Notion page creation
+- [x] **Phase 2: Notion Connector** - Rust backend for structured JSON parsing, people alias resolution, and Notion page creation (completed 2026-02-18)
 - [ ] **Phase 3: Prompt Augmentation** - Pipeline engine look-ahead that auto-injects schema-derived format specs into LLM prompts
 - [ ] **Phase 4: Integrations Settings UI** - Frontend wizard for adding Notion integration with schema sync and people mapping
 - [ ] **Phase 5: Pipeline Builder Redesign** - Categorized preset picker, drag-and-drop reordering, and assembly preview replacing the developer-oriented builder
@@ -160,7 +160,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Notion Integration Infrastructure | 3/3 | Complete    | 2026-02-18 |
-| 2. Notion Connector | 0/2 | Not started | - |
+| 2. Notion Connector | 2/2 | Complete   | 2026-02-18 |
 | 3. Prompt Augmentation | 0/2 | Not started | - |
 | 4. Integrations Settings UI | 0/3 | Not started | - |
 | 5. Pipeline Builder Redesign | 0/3 | Not started | - |
