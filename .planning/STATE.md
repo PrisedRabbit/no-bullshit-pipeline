@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-18)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** Phase 3 (Prompt Augmentation) — ready to plan
+**Current focus:** Phase 3 (Prompt Augmentation) — planned, ready to execute
 
 ## Current Position
 
-Phase: 3 of 8 (Prompt Augmentation) — ready to plan
-Plan: 0 of 2 in current phase — not started
-Status: Phase 2 complete (2/2 plans), Phase 3 needs planning
-Last activity: 2026-02-18 — Phase 2 executed and verified, NOTN-03/04/05 reclassified to Phase 4
+Phase: 3 of 8 (Prompt Augmentation) — executing
+Plan: 1 of 2 in current phase — 03-01 complete
+Status: Phase 3 executing (2 plans, 2 waves) — 03-01 done, 03-02 pending
+Last activity: 2026-02-18 — 03-01 N+1 look-ahead prompt augmentation implemented
 
-Progress: [██░░░░░░░░] 22% (5/23 plans)
+Progress: [██░░░░░░░░] 26% (6/23 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5
-- Average duration: 3.4 min
-- Total execution time: 17 min
+- Total plans completed: 6
+- Average duration: 3.5 min
+- Total execution time: 22 min
 
 **By Phase:**
 
@@ -29,13 +29,15 @@ Progress: [██░░░░░░░░] 22% (5/23 plans)
 |-------|-------|-------|----------|
 | 01-notion-integration-infrastructure | 3 | 11 min | 3.7 min |
 | 02-notion-connector | 2 | 6 min | 3.0 min |
+| 03-prompt-augmentation | 1 | 5 min | 5.0 min |
 
 **Recent Trend:**
-- Last 5 plans: 4 min, 3 min, 4 min, 4 min, 2 min
-- Trend: fast (3.4 min avg)
+- Last 5 plans: 3 min, 4 min, 4 min, 2 min, 5 min
+- Trend: fast (3.5 min avg)
 
 *Updated after each plan completion*
 | Phase 02-notion-connector P02 | 2 | 2 tasks | 2 files |
+| Phase 03-prompt-augmentation P01 | 5 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -65,6 +67,10 @@ Recent decisions affecting current work:
 - [02-01]: DateOrDateTime variant selected by T-character detection — handles both YYYY-MM-DD and YYYY-MM-DDTHH:MM:SSZ without additional parsing
 - [Phase 02-02]: integration_id only required in Notion step config — database_id comes from stored integration profile loaded at execute() time
 - [Phase 02-02]: Notion match arm placed between Slack and Mcp in pipeline_engine.rs — preserves ordering (implemented before stub)
+- [03-01]: augmented_prompt: Option<&str> as 7th param to llm::execute() — None path is identical to pre-Phase-3 behavior, no impact on non-Notion pipelines
+- [03-01]: build_augmented_prompt() hard-fails when profile missing or properties/database_id empty — prevents expensive LLM API call with guaranteed non-JSON output
+- [03-01]: WRITABLE_TYPES excludes formula/relation/rollup/computed fields — only LLM-settable fields in format spec
+- [03-01]: MAX_OPTIONS_IN_SPEC=12 caps select options to prevent token budget overflow; overflow count shown in spec
 
 ### Pending Todos
 
@@ -80,11 +86,11 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Phase 2 complete and verified, ready to plan Phase 3
+Stopped at: Completed 03-01 — N+1 look-ahead prompt augmentation
 Resume file: None
 
 ## Next Step
 
-**Action:** plan Phase 3 (Prompt Augmentation)
-**Command:** /gsd:plan-phase 3
-**Context:** Phase 2 complete. Notion connector is fully implemented (notion.rs) and wired (ConnectorType::Notion in pipelines.rs + pipeline_engine.rs). Phase 3 adds look-ahead prompt augmentation that auto-injects schema-derived format specs into LLM prompts before Notion delivery steps. NOTN-03/04/05 reclassified from Phase 2 to Phase 4 (setup wizard UI requirements).
+**Action:** execute Phase 3 Plan 02 (Output Validation)
+**Command:** /gsd:execute-phase 3
+**Context:** 03-01 complete (AUGM-01, AUGM-02, AUGM-03 done). 03-02 pending: validate_llm_output_for_notion() in notion.rs + error message strengthening. Covers AUGM-04, AUGM-05.

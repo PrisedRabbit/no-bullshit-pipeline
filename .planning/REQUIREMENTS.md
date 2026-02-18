@@ -57,9 +57,9 @@ Requirements for the Pipelines v2 milestone. Each maps to roadmap phases.
 
 ### Prompt Augmentation
 
-- [ ] **AUGM-01**: Pipeline engine auto-detects when an LLM step is followed by a structured delivery step (Notion)
-- [ ] **AUGM-02**: Format instructions derived from the destination schema are auto-injected into the LLM prompt
-- [ ] **AUGM-03**: User never writes format specs manually — schema-to-prompt is automatic
+- [x] **AUGM-01**: Pipeline engine auto-detects when an LLM step is followed by a structured delivery step (Notion)
+- [x] **AUGM-02**: Format instructions derived from the destination schema are auto-injected into the LLM prompt
+- [x] **AUGM-03**: User never writes format specs manually — schema-to-prompt is automatic
 - [ ] **AUGM-04**: AI structured JSON output is validated against the integration profile schema before delivery
 - [ ] **AUGM-05**: If AI output is not valid JSON, step fails with clear error message and raw output shown
 
@@ -155,9 +155,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | NOTN-06 | Phase 1 | Complete (01-01) |
 | NOTN-07 | Phase 1 | Complete |
 | NOTN-08 | Phase 2 | Complete (02-01) |
-| AUGM-01 | Phase 3 | Pending |
-| AUGM-02 | Phase 3 | Pending |
-| AUGM-03 | Phase 3 | Pending |
+| AUGM-01 | Phase 3 | Complete |
+| AUGM-02 | Phase 3 | Complete |
+| AUGM-03 | Phase 3 | Complete |
 | AUGM-04 | Phase 3 | Pending |
 | AUGM-05 | Phase 3 | Pending |
 | EXEC-01 | Phase 6 | Pending |
