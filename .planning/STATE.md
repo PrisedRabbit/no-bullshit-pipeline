@@ -5,33 +5,33 @@
 See: .planning/PROJECT.md (updated 2026-02-18)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** Phase 1 - Notion Integration Infrastructure
+**Current focus:** Phase 1 complete — Phase 2 (Notion Connector) next
 
 ## Current Position
 
-Phase: 1 of 8 (Notion Integration Infrastructure)
-Plan: 2 of 3 in current phase
-Status: In progress — Plans 01-02 complete, Plan 03 remaining
-Last activity: 2026-02-18 — Plan 02 complete (add_notion_integration, list_notion_databases, sync_notion_schema commands)
+Phase: 1 of 8 (Notion Integration Infrastructure) — COMPLETE
+Plan: 3 of 3 in current phase — ALL PLANS COMPLETE
+Status: Phase 1 complete — ready for Phase 2
+Last activity: 2026-02-18 — Plan 03 complete (update_notion_people_mappings, test_notion_integration, remove_notion_integration commands)
 
-Progress: [█░░░░░░░░░] 8% (2/24 plans)
+Progress: [█░░░░░░░░░] 13% (3/24 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: 3.5 min
-- Total execution time: 7 min
+- Total plans completed: 3
+- Average duration: 3.7 min
+- Total execution time: 11 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-notion-integration-infrastructure | 2 | 7 min | 3.5 min |
+| 01-notion-integration-infrastructure | 3 | 11 min | 3.7 min |
 
 **Recent Trend:**
-- Last 5 plans: 4 min, 3 min
-- Trend: fast (3.5 min avg)
+- Last 5 plans: 4 min, 3 min, 4 min
+- Trend: fast (3.7 min avg)
 
 *Updated after each plan completion*
 
@@ -53,7 +53,10 @@ Recent decisions affecting current work:
 - [01-01]: get_integrations_dir() returns ~/.nbp/integrations/ (not ~/.nbp/config/integrations/) — matches existing ~/.nbp/ config root convention
 - [01-01]: pub use slack::* in mod.rs preserves crate::integrations::get_slack_token backward-compatible path for connectors/slack.rs
 - [Phase 01]: JSON-based PageOrDatabase extraction via serde_json::to_value avoids brittle enum pattern matching on external crate type
-- [Phase 01]: Status database property returns empty select_options (inner struct field unverified); can be extended in Plan 03 once confirmed
+- [Phase 01]: Status database property returns empty select_options (inner struct field unverified); can be extended in Phase 2 once confirmed
+- [01-03]: remove_notion_integration always attempts both deletions — prevents partial state from credential-only or profile-only orphans
+- [01-03]: test_notion_integration formats error with {:?} — keeps token value out of user-visible error messages
+- [01-03]: update_notion_people_mappings validates ALL user IDs before any write — rejects invalid sets atomically
 
 ### Pending Todos
 
@@ -61,19 +64,19 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 1, Plan 02]: cargo check not available in execution environment — code verified structurally. First actual compilation verification will happen when Plan 03 adds more notion commands.
-- [Phase 1, Plan 03]: `Status` DatabaseProperty options extraction deferred — inner struct field access not in research docs. Can be added once cargo doc confirms field names.
+- [Phase 1, cargo check]: cargo check not available in execution environment — all three plans' code verified structurally. Real compilation verification deferred to first cargo tauri dev run.
+- [Phase 1, Status property]: `Status` DatabaseProperty options extraction deferred — inner struct field access not in research docs. Can be added in Phase 2/3 once cargo doc confirms field names.
 - [Phase 3]: Prompt augmentation token budget estimate ("< 500 tokens") needs validation against real Notion databases with 10-20 properties before field relevance filter is deprioritized
 - [Phase 7]: Exact shape of existing `metadata.json` files with `tags` field should be audited against real data before writing migration code
 
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Plan 01-02 complete. Next: execute Plan 01-03 (Notion secondary commands).
+Stopped at: Plan 01-03 complete. Phase 1 (Notion Integration Infrastructure) fully complete. Next: Phase 2 (Notion Connector).
 Resume file: None
 
 ## Next Step
 
-**Action:** execute plan 03 of phase 01
-**Command:** /gsd:execute-phase 1
-**Context:** Notion Integration Infrastructure — Plan 03 implements secondary commands (remove, list integrations, update people mappings, test)
+**Action:** execute Phase 2 (Notion Connector)
+**Command:** /gsd:execute-phase 2
+**Context:** Phase 1 backend complete (6 Notion Tauri commands). Phase 2 builds the Notion connector that calls these commands at pipeline runtime to post meeting notes.

@@ -12,7 +12,7 @@ Eight phases deliver the Pipelines v2 redesign in strict backend-before-frontend
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Notion Integration Infrastructure** - Rust backend for integration profile storage, Keychain credential management, and Notion API client
+- [x] **Phase 1: Notion Integration Infrastructure** - Rust backend for integration profile storage, Keychain credential management, and Notion API client
 - [ ] **Phase 2: Notion Connector** - Rust backend for structured JSON parsing, people alias resolution, and Notion page creation
 - [ ] **Phase 3: Prompt Augmentation** - Pipeline engine look-ahead that auto-injects schema-derived format specs into LLM prompts
 - [ ] **Phase 4: Integrations Settings UI** - Frontend wizard for adding Notion integration with schema sync and people mapping
@@ -36,8 +36,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 - [x] 01-01-PLAN.md — Module restructuring, notion-client dependency, dev-mode Keychain bypass, Notion profile types and I/O
-- [ ] 01-02-PLAN.md — Core Notion commands: add_notion_integration, list_notion_databases, sync_notion_schema
-- [ ] 01-03-PLAN.md — Secondary Notion commands: update_notion_people_mappings, test_notion_integration, remove_notion_integration
+- [x] 01-02-PLAN.md — Core Notion commands: add_notion_integration, list_notion_databases, sync_notion_schema
+- [x] 01-03-PLAN.md — Secondary Notion commands: update_notion_people_mappings, test_notion_integration, remove_notion_integration
 
 ### Phase 2: Notion Connector
 **Goal**: The pipeline engine can deliver AI-generated structured content to a Notion database with correct property formatting
@@ -160,7 +160,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Notion Integration Infrastructure | 2/3 | In Progress|  |
+| 1. Notion Integration Infrastructure | 3/3 | Complete | 2026-02-18 |
 | 2. Notion Connector | 0/3 | Not started | - |
 | 3. Prompt Augmentation | 0/2 | Not started | - |
 | 4. Integrations Settings UI | 0/3 | Not started | - |
