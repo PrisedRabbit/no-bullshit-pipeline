@@ -5,33 +5,34 @@
 See: .planning/PROJECT.md (updated 2026-02-18)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** Phase 1 complete — Phase 2 (Notion Connector) next
+**Current focus:** Phase 2 (Notion Connector) — IN PROGRESS (1/2 plans complete)
 
 ## Current Position
 
-Phase: 1 of 8 (Notion Integration Infrastructure) — COMPLETE
-Plan: 3 of 3 in current phase — ALL PLANS COMPLETE
-Status: Phase 1 complete — ready for Phase 2
-Last activity: 2026-02-18 — Plan 03 complete (update_notion_people_mappings, test_notion_integration, remove_notion_integration commands)
+Phase: 2 of 8 (Notion Connector) — IN PROGRESS
+Plan: 1 of 2 in current phase — plan 01 complete, plan 02 ready
+Status: 02-01 complete — connectors/notion.rs implemented with execute(), JSON extraction, property mapping
+Last activity: 2026-02-18 — 02-01 executed (connectors/notion.rs created)
 
-Progress: [█░░░░░░░░░] 13% (3/24 plans)
+Progress: [█░░░░░░░░░] 17% (4/23 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
-- Average duration: 3.7 min
-- Total execution time: 11 min
+- Total plans completed: 4
+- Average duration: 3.8 min
+- Total execution time: 15 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-notion-integration-infrastructure | 3 | 11 min | 3.7 min |
+| 02-notion-connector | 1 | 4 min | 4.0 min |
 
 **Recent Trend:**
-- Last 5 plans: 4 min, 3 min, 4 min
-- Trend: fast (3.7 min avg)
+- Last 5 plans: 4 min, 3 min, 4 min, 4 min
+- Trend: fast (3.8 min avg)
 
 *Updated after each plan completion*
 
@@ -57,6 +58,10 @@ Recent decisions affecting current work:
 - [01-03]: remove_notion_integration always attempts both deletions — prevents partial state from credential-only or profile-only orphans
 - [01-03]: test_notion_integration formats error with {:?} — keeps token value out of user-visible error messages
 - [01-03]: update_notion_people_mappings validates ALL user IDs before any write — rejects invalid sets atomically
+- [02-01]: User struct constructed explicitly (not ..Default::default()) — notion-client User may not implement Default; safer to list all 4 known fields
+- [02-01]: Empty people array skipped entirely — sending empty Vec<User> could clear existing Notion page assignees
+- [02-01]: Profile-driven property iteration (not JSON keys) — prevents sending unknown property names that Notion API would reject with 400
+- [02-01]: DateOrDateTime variant selected by T-character detection — handles both YYYY-MM-DD and YYYY-MM-DDTHH:MM:SSZ without additional parsing
 
 ### Pending Todos
 
@@ -72,11 +77,11 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Plan 01-03 complete. Phase 1 (Notion Integration Infrastructure) fully complete. Next: Phase 2 (Notion Connector).
+Stopped at: Completed 02-01-PLAN.md — connectors/notion.rs implemented, pipeline wiring (02-02) ready
 Resume file: None
 
 ## Next Step
 
-**Action:** execute Phase 2 (Notion Connector)
+**Action:** execute Phase 2 Plan 02 (pipeline wiring)
 **Command:** /gsd:execute-phase 2
-**Context:** Phase 1 backend complete (6 Notion Tauri commands). Phase 2 builds the Notion connector that calls these commands at pipeline runtime to post meeting notes.
+**Context:** 02-01 complete. 02-02 must add ConnectorType::Notion to pipelines.rs and wire connectors::notion::execute() into pipeline_engine.rs match arm. Wave 2 (02-02) depends on Wave 1 (02-01) which is now done.

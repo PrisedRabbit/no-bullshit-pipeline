@@ -51,7 +51,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Create `connectors/notion.rs` with execute(), extract_json_array(), resolve_people_aliases(), resolve_select_value(), build_notion_properties(); register in connectors/mod.rs
+- [x] 02-01-PLAN.md — Create `connectors/notion.rs` with execute(), extract_json_array(), resolve_people_aliases(), resolve_select_value(), build_notion_properties(); register in connectors/mod.rs
 - [ ] 02-02-PLAN.md — Add ConnectorType::Notion to pipelines.rs with validation; wire match arm in pipeline_engine.rs; add unit tests
 
 ### Phase 3: Prompt Augmentation

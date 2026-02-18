@@ -53,7 +53,7 @@ Requirements for the Pipelines v2 milestone. Each maps to roadmap phases.
 - [ ] **NOTN-05**: Setup wizard: user maps conversation aliases to Notion workspace users (people mapping)
 - [x] **NOTN-06**: Schema and people mappings stored as Integration Profile
 - [x] **NOTN-07**: Schema re-sync available via manual button in integration settings
-- [ ] **NOTN-08**: Notion connector creates pages in the selected database with structured property values
+- [x] **NOTN-08**: Notion connector creates pages in the selected database with structured property values
 
 ### Prompt Augmentation
 
@@ -68,7 +68,7 @@ Requirements for the Pipelines v2 milestone. Each maps to roadmap phases.
 - [ ] **EXEC-01**: After recording stops, auto-transcribe followed by auto-pipeline execution with no user action
 - [ ] **EXEC-02**: Pipeline run status per recording visible in recording detail view (Waiting/Running/Done/Failed)
 - [ ] **EXEC-03**: Failed pipeline step shows inline error with the specific step that failed and why
-- [ ] **EXEC-04**: Notion connector normalizes select values (case-insensitive match) and resolves people aliases to user IDs
+- [x] **EXEC-04**: Notion connector normalizes select values (case-insensitive match) and resolves people aliases to user IDs
 
 ### UI Health Check
 
@@ -154,7 +154,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | NOTN-05 | Phase 2 | Pending |
 | NOTN-06 | Phase 1 | Complete (01-01) |
 | NOTN-07 | Phase 1 | Complete |
-| NOTN-08 | Phase 2 | Pending |
+| NOTN-08 | Phase 2 | Complete (02-01) |
 | AUGM-01 | Phase 3 | Pending |
 | AUGM-02 | Phase 3 | Pending |
 | AUGM-03 | Phase 3 | Pending |
@@ -163,7 +163,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EXEC-01 | Phase 6 | Pending |
 | EXEC-02 | Phase 6 | Pending |
 | EXEC-03 | Phase 6 | Pending |
-| EXEC-04 | Phase 2 | Pending |
+| EXEC-04 | Phase 2 | Complete (02-01) |
 | HLTH-01 | Phase 8 | Pending |
 | HLTH-02 | Phase 8 | Pending |
 | HLTH-03 | Phase 8 | Pending |
