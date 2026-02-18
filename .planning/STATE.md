@@ -85,6 +85,6 @@ Resume file: None
 
 ## Next Step
 
-**Action:** execute Phase 3 (prompt augmentation)
-**Command:** /gsd:execute-phase 3
-**Context:** Phase 2 complete. Notion connector is fully implemented (notion.rs) and wired (ConnectorType::Notion in pipelines.rs + pipeline_engine.rs). Phase 3 adds LLM prompt templates for structured Notion output and the prompt augmentation system.
+**Action:** plan Phase 3 (Prompt Augmentation)
+**Command:** /gsd:plan-phase 3
+**Context:** Phase 2 complete. Notion connector is fully implemented (notion.rs) and wired (ConnectorType::Notion in pipelines.rs + pipeline_engine.rs). Phase 3 adds look-ahead prompt augmentation that auto-injects schema-derived format specs into LLM prompts before Notion delivery steps. NOTN-03/04/05 reclassified from Phase 2 to Phase 4 (setup wizard UI requirements).

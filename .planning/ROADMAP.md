@@ -42,7 +42,7 @@ Plans:
 ### Phase 2: Notion Connector
 **Goal**: The pipeline engine can deliver AI-generated structured content to a Notion database with correct property formatting
 **Depends on**: Phase 1
-**Requirements**: NOTN-03, NOTN-04, NOTN-05, NOTN-08, EXEC-04
+**Requirements**: NOTN-08, EXEC-04
 **Success Criteria** (what must be TRUE):
   1. A pipeline step with `ConnectorType::Notion` creates a page in the configured Notion database with correct property values
   2. Select property values from LLM output match case-insensitively (LLM outputs "high", Notion receives "High")
@@ -72,7 +72,7 @@ Plans:
 ### Phase 4: Integrations Settings UI
 **Goal**: Users can connect, configure, and verify integrations (Notion and named save paths) through the app UI without editing any config files
 **Depends on**: Phase 1
-**Requirements**: INTG-01, INTG-02, INTG-03, INTG-04
+**Requirements**: INTG-01, INTG-02, INTG-03, INTG-04, NOTN-03, NOTN-04, NOTN-05
 **Success Criteria** (what must be TRUE):
   1. The Integrations settings page shows Connected integrations with Test and Remove buttons, and an Available section for adding new ones
   2. User can complete the Notion setup wizard (API key entry, database picker, schema display, people mapping) entirely within the app
@@ -160,7 +160,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Notion Integration Infrastructure | 3/3 | Complete    | 2026-02-18 |
-| 2. Notion Connector | 2/2 | Complete   | 2026-02-18 |
+| 2. Notion Connector | 2/2 | Complete    | 2026-02-18 |
 | 3. Prompt Augmentation | 0/2 | Not started | - |
 | 4. Integrations Settings UI | 0/3 | Not started | - |
 | 5. Pipeline Builder Redesign | 0/3 | Not started | - |

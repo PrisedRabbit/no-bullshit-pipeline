@@ -149,9 +149,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INTG-05 | Phase 1 | Complete (01-01) |
 | NOTN-01 | Phase 1 | Complete |
 | NOTN-02 | Phase 1 | Complete (01-01) |
-| NOTN-03 | Phase 2 | Pending |
-| NOTN-04 | Phase 2 | Pending |
-| NOTN-05 | Phase 2 | Pending |
+| NOTN-03 | Phase 4 | Pending |
+| NOTN-04 | Phase 4 | Pending |
+| NOTN-05 | Phase 4 | Pending |
 | NOTN-06 | Phase 1 | Complete (01-01) |
 | NOTN-07 | Phase 1 | Complete |
 | NOTN-08 | Phase 2 | Complete (02-01) |
