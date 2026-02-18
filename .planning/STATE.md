@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-18)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** Phase 5 (next phase) — Phase 4 complete
+**Current focus:** Phase 5 (Pipeline Builder Redesign) — ready to plan
 
 ## Current Position
 
-Phase: 4 of 8 (Integrations Settings UI) — complete (all 3 plans done)
-Plan: 3 of 3 in current phase — plan 04-03 complete
-Status: Phase 4 complete — save path backend + delivery picker wiring done
-Last activity: 2026-02-18 — 04-03 save path backend + delivery picker complete
+Phase: 5 of 8 (Pipeline Builder Redesign) — ready to plan
+Plan: 0 of 3 in current phase — not started
+Status: Phase 4 complete, Phase 5 next — needs planning
+Last activity: 2026-02-18 — Phase 4 execution + verification complete
 
 Progress: [█████░░░░░] 43% (10/23 plans)
 
@@ -102,11 +102,11 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-18
-Stopped at: Completed 04-03-PLAN.md — save path backend + delivery picker wiring complete
+Stopped at: Phase 4 complete, ready to plan Phase 5
 Resume file: None
 
 ## Next Step
 
-**Action:** execute Phase 5 (next phase per ROADMAP.md)
-**Command:** /gsd:execute-phase 5
-**Context:** Phase 4 complete — Integrations Settings UI fully done: foundation (04-01), Notion setup wizard (04-02), save path CRUD backend + delivery picker wiring (04-03). savePathIntegrations and notionProfiles globals available on window for pipeline builder. Phase 5 is next.
+**Action:** plan Phase 5 (Pipeline Builder Redesign)
+**Command:** /gsd:plan-phase 5
+**Context:** Phase 4 complete — Integrations Settings UI fully done (foundation, Notion wizard, save path CRUD, delivery picker wiring). Phase 5 redesigns the pipeline builder with categorized preset picker, drag-and-drop reordering, and assembly preview. notionProfiles and savePathIntegrations globals on window are available for delivery step picker integration.
