@@ -76,14 +76,81 @@ fn extract_json_array(content: &str) -> Result<Vec<serde_json::Value>, String> {
         }
     }
 
-    // Parse failed — return descriptive error with content preview
+    // Parse failed — return descriptive error with raw LLM output (AUGM-05)
     let preview = &trimmed[..trimmed.len().min(500)];
     Err(format!(
         "Notion connector: could not parse LLM output as JSON array.\n\
          Expected a JSON array like: [{{\"Title\": \"...\", ...}}]\n\
-         Got: {}",
+         Raw LLM output (first 500 chars): {}",
         preview
     ))
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// LLM output validation
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Writable property types — used for validation to check that LLM output
+/// contains at least one key matching a property the connector can map.
+const WRITABLE_TYPES: &[&str] = &[
+    "title", "rich_text", "select", "multi_select", "people",
+    "date", "number", "checkbox", "url", "email", "phone_number", "status",
+];
+
+/// Validate that each item in the parsed JSON array has at least one key
+/// matching a writable property from the integration profile.
+///
+/// Called between `extract_json_array()` and `build_notion_properties()` in
+/// the execute flow. On failure, returns a descriptive error including the
+/// raw LLM output so the user can see what went wrong.
+fn validate_llm_output_for_notion(
+    items: &[serde_json::Value],
+    profile: &NotionIntegrationProfile,
+    raw_output: &str,
+) -> Result<(), String> {
+    if items.is_empty() {
+        return Err(format!(
+            "Notion connector: LLM output parsed as empty JSON array — no pages to create.\n\
+             Raw LLM output (first 500 chars): {}",
+            &raw_output[..raw_output.len().min(500)]
+        ));
+    }
+
+    // Collect writable property names from the profile
+    let writable_names: std::collections::HashSet<&str> = profile.properties.iter()
+        .filter(|p| WRITABLE_TYPES.contains(&p.property_type.as_str()))
+        .map(|p| p.name.as_str())
+        .collect();
+
+    for (idx, item) in items.iter().enumerate() {
+        let obj = match item.as_object() {
+            Some(o) => o,
+            None => return Err(format!(
+                "Notion connector: JSON array element {} is not an object.\n\
+                 Expected objects like {{\"Title\": \"...\", ...}}\n\
+                 Raw LLM output (first 500 chars): {}",
+                idx,
+                &raw_output[..raw_output.len().min(500)]
+            )),
+        };
+
+        // Check that at least one key matches a writable profile property
+        let has_valid_key = obj.keys().any(|k| writable_names.contains(k.as_str()));
+        if !has_valid_key {
+            return Err(format!(
+                "Notion connector: JSON array element {} has no keys matching the database schema.\n\
+                 Expected property names: {}\n\
+                 Got keys: {}\n\
+                 Raw LLM output (first 500 chars): {}",
+                idx,
+                writable_names.iter().copied().collect::<Vec<_>>().join(", "),
+                obj.keys().cloned().collect::<Vec<_>>().join(", "),
+                &raw_output[..raw_output.len().min(500)]
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -417,6 +484,10 @@ pub async fn execute(
 
     // Extract JSON array from LLM output (handles bare JSON and code fences)
     let items = extract_json_array(&raw)?;
+
+    // Validate LLM output structure against the integration profile schema (AUGM-04, AUGM-05).
+    // Fails with a clear error + raw output if structure doesn't match.
+    validate_llm_output_for_notion(&items, &profile, &raw)?;
 
     // Create one Notion page per JSON array element
     let mut page_ids: Vec<String> = Vec::new();
