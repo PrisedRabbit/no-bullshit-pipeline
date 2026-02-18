@@ -29,15 +29,15 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Requirements**: NOTN-01, NOTN-02, NOTN-06, NOTN-07, INTG-05
 **Success Criteria** (what must be TRUE):
   1. User can add a Notion integration by entering an API key, and the key is stored in macOS Keychain (never written to disk in plaintext)
-  2. Integration profile JSON files are written to `~/.nbp/config/integrations/` as separate files, not embedded in `settings.json`
+  2. Integration profile JSON files are written to `~/.nbp/integrations/` as separate files, not embedded in `settings.json`
   3. User can trigger a manual schema re-sync and see the updated schema reflected in the stored profile
   4. Dev-mode Keychain bypass is in place so development workflow does not generate repeated macOS permission dialogs
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 01-01: Add `notion-client` crate dependency; implement `integrations/notion.rs` with API client, `add_notion_integration`, `list_notion_databases`, `sync_notion_schema` commands
-- [ ] 01-02: Implement `NotionIntegrationProfile` struct, per-integration JSON storage in `integrations/` directory, `config.rs` helpers, dev-mode Keychain bypass
-- [ ] 01-03: Implement `update_notion_people_mappings`, `test_notion_integration`, `remove_notion_integration` commands
+- [ ] 01-01-PLAN.md — Module restructuring, notion-client dependency, dev-mode Keychain bypass, Notion profile types and I/O
+- [ ] 01-02-PLAN.md — Core Notion commands: add_notion_integration, list_notion_databases, sync_notion_schema
+- [ ] 01-03-PLAN.md — Secondary Notion commands: update_notion_people_mappings, test_notion_integration, remove_notion_integration
 
 ### Phase 2: Notion Connector
 **Goal**: The pipeline engine can deliver AI-generated structured content to a Notion database with correct property formatting
@@ -160,7 +160,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Notion Integration Infrastructure | 0/3 | Not started | - |
+| 1. Notion Integration Infrastructure | 0/3 | Planning complete | - |
 | 2. Notion Connector | 0/3 | Not started | - |
 | 3. Prompt Augmentation | 0/2 | Not started | - |
 | 4. Integrations Settings UI | 0/3 | Not started | - |
