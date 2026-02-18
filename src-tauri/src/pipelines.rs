@@ -14,6 +14,7 @@ pub enum ConnectorType {
     Webhook,
     Slack,
     Mcp,
+    Notion,
 }
 
 /// A single step in a pipeline
@@ -191,6 +192,14 @@ fn validate_step_config(step: &PipelineStep) -> Result<(), String> {
         }
         ConnectorType::Mcp => {
             // MCP not yet implemented, no validation needed
+        }
+        ConnectorType::Notion => {
+            if step.config.get("integration_id").and_then(|v| v.as_str()).is_none() {
+                return Err(format!(
+                    "Step '{}': Notion connector requires 'integration_id' in config",
+                    step.name
+                ));
+            }
         }
     }
     Ok(())
@@ -433,6 +442,62 @@ mod tests {
             serde_json::to_string(&ConnectorType::Mcp).unwrap(),
             "\"mcp\""
         );
+        assert_eq!(
+            serde_json::to_string(&ConnectorType::Slack).unwrap(),
+            "\"slack\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ConnectorType::Notion).unwrap(),
+            "\"notion\""
+        );
+    }
+
+    #[test]
+    fn test_notion_connector_type_serialization() {
+        assert_eq!(
+            serde_json::to_string(&ConnectorType::Notion).unwrap(),
+            "\"notion\""
+        );
+    }
+
+    #[test]
+    fn test_notion_connector_type_deserialization() {
+        let ct: ConnectorType = serde_json::from_str("\"notion\"").unwrap();
+        assert_eq!(ct, ConnectorType::Notion);
+    }
+
+    #[test]
+    fn test_notion_step_missing_integration_id_fails() {
+        let pipeline = Pipeline {
+            name: "test".to_string(),
+            description: "test".to_string(),
+            steps: vec![PipelineStep {
+                name: "post-to-notion".to_string(),
+                connector: ConnectorType::Notion,
+                input: "transcript".to_string(),
+                config: serde_json::json!({}),
+                description: None,
+            }],
+        };
+        let result = validate_pipeline(&pipeline);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("integration_id"));
+    }
+
+    #[test]
+    fn test_notion_step_valid_config_passes() {
+        let pipeline = Pipeline {
+            name: "test".to_string(),
+            description: "test".to_string(),
+            steps: vec![PipelineStep {
+                name: "post-to-notion".to_string(),
+                connector: ConnectorType::Notion,
+                input: "transcript".to_string(),
+                config: serde_json::json!({"integration_id": "abc-123"}),
+                description: None,
+            }],
+        };
+        assert!(validate_pipeline(&pipeline).is_ok());
     }
 
     #[test]
