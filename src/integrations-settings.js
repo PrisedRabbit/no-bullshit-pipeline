@@ -4,6 +4,7 @@
 // Module state — use `var` so these are on `window` and accessible from main.js
 var notionProfiles = [];
 var _slackIntegrations = {}; // shadow — main.js still owns slackIntegrations
+var savePathIntegrations = [];
 
 const connectedListEl = () => document.getElementById('connected-integrations-list');
 const availableListEl = () => document.getElementById('available-integrations-list');
@@ -13,6 +14,7 @@ async function loadAllIntegrations() {
   await Promise.all([
     loadNotionProfiles(),
     loadSlackForIntegrations(),
+    loadSavePathIntegrations(),
   ]);
   renderConnectedIntegrations();
   renderAvailableIntegrations();
@@ -33,6 +35,15 @@ async function loadSlackForIntegrations() {
   } catch (err) {
     console.error('Failed to load Slack integrations:', err);
     _slackIntegrations = {};
+  }
+}
+
+async function loadSavePathIntegrations() {
+  try {
+    savePathIntegrations = await window.__TAURI__.core.invoke('list_save_path_integrations');
+  } catch (err) {
+    console.error('Failed to load save path integrations:', err);
+    savePathIntegrations = [];
   }
 }
 
@@ -79,6 +90,25 @@ function renderConnectedIntegrations() {
         <div class="integration-card-actions">
           <button class="mini-action-btn test-slack-int-btn" data-id="${escapeHtml(id)}">Test</button>
           <button class="mini-action-btn danger remove-slack-int-btn" data-id="${escapeHtml(id)}">Remove</button>
+        </div>
+      </div>
+    `);
+  }
+
+  // Save path cards
+  for (const sp of savePathIntegrations) {
+    const safeName = escapeHtml(sp.name);
+    const safePath = escapeHtml(sp.path);
+    cards.push(`
+      <div class="integration-card" data-type="save-path" data-id="${escapeHtml(sp.id)}">
+        <div class="integration-card-icon save-path">&#128193;</div>
+        <div class="integration-card-info">
+          <div class="integration-card-name">${safeName}</div>
+          <div class="integration-card-detail">${safePath}</div>
+        </div>
+        <div class="integration-card-actions">
+          <button class="mini-action-btn edit-save-path-btn" data-id="${escapeHtml(sp.id)}">Edit</button>
+          <button class="mini-action-btn danger remove-save-path-btn" data-id="${escapeHtml(sp.id)}">Remove</button>
         </div>
       </div>
     `);
@@ -159,6 +189,91 @@ function renderConnectedIntegrations() {
       }
     });
   });
+
+  // Attach Save Path handlers
+  el.querySelectorAll('.edit-save-path-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const sp = savePathIntegrations.find(p => p.id === id);
+      if (!sp) return;
+      // Replace the card with an inline editor
+      const card = btn.closest('.integration-card');
+      if (!card) return;
+      const safeId = escapeHtml(sp.id);
+      card.outerHTML = `
+        <div class="integration-card save-path-editor" data-id="${safeId}">
+          <div class="integration-card-icon save-path">&#128193;</div>
+          <div class="integration-card-info" style="flex: 1; gap: 6px; display: flex; flex-direction: column;">
+            <input id="edit-sp-name-${safeId}" type="text" value="${escapeHtml(sp.name)}" placeholder="Folder name" style="width: 100%;" />
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span id="edit-sp-path-display-${safeId}" style="flex: 1; font-size: 0.8rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(sp.path)}</span>
+              <button id="edit-sp-browse-${safeId}" class="mini-action-btn">Browse</button>
+            </div>
+          </div>
+          <div class="integration-card-actions">
+            <button class="mini-action-btn save-sp-edit-btn" data-id="${safeId}">Save</button>
+            <button class="mini-action-btn cancel-sp-edit-btn" data-id="${safeId}">Cancel</button>
+          </div>
+        </div>
+      `;
+      // Store the current path in a closure variable
+      let selectedPath = sp.path;
+      const pathDisplay = document.getElementById(`edit-sp-path-display-${sp.id}`);
+      const browseBtn = document.getElementById(`edit-sp-browse-${sp.id}`);
+      if (browseBtn) {
+        browseBtn.addEventListener('click', async () => {
+          try {
+            const result = await window.__TAURI__.dialog.open({ directory: true, multiple: false });
+            if (result) {
+              selectedPath = result;
+              if (pathDisplay) pathDisplay.textContent = result;
+            }
+          } catch (err) {
+            console.error('Folder picker error:', err);
+          }
+        });
+      }
+      const saveBtn = el.querySelector(`.save-sp-edit-btn[data-id="${sp.id}"]`);
+      if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+          const nameInput = document.getElementById(`edit-sp-name-${sp.id}`);
+          const name = nameInput ? nameInput.value.trim() : '';
+          if (!name) { alert('Name cannot be empty.'); return; }
+          if (!selectedPath) { alert('Please select a folder.'); return; }
+          saveBtn.disabled = true;
+          try {
+            await window.__TAURI__.core.invoke('update_save_path_integration', { id: sp.id, name, path: selectedPath });
+            await loadAllIntegrations();
+          } catch (err) {
+            alert('Failed to update: ' + err);
+            saveBtn.disabled = false;
+          }
+        });
+      }
+      const cancelBtn = el.querySelector(`.cancel-sp-edit-btn[data-id="${sp.id}"]`);
+      if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => {
+          renderConnectedIntegrations();
+        });
+      }
+    });
+  });
+
+  el.querySelectorAll('.remove-save-path-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const sp = savePathIntegrations.find(p => p.id === id);
+      if (!confirm(`Remove save path "${sp ? sp.name : id}"?`)) return;
+      try {
+        await window.__TAURI__.core.invoke('remove_save_path_integration', { id });
+        await loadAllIntegrations();
+      } catch (err) {
+        alert('Failed to remove: ' + err);
+      }
+    });
+  });
 }
 
 // ===== RENDER AVAILABLE =====
@@ -192,6 +307,18 @@ function renderAvailableIntegrations() {
     </div>
   `);
 
+  // Save Path is always available to add (multiple can exist)
+  available.push(`
+    <div class="available-integration-card" data-type="save-path" id="add-save-path-btn">
+      <div class="integration-card-icon save-path">&#128193;</div>
+      <div class="integration-card-info">
+        <div class="integration-card-name">Save Path</div>
+        <div class="integration-card-detail">Save pipeline output to a named folder location</div>
+      </div>
+      <span class="available-add-label">+ Add</span>
+    </div>
+  `);
+
   el.innerHTML = available.join('');
 
   // Notion add → opens wizard (wired in 04-02, placeholder here)
@@ -217,6 +344,71 @@ function renderAvailableIntegrations() {
         if (nameInput) nameInput.value = '';
         if (tokenInput) tokenInput.value = '';
         modal.style.display = 'flex';
+      }
+    });
+  }
+
+  // Save Path add → inline form replaces the card
+  const addSavePathBtn = document.getElementById('add-save-path-btn');
+  if (addSavePathBtn) {
+    addSavePathBtn.addEventListener('click', () => {
+      let selectedPath = '';
+      addSavePathBtn.outerHTML = `
+        <div class="available-integration-card save-path-add-form" id="add-save-path-form">
+          <div class="integration-card-icon save-path">&#128193;</div>
+          <div class="integration-card-info" style="flex: 1; gap: 6px; display: flex; flex-direction: column;">
+            <input id="new-sp-name" type="text" placeholder="Folder name (e.g. Notes)" style="width: 100%;" />
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span id="new-sp-path-display" style="flex: 1; font-size: 0.8rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">No folder selected</span>
+              <button id="new-sp-browse-btn" class="mini-action-btn">Browse</button>
+            </div>
+          </div>
+          <div class="integration-card-actions">
+            <button id="new-sp-save-btn" class="mini-action-btn">Save</button>
+            <button id="new-sp-cancel-btn" class="mini-action-btn">Cancel</button>
+          </div>
+        </div>
+      `;
+
+      const browseBtn = document.getElementById('new-sp-browse-btn');
+      if (browseBtn) {
+        browseBtn.addEventListener('click', async () => {
+          try {
+            const result = await window.__TAURI__.dialog.open({ directory: true, multiple: false });
+            if (result) {
+              selectedPath = result;
+              const display = document.getElementById('new-sp-path-display');
+              if (display) display.textContent = result;
+            }
+          } catch (err) {
+            console.error('Folder picker error:', err);
+          }
+        });
+      }
+
+      const saveBtn = document.getElementById('new-sp-save-btn');
+      if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+          const nameInput = document.getElementById('new-sp-name');
+          const name = nameInput ? nameInput.value.trim() : '';
+          if (!name) { alert('Please enter a name for the save path.'); return; }
+          if (!selectedPath) { alert('Please select a folder.'); return; }
+          saveBtn.disabled = true;
+          try {
+            await window.__TAURI__.core.invoke('add_save_path_integration', { name, path: selectedPath });
+            await loadAllIntegrations();
+          } catch (err) {
+            alert('Failed to add save path: ' + err);
+            saveBtn.disabled = false;
+          }
+        });
+      }
+
+      const cancelBtn = document.getElementById('new-sp-cancel-btn');
+      if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => {
+          renderAvailableIntegrations();
+        });
       }
     });
   }

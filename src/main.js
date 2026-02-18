@@ -1778,9 +1778,26 @@ function showStepEditor(index) {
       <div class="step-editor-row"><label>Model</label><input data-field="model" value="${escapeHtml(step.config?.model || '')}" placeholder="e.g. gpt-4o" /></div>
     `;
   } else if (step.connector === 'save') {
-    configFields = `
-      <div class="step-editor-row"><label>Path</label><input data-field="path" value="${escapeHtml(step.config?.path || '')}" placeholder="~/Documents/{date}-{pipeline-name}.md" /></div>
-    `;
+    const savePaths = (typeof savePathIntegrations !== 'undefined') ? savePathIntegrations : [];
+
+    if (savePaths.length === 0) {
+      // No save path integrations — fall back to free-text path input
+      configFields = `
+        <div class="step-editor-row"><label>Path</label><input data-field="path" value="${escapeHtml(step.config?.path || '')}" placeholder="~/Documents/{date}-{pipeline-name}.md" /></div>
+        <div class="step-editor-row" style="color: var(--text-secondary); font-size: 0.8rem;">Tip: Add named save paths in Settings &gt; Integrations for quick selection.</div>
+      `;
+    } else {
+      const saveOptions = savePaths.map(sp =>
+        `<option value="${escapeHtml(sp.id)}" ${step.config?.save_path_id === sp.id ? 'selected' : ''}>${escapeHtml(sp.name)} (${escapeHtml(sp.path)})</option>`
+      ).join('');
+      configFields = `
+        <div class="step-editor-row"><label>Save Location</label><select data-field="save_path_id">
+          <option value="">Select save path...</option>
+          ${saveOptions}
+        </select></div>
+        <div class="step-editor-row"><label>Filename</label><input data-field="filename" value="${escapeHtml(step.config?.filename || '')}" placeholder="{date}-{pipeline-name}.md" /></div>
+      `;
+    }
   } else if (step.connector === 'webhook') {
     configFields = `
       <div class="step-editor-row"><label>URL</label><input data-field="url" value="${escapeHtml(step.config?.url || '')}" placeholder="https://hooks.example.com/..." /></div>
@@ -1808,6 +1825,25 @@ function showStepEditor(index) {
       <div class="step-editor-row"><label>Tool</label><input data-field="tool" value="${escapeHtml(step.config?.tool || '')}" placeholder="e.g. send-message" /></div>
       <div class="step-editor-row"><label>Args</label><textarea data-field="args" rows="2" placeholder='{"channel": "#team"}'>${escapeHtml(step.config?.args ? JSON.stringify(step.config.args, null, 2) : '')}</textarea></div>
     `;
+  } else if (step.connector === 'notion') {
+    // Build Notion integration options from notionProfiles (loaded by integrations-settings.js)
+    const profiles = (typeof notionProfiles !== 'undefined') ? notionProfiles : [];
+    const notionOptions = profiles.map(p =>
+      `<option value="${escapeHtml(p.id)}" ${step.config?.integration_id === p.id ? 'selected' : ''}>${escapeHtml(p.name)} (${escapeHtml(p.database_name || 'No DB')})</option>`
+    ).join('');
+
+    if (profiles.length === 0) {
+      configFields = `
+        <div class="step-editor-row" style="color: var(--text-secondary); font-size: 0.85rem;">No Notion integrations connected. Add one in Settings &gt; Integrations.</div>
+      `;
+    } else {
+      configFields = `
+        <div class="step-editor-row"><label>Integration</label><select data-field="integration_id">
+          <option value="">Select Notion database...</option>
+          ${notionOptions}
+        </select></div>
+      `;
+    }
   }
 
   // Replace step item (or existing editor) with new editor
@@ -1825,6 +1861,7 @@ function showStepEditor(index) {
       <option value="webhook" ${step.connector === 'webhook' ? 'selected' : ''}>Webhook</option>
       <option value="slack" ${step.connector === 'slack' ? 'selected' : ''}>Slack</option>
       <option value="mcp" ${step.connector === 'mcp' ? 'selected' : ''}>MCP</option>
+      <option value="notion" ${step.connector === 'notion' ? 'selected' : ''}>Notion</option>
     </select></div>
     <div class="step-editor-row"><label>Input</label><select data-field="input">${inputOptions}</select></div>
     <div class="step-editor-row"><label>Description</label><input data-field="description" value="${escapeHtml(step.description || '')}" placeholder="What this step does..." /></div>
