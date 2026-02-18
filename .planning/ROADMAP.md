@@ -162,7 +162,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 1. Notion Integration Infrastructure | 3/3 | Complete    | 2026-02-18 |
 | 2. Notion Connector | 2/2 | Complete    | 2026-02-18 |
 | 3. Prompt Augmentation | 2/2 | Complete   | 2026-02-18 |
-| 4. Integrations Settings UI | 3/3 | Complete   | 2026-02-18 |
+| 4. Integrations Settings UI | 3/3 | Complete    | 2026-02-18 |
 | 5. Pipeline Builder Redesign | 0/3 | Not started | - |
 | 6. Pre-Assignment UX and Execution | 0/3 | Not started | - |
 | 7. Pipeline Data Model and Tags Migration | 0/2 | Not started | - |
