@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-19)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** v1.1 Resilience & Polish — Phase 11 planned (2 plans in 2 waves)
+**Current focus:** v1.1 Resilience & Polish — Phase 11 complete (2/2 plans done)
 
 ## Current Position
 
-Phase: 11 of 12 (UX Polish) — IN PROGRESS
-Plan: 1/2 plans executed
-Status: Plan 11-01 complete — ready for 11-02
-Last activity: 2026-02-19 — Plan 11-01 executed: chip overflow edge cases, ARIA accessibility, scroll for large collections
+Phase: 11 of 12 (UX Polish) — COMPLETE
+Plan: 2/2 plans executed
+Status: Plan 11-02 complete — Phase 11 fully done, ready for Phase 12
+Last activity: 2026-02-19 — Plan 11-02 executed: augmented prompt expandable section + per-step timing in pipeline run output
 
-Progress: [██████░░░░] 60% (v1.1)
+Progress: [███████░░░] 70% (v1.1)
 
 ## Performance Metrics
 
@@ -27,7 +27,7 @@ Progress: [██████░░░░] 60% (v1.1)
 
 **v1.1 Velocity:** Phase 9: 1 plan, 2 tasks, 2 commits, ~2 min
 Phase 10: 2 plans, 4 tasks, 4 commits, ~6 min total
-Phase 11: 1/2 plans, 1 task, 1 commit, ~1 min (11-01)
+Phase 11: 2/2 plans, 3 tasks, 3 commits, ~3 min total
 
 ## Accumulated Context
 
@@ -49,6 +49,10 @@ Recent v1.1 context:
 - [Phase 11-01]: display:none (not just innerHTML='') for chip bar — ensures no empty container space in layout
 - [Phase 11-01]: chipBar.style.display = '' to restore (not 'flex') — defers to CSS default, avoids coupling JS to CSS display value
 - [Phase 11-01]: Both inline style and CSS class get max-height/overflow-y — CSS baseline, JS dynamic creation
+- [Phase 11-02]: Show per-step detail for 'done' pipelines too — transparency on successful runs, not just failures
+- [Phase 11-02]: Sidecar .augmented-prompt.txt file for storing augmented prompt text — avoids modifying connector frontmatter format across all connectors
+- [Phase 11-02]: parse_step_status returns 3-tuple (status, error, duration_secs) — augmented_prompt loaded separately via sidecar
+- [Phase 11-02]: Duration computed from existing created_at/completed_at timestamps in step .md frontmatter
 
 ### Pending Todos
 
@@ -64,10 +68,10 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Plan 11-01 complete (chip bar edge cases, ARIA accessibility, scroll hardening)
+Stopped at: Plan 11-02 complete (augmented prompt visibility + per-step timing)
 Resume file: None
 
 ## Next Step
 
-**Action:** Run `/gsd:execute-phase 11` to continue with plan 11-02
-**Context:** Phase 11 in progress. Plan 11-01 complete (chip overflow hardening). Plan 11-02 remaining: augmented prompt expandable section + per-step timing (backend StepStatus extension + frontend UI). Phase 12 depends on Phase 11.
+**Action:** Run `/gsd:execute-phase 12` to begin Phase 12 (Schema sync/validation)
+**Context:** Phase 11 fully complete. Phase 12 (SCHM-01) addresses prompt augmentation token budget and schema staleness. Phase 12 depends on Phase 11 being done.

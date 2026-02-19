@@ -21,8 +21,8 @@ Requirements for v1.1 release. Each maps to roadmap phases.
 ### UX Polish
 
 - [x] **UX-01**: Pipeline chips in app bar show top N pipelines with an overflow menu when more than N exist
-- [ ] **UX-02**: User can see what context was auto-injected into AI prompts via an expandable "Augmented prompt" section in pipeline run output
-- [ ] **UX-03**: Pipeline run output shows per-step timing (duration) for transparency
+- [x] **UX-02**: User can see what context was auto-injected into AI prompts via an expandable "Augmented prompt" section in pipeline run output
+- [x] **UX-03**: Pipeline run output shows per-step timing (duration) for transparency
 
 ### Schema Management
 
@@ -73,8 +73,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ERR-02 | Phase 10 | Complete |
 | ERR-03 | Phase 10 | Complete |
 | UX-01 | Phase 11 | Complete |
-| UX-02 | Phase 11 | Pending |
-| UX-03 | Phase 11 | Pending |
+| UX-02 | Phase 11 | Complete |
+| UX-03 | Phase 11 | Complete |
 | SCHM-01 | Phase 12 | Pending |
 | SCHM-02 | Phase 12 | Pending |
 | SCHM-03 | Phase 12 | Pending |
