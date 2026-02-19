@@ -14,8 +14,8 @@ Requirements for v1.1 release. Each maps to roadmap phases.
 
 ### Error Recovery
 
-- [ ] **ERR-01**: System retries with a stricter prompt when AI returns invalid JSON for structured delivery steps (Notion, etc.)
-- [ ] **ERR-02**: User sees the raw AI output with an actionable error message when structured output parsing fails after retry
+- [x] **ERR-01**: System retries with a stricter prompt when AI returns invalid JSON for structured delivery steps (Notion, etc.)
+- [x] **ERR-02**: User sees the raw AI output with an actionable error message when structured output parsing fails after retry
 - [ ] **ERR-03**: Pipeline execution continues to subsequent independent steps when one delivery step fails (partial success)
 
 ### UX Polish
@@ -69,8 +69,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | BUG-01 | Phase 9 | Complete |
 | BUG-02 | Phase 9 | Complete |
-| ERR-01 | Phase 10 | Pending |
-| ERR-02 | Phase 10 | Pending |
+| ERR-01 | Phase 10 | Complete |
+| ERR-02 | Phase 10 | Complete |
 | ERR-03 | Phase 10 | Pending |
 | UX-01 | Phase 11 | Pending |
 | UX-02 | Phase 11 | Pending |

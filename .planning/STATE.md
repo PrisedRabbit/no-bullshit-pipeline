@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-19)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** v1.1 Resilience & Polish — Phase 10 planned, ready for execution
+**Current focus:** v1.1 Resilience & Polish — Phase 10 executing (plan 1 of 2 complete)
 
 ## Current Position
 
-Phase: 10 of 12 (Structured Output Error Recovery) — PLANNED
-Plan: 0/2 plans executed
-Status: Planned — ready for execution
-Last activity: 2026-02-19 — Phase 10 planned (2 plans in 2 waves, verified by plan checker)
+Phase: 10 of 12 (Structured Output Error Recovery) — IN PROGRESS
+Plan: 1/2 plans executed
+Status: Executing — 10-01 complete, 10-02 ready
+Last activity: 2026-02-19 — 10-01 complete: JSON retry logic, NotionErrorKind, raw output preservation
 
-Progress: [██░░░░░░░░] 15% (v1.1)
+Progress: [███░░░░░░░] 25% (v1.1)
 
 ## Performance Metrics
 
@@ -26,6 +26,7 @@ Progress: [██░░░░░░░░] 15% (v1.1)
 **By Phase (v1):** See milestones/v1-ROADMAP.md
 
 **v1.1 Velocity:** Phase 9: 1 plan, 2 tasks, 2 commits, ~2 min
+Phase 10 (so far): 1 plan, 2 tasks, 2 commits, ~3 min
 
 ## Accumulated Context
 
@@ -38,6 +39,9 @@ Recent v1.1 context:
 - [v1.1 start]: Manual schema re-sync with staleness warning chosen over automatic re-sync on every run
 - [Phase 09]: Delegate loadSlackForIntegrations() to loadSlackIntegrations() in main.js for single source of truth
 - [Phase 09]: Remove dead renderSlackIntegrationsList() and slackIntegrationsListEl from main.js — DOM target does not exist
+- [Phase 10-01]: Use NotionErrorKind enum (not bool) to distinguish JSON parse failures — carries raw_output without separate out-parameter
+- [Phase 10-01]: Max 1 retry (no loop) — prevents retry storms on consistently bad models
+- [Phase 10-01]: execute() preserved with identical signature for backward compatibility
 
 ### Pending Todos
 
@@ -53,10 +57,10 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Planned Phase 10
+Stopped at: Completed 10-01-PLAN.md (Wave 1 complete)
 Resume file: None
 
 ## Next Step
 
-**Action:** Run `/gsd:execute-phase 10` to execute Structured Output Error Recovery phase
-**Context:** Phase 10 fully planned with 2 plans in 2 waves. Wave 1 (10-01): JSON retry logic with error categorization and raw output preservation (ERR-01, ERR-02). Wave 2 (10-02, depends on 10-01): Partial-success pipeline execution and per-step status UI (ERR-03). Plan checker verified all plans pass.
+**Action:** Execute plan 10-02 (Wave 2) — Partial-success pipeline execution and per-step status UI
+**Context:** Phase 10-01 complete. 10-02 depends on 10-01 (ERR-03). Implements partial-success UI and step-level status tracking using the retry infrastructure just built.
