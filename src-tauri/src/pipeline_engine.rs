@@ -257,6 +257,12 @@ pub async fn execute_pipeline_internal(
 
     validate_pipeline(&pipeline)?;
 
+    // PIPE-01: Zero-step pipeline = label only; skip execution, return Done immediately
+    if pipeline.steps.is_empty() {
+        update_pipeline_state(recording_id, pipeline_name, PipelineStatus::Done, None, None)?;
+        return Ok(PipelineStatus::Done);
+    }
+
     // Verify transcript exists (.json primary, .md fallback)
     let recording_dir = get_data_dir().join(recording_id);
     let has_transcript = recording_dir.join("transcript.json").exists()
@@ -781,5 +787,15 @@ mod tests {
         let dir = get_pipeline_output_dir("abc-123", "my-pipeline");
         assert!(dir.to_string_lossy().contains("abc-123"));
         assert!(dir.to_string_lossy().contains("pipelines/my-pipeline"));
+    }
+
+    #[test]
+    fn test_pipeline_output_dir_isolation() {
+        // PIPE-05: Each pipeline gets its own output directory
+        let dir_a = get_pipeline_output_dir("rec-1", "pipeline-a");
+        let dir_b = get_pipeline_output_dir("rec-1", "pipeline-b");
+        assert_ne!(dir_a, dir_b);
+        assert!(dir_a.to_string_lossy().contains("pipelines/pipeline-a"));
+        assert!(dir_b.to_string_lossy().contains("pipelines/pipeline-b"));
     }
 }
