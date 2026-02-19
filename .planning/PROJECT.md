@@ -2,7 +2,7 @@
 
 ## What This Is
 
-NBP (No Bullshit Pipeline) is a Tauri desktop app (Rust + Vanilla JS) that captures Mac audio (mic + system), transcribes it, and runs multi-step pipelines for processing and delivery. Pipelines v2 shipped a complete redesign: unified pipeline-as-label model (replacing tags), pre-assignment UX with pipeline chips, a preset-based builder with Processing/Delivery categories, a three-layer integrations architecture with schema-aware Notion connector, automatic prompt augmentation, and a built-in UI health check system.
+NBP (No Bullshit Pipeline) is a Tauri desktop app (Rust + Vanilla JS) that captures Mac audio (mic + system), transcribes it, and runs multi-step pipelines for processing and delivery. Pipelines v2 shipped a complete redesign: unified pipeline-as-label model (replacing tags), pre-assignment UX with pipeline chips, a preset-based builder with Processing/Delivery categories, a three-layer integrations architecture with schema-aware Notion connector, automatic prompt augmentation, and a built-in UI health check system. v1.1 hardened the system with bug fixes, structured output error recovery, UX polish, and schema management safeguards.
 
 ## Core Value
 
@@ -52,22 +52,21 @@ Zero post-recording work: select pipeline → record → stop → everything hap
 - ✓ Pipeline run status visibility (Waiting/Running/Done/Failed) — v1
 - ✓ Auto-transcribe + auto-execute pipeline on recording stop — v1
 - ✓ SortableJS drag-and-drop step reordering — v1
+- ✓ Integrations tab renders correctly on first load (MutationObserver fix) — v1.1
+- ✓ Slack state consistent across all UI views (single source of truth) — v1.1
+- ✓ JSON retry with stricter prompt on structured output parse failure — v1.1
+- ✓ Raw AI output preserved and shown on structured output failure — v1.1
+- ✓ Partial-success pipeline execution (delivery failures don't halt independent steps) — v1.1
+- ✓ Pipeline chip overflow menu for large collections with ARIA accessibility — v1.1
+- ✓ Augmented prompt expandable section in pipeline run output — v1.1
+- ✓ Per-step wall-clock timing in pipeline run output — v1.1
+- ✓ Token budget validation before augmented LLM execution — v1.1
+- ✓ Schema staleness warning (7-day threshold) in integration profiles — v1.1
+- ✓ In-builder schema re-sync button for Notion steps — v1.1
 
 ### Active
 
-(See REQUIREMENTS.md for v1.1 scoped requirements)
-
-## Current Milestone: v1.1 Resilience & Polish
-
-**Goal:** Harden the v1 pipeline system — fix known bugs, add error recovery for structured outputs, improve UX polish for pipeline chips and prompt augmentation visibility.
-
-**Target features:**
-- Fix audit tech debt (MutationObserver selector mismatch, dual Slack state consolidation)
-- Structured output error recovery (retry logic, fallback display when AI returns invalid JSON)
-- Pipeline chip overflow UX (top N chips + overflow menu for large pipeline collections)
-- Prompt augmentation visibility (show user what context was auto-injected into AI prompts)
-- Token budget validation for prompt augmentation against real schema sizes
-- Schema re-sync improvements (detect stale schemas, prompt user to re-sync)
+(None — planning next milestone)
 
 ### Out of Scope
 
@@ -83,21 +82,17 @@ Zero post-recording work: select pipeline → record → stop → everything hap
 
 ## Context
 
-**Current codebase state (v1 shipped):**
+**Current codebase state (v1.1 shipped):**
 - 5 connectors: LLM, Save, Webhook, Slack, Notion (in `src-tauri/src/connectors/`)
-- Pipeline engine (`pipeline_engine.rs`) with N+1 look-ahead prompt augmentation
+- Pipeline engine (`pipeline_engine.rs`) with N+1 look-ahead prompt augmentation, token budget validation, partial-success execution, and JSON retry
 - Integrations architecture with profiles in `~/.nbp/integrations/`
 - 6 built-in prompt templates (meeting-notes, action-items, summary, structure, brainstorm, journal)
-- Pipeline builder extracted to `src/pipeline-builder.js` with SortableJS
-- Integrations settings wizard in `src/integrations-settings.js`
+- Pipeline builder extracted to `src/pipeline-builder.js` with SortableJS and in-builder schema re-sync
+- Integrations settings wizard in `src/integrations-settings.js` with schema staleness warnings
 - UI health check engine in `src/ui-health-check.js`
-- ~10,800 LOC across key v2 files
 - Config in `~/.nbp/`, recordings in `~/nbp-data/`
 
-**Known issues (from v1 audit):**
-- MutationObserver selector mismatch in integrations-settings.js:887 (`.settings-tabs-container` should be `.settings-tabs`) — integrations tab first-load broken, works after any user action
-- Dual Slack state (main.js vs integrations-settings.js) — cosmetic staleness until page reload
-- Prompt augmentation token budget (<500 tokens) unvalidated against large Notion databases
+**Known issues:** None — all v1 audit items resolved in v1.1.
 
 **Design inputs:**
 - Brainstorming session 2026-02-03: Pipeline data model, file structure, connectors
@@ -132,6 +127,13 @@ Zero post-recording work: select pipeline → record → stop → everything hap
 | Dev-mode credential bypass | .dev-credentials.json avoids Keychain dialogs during development. | ✓ Good — v1 Phase 1 |
 | UI health check as lightweight internal module | Not Selenium/Playwright. querySelectorAll + state checks. <2 seconds. | ✓ Good — v1 Phase 8 |
 | Prompt augmentation hard-fail on missing profile | Prevents expensive LLM call with guaranteed non-JSON output. | ✓ Good — v1 Phase 3 |
+| Delegate Slack state to main.js single source | Eliminates duplicate Tauri invokes and stale state between views. | ✓ Good — v1.1 Phase 9 |
+| NotionErrorKind enum for retry dispatch | Typed errors (JsonParse vs Other) enable retry-aware dispatch without string matching. | ✓ Good — v1.1 Phase 10 |
+| Max 1 retry for structured output | No loop — prevents retry storms on consistently bad models. | ✓ Good — v1.1 Phase 10 |
+| ConnectorType::is_delivery() classification | Delivery vs processing determines partial-success continuation. Exhaustive match. | ✓ Good — v1.1 Phase 10 |
+| Sidecar .augmented-prompt.txt files | Avoids modifying connector frontmatter format across all connectors. | ✓ Good — v1.1 Phase 11 |
+| Token budget pre-flight validation | Check budget before API call, not inside connector. Prevents costly over-limit calls. | ✓ Good — v1.1 Phase 12 |
+| Manual schema re-sync with staleness warning | 7-day threshold + in-builder button. Simpler and safer than automatic re-sync. | ✓ Good — v1.1 Phase 12 |
 
 ---
-*Last updated: 2026-02-19 after v1.1 Resilience & Polish milestone start*
+*Last updated: 2026-02-19 after v1.1 Resilience & Polish milestone completion*
