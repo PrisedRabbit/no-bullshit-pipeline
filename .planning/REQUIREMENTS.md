@@ -67,23 +67,23 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BUG-01 | — | Pending |
-| BUG-02 | — | Pending |
-| ERR-01 | — | Pending |
-| ERR-02 | — | Pending |
-| ERR-03 | — | Pending |
-| UX-01 | — | Pending |
-| UX-02 | — | Pending |
-| UX-03 | — | Pending |
-| SCHM-01 | — | Pending |
-| SCHM-02 | — | Pending |
-| SCHM-03 | — | Pending |
+| BUG-01 | Phase 9 | Pending |
+| BUG-02 | Phase 9 | Pending |
+| ERR-01 | Phase 10 | Pending |
+| ERR-02 | Phase 10 | Pending |
+| ERR-03 | Phase 10 | Pending |
+| UX-01 | Phase 11 | Pending |
+| UX-02 | Phase 11 | Pending |
+| UX-03 | Phase 11 | Pending |
+| SCHM-01 | Phase 12 | Pending |
+| SCHM-02 | Phase 12 | Pending |
+| SCHM-03 | Phase 12 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 11 total
-- Mapped to phases: 0
-- Unmapped: 11 ⚠️
+- Mapped to phases: 11
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-02-19*
-*Last updated: 2026-02-19 after initial definition*
+*Last updated: 2026-02-19 — traceability filled after roadmap creation*
