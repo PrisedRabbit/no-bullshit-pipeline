@@ -3,7 +3,6 @@
 
 // Module state — use `var` so these are on `window` and accessible from main.js
 var notionProfiles = [];
-var _slackIntegrations = {}; // shadow — main.js still owns slackIntegrations
 var savePathIntegrations = [];
 
 const connectedListEl = () => document.getElementById('connected-integrations-list');
@@ -30,11 +29,8 @@ async function loadNotionProfiles() {
 }
 
 async function loadSlackForIntegrations() {
-  try {
-    _slackIntegrations = await window.__TAURI__.core.invoke('list_slack_integrations');
-  } catch (err) {
-    console.error('Failed to load Slack integrations:', err);
-    _slackIntegrations = {};
+  if (typeof loadSlackIntegrations === 'function') {
+    await loadSlackIntegrations();
   }
 }
 
@@ -77,7 +73,7 @@ function renderConnectedIntegrations() {
   }
 
   // Slack cards
-  for (const [id, data] of Object.entries(_slackIntegrations)) {
+  for (const [id, data] of Object.entries(slackIntegrations)) {
     const safeName = escapeHtml(data.name);
     const safeWorkspace = escapeHtml(data.workspace_name || 'Unknown workspace');
     cards.push(`
@@ -177,13 +173,11 @@ function renderConnectedIntegrations() {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const id = btn.dataset.id;
-      const data = _slackIntegrations[id];
+      const data = slackIntegrations[id];
       if (!confirm(`Remove Slack workspace "${data ? data.name : id}"?`)) return;
       try {
         await window.__TAURI__.core.invoke('remove_slack_integration', { id });
         await loadAllIntegrations();
-        // Also refresh main.js slackIntegrations if the function exists
-        if (typeof loadSlackIntegrations === 'function') loadSlackIntegrations();
       } catch (err) {
         alert('Failed to remove: ' + err);
       }

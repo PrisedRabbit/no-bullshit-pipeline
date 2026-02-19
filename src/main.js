@@ -1770,85 +1770,12 @@ const slackNameInput = document.getElementById('slack-name-input');
 const slackTokenInput = document.getElementById('slack-token-input');
 const slackSaveBtn = document.getElementById('slack-save-btn');
 const slackCancelBtn = document.getElementById('slack-cancel-btn');
-const slackIntegrationsListEl = document.getElementById('slack-integrations-list');
-
 async function loadSlackIntegrations() {
   try {
     slackIntegrations = await invoke('list_slack_integrations');
-    renderSlackIntegrationsList();
   } catch (err) {
     console.error('Failed to load Slack integrations:', err);
   }
-}
-
-function renderSlackIntegrationsList() {
-  if (!slackIntegrationsListEl) return;
-  
-  const entries = Object.entries(slackIntegrations);
-  if (entries.length === 0) {
-    slackIntegrationsListEl.innerHTML = '<div style="text-align: center; padding: 40px 0; color: var(--text-secondary); opacity: 0.6;">No Slack workspaces connected yet</div>';
-    return;
-  }
-  
-  slackIntegrationsListEl.innerHTML = entries.map(([id, data]) => {
-    const safeName = escapeHtml(data.name);
-    const safeWorkspace = escapeHtml(data.workspace_name || 'Unknown workspace');
-    return `
-      <div class="integration-item" data-id="${escapeHtml(id)}" style="
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 16px;
-        background: var(--surface-color);
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-      ">
-        <div style="flex: 1;">
-          <div style="font-weight: 600; margin-bottom: 4px;">${safeName}</div>
-          <div style="font-size: 0.75rem; color: var(--text-secondary); opacity: 0.8; font-family: 'SF Mono', monospace;">${safeWorkspace}</div>
-        </div>
-        <div style="display: flex; gap: 8px;">
-          <button class="mini-action-btn test-slack-btn" data-id="${escapeHtml(id)}">Test</button>
-          <button class="mini-action-btn danger remove-slack-btn" data-id="${escapeHtml(id)}">Remove</button>
-        </div>
-      </div>
-    `;
-  }).join('');
-  
-  // Attach event listeners
-  slackIntegrationsListEl.querySelectorAll('.test-slack-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const id = btn.dataset.id;
-      btn.disabled = true;
-      btn.textContent = 'Testing...';
-      try {
-        const workspaceName = await invoke('test_slack_integration', { id });
-        alert(`Connected to: ${workspaceName}`);
-      } catch (err) {
-        alert(`Connection failed: ${err}`);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Test';
-      }
-    });
-  });
-  
-  slackIntegrationsListEl.querySelectorAll('.remove-slack-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const id = btn.dataset.id;
-      const integration = slackIntegrations[id];
-      if (!confirm(`Remove Slack workspace "${integration.name}"?`)) return;
-      
-      try {
-        await invoke('remove_slack_integration', { id });
-        await loadSlackIntegrations();
-      } catch (err) {
-        alert(`Failed to remove: ${err}`);
-      }
-    });
-  });
 }
 
 // add-slack-btn handler removed — integrations-settings.js now handles opening the modal
