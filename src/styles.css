@@ -2803,3 +2803,9 @@ body.is-recording-active .record-btn {
   font-size: 0.8rem;
   margin-top: 8px;
 }
+
+.pipeline-step-item--ghost {
+  opacity: 0.4;
+  background: var(--accent-soft, rgba(99, 102, 241, 0.1));
+  border: 1px dashed var(--accent, #6366f1);
+}

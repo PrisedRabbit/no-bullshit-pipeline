@@ -574,11 +574,6 @@
                     <input id="pipeline-editor-desc" type="text" class="settings-input-text" placeholder="What this pipeline does..." />
                   </div>
                   <div class="editor-field">
-                    <div id="pipeline-preview" class="pipeline-preview">
-                      <!-- Visual chain rendered via JS -->
-                    </div>
-                  </div>
-                  <div class="editor-field">
                     <label>Steps</label>
                     <div id="pipeline-steps-list" class="pipeline-steps-list">
                       <!-- Steps rendered via JS, drag-and-drop sortable -->
@@ -586,6 +581,11 @@
                     <button id="add-pipeline-step-btn" class="mini-action-btn compact-add-btn">
                       + Add Step
                     </button>
+                  </div>
+                  <div class="editor-field">
+                    <div id="pipeline-preview" class="pipeline-preview">
+                      <!-- Visual chain rendered via JS -->
+                    </div>
                   </div>
                   <div class="editor-actions">
                     <button id="save-pipeline-def-btn" class="modal-btn primary">Save</button>
@@ -773,7 +773,9 @@
       </div>
     </div>
 
+    <script src="vendor/sortable.min.js"></script>
     <script src="main.js"></script>
     <script src="integrations-settings.js"></script>
+    <script src="pipeline-builder.js"></script>
   </body>
 </html>
