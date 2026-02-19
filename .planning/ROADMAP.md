@@ -84,11 +84,11 @@ Plans:
   2. Integration profile in settings shows the timestamp of the last schema sync
   3. When a schema is more than 7 days old, the integration profile displays a visible staleness warning
   4. Pipeline builder includes a "Re-sync schema" action that triggers a fresh schema fetch without navigating to the Integrations settings tab
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 12-01: Add token budget validation before AI step execution and schema staleness UI in integration profile
-- [ ] 12-02: Add re-sync schema action to pipeline builder
+- [ ] 12-01-PLAN.md — Token budget validation before AI step execution and schema staleness UI in integration profile (SCHM-01, SCHM-02)
+- [ ] 12-02-PLAN.md — Re-sync schema action in pipeline builder (SCHM-03)
 
 ## Progress
 
