@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 14 — Linear Delivery
-Plan: Not yet planned
-Status: Phase 13 complete, Phase 14 needs planning
-Last activity: 2026-02-19 — Phase 13 executed (1 plan, 1 commit: feat(linear) a763800)
+Plan: 14-01 planned (1 plan, 1 wave, 2 tasks)
+Status: Phase 14 planned, ready to execute
+Last activity: 2026-02-19 — Phase 14 planned (Linear connector + pipeline engine integration)
 
 Progress: [██░░░░░░░░] 20% (1/5 phases)
 
@@ -47,10 +47,10 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Phase 13 executed
+Stopped at: Phase 14 planned
 Resume file: None
 
 ## Next Step
 
-**Action:** Plan Phase 14 — Linear Delivery
-**Context:** Phase 14 creates the Linear issue delivery connector — structured output parsing, issue creation via GraphQL mutation, and JSON retry on parse failure. Depends on Phase 13 (now complete). Follow the Notion connector pattern in `connectors/notion.rs`. See ROADMAP.md Phase 14 details for requirements and success criteria.
+**Action:** Execute Phase 14 — Linear Delivery
+**Context:** Phase 14-01 plan creates: `connectors/linear.rs` (new module — error types, JSON object extraction, field resolution, GraphQL mutation, 3 execute entry points), updates `connectors/mod.rs`, adds `ConnectorType::Linear` to `pipelines.rs`, wires Linear match arm with JSON retry in `pipeline_engine.rs`. Makes `graphql_request` in `integrations/linear.rs` pub(crate). Single wave, 2 tasks, fully autonomous.
