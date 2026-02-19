@@ -69,11 +69,11 @@ Plans:
   2. Pipeline run output includes an expandable "Augmented prompt" section that shows exactly what context was injected into the AI prompt
   3. Pipeline run output shows the wall-clock duration for each step so users can see which steps are slow
   4. The overflow menu and augmented prompt section work correctly at edge cases (0 pipelines, 1 pipeline, exactly N pipelines)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 11-01: Implement pipeline chip overflow menu in app bar
-- [ ] 11-02: Add augmented prompt expandable section and per-step timing to pipeline run output
+- [ ] 11-01-PLAN.md — Harden pipeline chip bar edge cases (0/1-5/6+ pipelines) and overflow accessibility (UX-01)
+- [ ] 11-02-PLAN.md — Add augmented prompt expandable section and per-step timing to pipeline run output (UX-02, UX-03)
 
 ### Phase 12: Schema Management
 **Goal**: Users are protected from token budget overflows and stale schema data, and can refresh schema without leaving the pipeline builder
@@ -104,5 +104,5 @@ Plans:
 | 8. UI Health Check | v1 | 2/2 | Complete | 2026-02-19 |
 | 9. Bug Fixes | 1/1 | Complete    | 2026-02-19 | - |
 | 10. Structured Output Error Recovery | 2/2 | Complete    | 2026-02-19 | 2026-02-19 |
-| 11. UX Polish | v1.1 | 0/2 | Not started | - |
+| 11. UX Polish | v1.1 | 0/2 | Planned | - |
 | 12. Schema Management | v1.1 | 0/2 | Not started | - |
