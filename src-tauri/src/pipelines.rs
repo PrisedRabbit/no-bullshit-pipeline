@@ -80,6 +80,10 @@ pub struct StepStatus {
     pub status: String, // "pending", "running", "done", "failed", "skipped"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_secs: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub augmented_prompt: Option<String>,
 }
 
 /// Pipeline progress event payload

@@ -428,6 +428,13 @@ pub async fn execute_pipeline_internal(
                     None
                 };
 
+                // Save augmented prompt as sidecar file so it can be shown in the UI
+                if let Some(ref aug_text) = augmented {
+                    let aug_path = output_dir.join(format!("{}.augmented-prompt.txt", step.name));
+                    let _ = fs::create_dir_all(&output_dir);
+                    let _ = fs::write(&aug_path, aug_text);
+                }
+
                 connectors::llm::execute(
                     &input_path,
                     &step.config,
@@ -896,18 +903,29 @@ pub fn get_step_outputs(
         let step_file = output_dir.join(format!("{}.md", step.name));
         if step_file.exists() {
             let content = fs::read_to_string(&step_file).unwrap_or_default();
-            // Parse status from frontmatter
-            let (status, error) = parse_step_status(&content);
+            // Parse status, error, and duration from frontmatter
+            let (status, error, duration_secs) = parse_step_status(&content);
+            // Load augmented prompt from sidecar file if present
+            let aug_path = output_dir.join(format!("{}.augmented-prompt.txt", step.name));
+            let augmented_prompt = if aug_path.exists() {
+                fs::read_to_string(&aug_path).ok()
+            } else {
+                None
+            };
             statuses.push(StepStatus {
                 name: step.name.clone(),
                 status,
                 error,
+                duration_secs,
+                augmented_prompt,
             });
         } else {
             statuses.push(StepStatus {
                 name: step.name.clone(),
                 status: "pending".to_string(),
                 error: None,
+                duration_secs: None,
+                augmented_prompt: None,
             });
         }
     }
@@ -916,13 +934,16 @@ pub fn get_step_outputs(
 }
 
 /// Parse step status from frontmatter
-fn parse_step_status(content: &str) -> (String, Option<String>) {
+/// Returns (status, error, duration_secs)
+fn parse_step_status(content: &str) -> (String, Option<String>, Option<f64>) {
     if let Some(stripped) = content.strip_prefix("---")
         && let Some(end_idx) = stripped.find("---")
     {
         let frontmatter = &stripped[..end_idx];
         let mut status = "pending".to_string();
         let mut error = None;
+        let mut created_at: Option<String> = None;
+        let mut completed_at: Option<String> = None;
 
         for line in frontmatter.lines() {
             let line = line.trim();
@@ -933,13 +954,38 @@ fn parse_step_status(content: &str) -> (String, Option<String>) {
                 if err_val != "null" {
                     error = Some(err_val.trim_matches('"').to_string());
                 }
+            } else if let Some(val) = line.strip_prefix("created_at:") {
+                let ts = val.trim().trim_matches('"').to_string();
+                if !ts.is_empty() && ts != "null" {
+                    created_at = Some(ts);
+                }
+            } else if let Some(val) = line.strip_prefix("completed_at:") {
+                let ts = val.trim().trim_matches('"').to_string();
+                if !ts.is_empty() && ts != "null" {
+                    completed_at = Some(ts);
+                }
             }
         }
 
-        return (status, error);
+        let duration_secs = match (&created_at, &completed_at) {
+            (Some(c), Some(d)) => {
+                let start = chrono::DateTime::parse_from_rfc3339(c).ok();
+                let end = chrono::DateTime::parse_from_rfc3339(d).ok();
+                match (start, end) {
+                    (Some(s), Some(e)) => {
+                        let dur = e.signed_duration_since(s);
+                        Some(dur.num_milliseconds() as f64 / 1000.0)
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+
+        return (status, error, duration_secs);
     }
 
-    ("pending".to_string(), None)
+    ("pending".to_string(), None, None)
 }
 
 /// Assign a pipeline to a recording (sets status to "waiting")
