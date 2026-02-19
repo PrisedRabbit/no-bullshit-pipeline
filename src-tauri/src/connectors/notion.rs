@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::fmt;
 use std::fs;
 use std::collections::BTreeMap;
 use chrono::Utc;
@@ -11,6 +12,48 @@ use notion_client::objects::user::User;
 use crate::integrations::notion::{load_notion_profile, get_notion_token, NotionIntegrationProfile};
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Error types
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Categorizes errors from the Notion connector.
+///
+/// `JsonParse` carries the full raw LLM output so the pipeline engine can
+/// retry with a corrective prompt. `Other` covers API errors, config errors,
+/// and all other failure modes where retry would not help.
+#[derive(Debug)]
+pub enum NotionErrorKind {
+    /// JSON extraction or structural validation failed.
+    /// `raw_output` contains the complete LLM output (not truncated).
+    JsonParse { message: String, raw_output: String },
+    /// API errors, config errors, authentication failures, etc.
+    Other(String),
+}
+
+/// Structured error type for the Notion connector.
+///
+/// Implements `Display` and `From<NotionError> for String` so existing
+/// `Result<PathBuf, String>` callers continue to work without changes.
+#[derive(Debug)]
+pub struct NotionError {
+    pub kind: NotionErrorKind,
+}
+
+impl fmt::Display for NotionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.kind {
+            NotionErrorKind::JsonParse { message, .. } => write!(f, "{}", message),
+            NotionErrorKind::Other(msg) => write!(f, "{}", msg),
+        }
+    }
+}
+
+impl From<NotionError> for String {
+    fn from(e: NotionError) -> String {
+        e.to_string()
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Config
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -20,14 +63,16 @@ struct NotionConnectorConfig {
 }
 
 impl NotionConnectorConfig {
-    fn from_value(config: &serde_json::Value) -> Result<Self, String> {
+    fn from_value(config: &serde_json::Value) -> Result<Self, NotionError> {
         let integration_id = config
             .get("integration_id")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                "Notion connector config missing 'integration_id'. \
-                 Add integration_id to the step config in the pipeline definition."
-                    .to_string()
+            .ok_or_else(|| NotionError {
+                kind: NotionErrorKind::Other(
+                    "Notion connector config missing 'integration_id'. \
+                     Add integration_id to the step config in the pipeline definition."
+                        .to_string(),
+                ),
             })?
             .to_string();
         Ok(NotionConnectorConfig { integration_id })
@@ -44,8 +89,10 @@ impl NotionConnectorConfig {
 ///   2. JSON array wrapped in ```json ... ``` code fence
 ///   3. JSON array wrapped in ``` ... ``` bare code fence
 ///
-/// Returns a descriptive error showing the raw content on parse failure.
-fn extract_json_array(content: &str) -> Result<Vec<serde_json::Value>, String> {
+/// Returns `NotionErrorKind::JsonParse` with the full raw body stored in
+/// `raw_output` on parse failure. The display `message` includes a 500-char
+/// preview for human-readable errors.
+fn extract_json_array(content: &str) -> Result<Vec<serde_json::Value>, NotionError> {
     let body = crate::connectors::strip_frontmatter(content);
     let trimmed = body.trim();
 
@@ -76,14 +123,20 @@ fn extract_json_array(content: &str) -> Result<Vec<serde_json::Value>, String> {
         }
     }
 
-    // Parse failed — return descriptive error with raw LLM output (AUGM-05)
+    // Parse failed — return JsonParse error with full raw body stored for retry,
+    // plus a 500-char preview in the human-readable message.
     let preview = &trimmed[..trimmed.len().min(500)];
-    Err(format!(
-        "Notion connector: could not parse LLM output as JSON array.\n\
-         Expected a JSON array like: [{{\"Title\": \"...\", ...}}]\n\
-         Raw LLM output (first 500 chars): {}",
-        preview
-    ))
+    Err(NotionError {
+        kind: NotionErrorKind::JsonParse {
+            message: format!(
+                "Notion connector: could not parse LLM output as JSON array.\n\
+                 Expected a JSON array like: [{{\"Title\": \"...\", ...}}]\n\
+                 Raw LLM output (first 500 chars): {}",
+                preview
+            ),
+            raw_output: trimmed.to_string(),
+        },
+    })
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -100,20 +153,24 @@ const WRITABLE_TYPES: &[&str] = &[
 /// Validate that each item in the parsed JSON array has at least one key
 /// matching a writable property from the integration profile.
 ///
-/// Called between `extract_json_array()` and `build_notion_properties()` in
-/// the execute flow. On failure, returns a descriptive error including the
-/// raw LLM output so the user can see what went wrong.
+/// Returns `NotionErrorKind::JsonParse` on structural mismatch — these errors
+/// benefit from the same corrective-prompt retry as parse failures.
 fn validate_llm_output_for_notion(
     items: &[serde_json::Value],
     profile: &NotionIntegrationProfile,
     raw_output: &str,
-) -> Result<(), String> {
+) -> Result<(), NotionError> {
     if items.is_empty() {
-        return Err(format!(
-            "Notion connector: LLM output parsed as empty JSON array — no pages to create.\n\
-             Raw LLM output (first 500 chars): {}",
-            &raw_output[..raw_output.len().min(500)]
-        ));
+        return Err(NotionError {
+            kind: NotionErrorKind::JsonParse {
+                message: format!(
+                    "Notion connector: LLM output parsed as empty JSON array — no pages to create.\n\
+                     Raw LLM output (first 500 chars): {}",
+                    &raw_output[..raw_output.len().min(500)]
+                ),
+                raw_output: raw_output.to_string(),
+            },
+        });
     }
 
     // Collect writable property names from the profile
@@ -125,28 +182,38 @@ fn validate_llm_output_for_notion(
     for (idx, item) in items.iter().enumerate() {
         let obj = match item.as_object() {
             Some(o) => o,
-            None => return Err(format!(
-                "Notion connector: JSON array element {} is not an object.\n\
-                 Expected objects like {{\"Title\": \"...\", ...}}\n\
-                 Raw LLM output (first 500 chars): {}",
-                idx,
-                &raw_output[..raw_output.len().min(500)]
-            )),
+            None => return Err(NotionError {
+                kind: NotionErrorKind::JsonParse {
+                    message: format!(
+                        "Notion connector: JSON array element {} is not an object.\n\
+                         Expected objects like {{\"Title\": \"...\", ...}}\n\
+                         Raw LLM output (first 500 chars): {}",
+                        idx,
+                        &raw_output[..raw_output.len().min(500)]
+                    ),
+                    raw_output: raw_output.to_string(),
+                },
+            }),
         };
 
         // Check that at least one key matches a writable profile property
         let has_valid_key = obj.keys().any(|k| writable_names.contains(k.as_str()));
         if !has_valid_key {
-            return Err(format!(
-                "Notion connector: JSON array element {} has no keys matching the database schema.\n\
-                 Expected property names: {}\n\
-                 Got keys: {}\n\
-                 Raw LLM output (first 500 chars): {}",
-                idx,
-                writable_names.iter().copied().collect::<Vec<_>>().join(", "),
-                obj.keys().cloned().collect::<Vec<_>>().join(", "),
-                &raw_output[..raw_output.len().min(500)]
-            ));
+            return Err(NotionError {
+                kind: NotionErrorKind::JsonParse {
+                    message: format!(
+                        "Notion connector: JSON array element {} has no keys matching the database schema.\n\
+                         Expected property names: {}\n\
+                         Got keys: {}\n\
+                         Raw LLM output (first 500 chars): {}",
+                        idx,
+                        writable_names.iter().copied().collect::<Vec<_>>().join(", "),
+                        obj.keys().cloned().collect::<Vec<_>>().join(", "),
+                        &raw_output[..raw_output.len().min(500)]
+                    ),
+                    raw_output: raw_output.to_string(),
+                },
+            });
         }
     }
 
@@ -237,10 +304,15 @@ fn resolve_people_aliases(
 fn build_notion_properties(
     item: &serde_json::Value,
     profile: &NotionIntegrationProfile,
-) -> Result<BTreeMap<String, PageProperty>, String> {
+) -> Result<BTreeMap<String, PageProperty>, NotionError> {
     let obj = item
         .as_object()
-        .ok_or_else(|| "JSON item is not an object — expected a JSON object with property names as keys".to_string())?;
+        .ok_or_else(|| NotionError {
+            kind: NotionErrorKind::Other(
+                "JSON item is not an object — expected a JSON object with property names as keys"
+                    .to_string(),
+            ),
+        })?;
 
     let mut properties: BTreeMap<String, PageProperty> = BTreeMap::new();
 
@@ -438,86 +510,32 @@ fn build_notion_properties(
     }
 
     if properties.is_empty() {
-        return Err(
-            "No properties could be mapped from LLM output to Notion schema. \
-             Verify the integration profile is synced (Settings > Integrations > Sync Schema), \
-             and that the LLM output contains at least one key matching a writable property name."
-                .to_string(),
-        );
+        return Err(NotionError {
+            kind: NotionErrorKind::Other(
+                "No properties could be mapped from LLM output to Notion schema. \
+                 Verify the integration profile is synced (Settings > Integrations > Sync Schema), \
+                 and that the LLM output contains at least one key matching a writable property name."
+                    .to_string(),
+            ),
+        });
     }
 
     Ok(properties)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Execute entry point
+// Output file helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
-/// Execute Notion connector: parse LLM JSON output, build Notion PageProperty maps,
-/// and create one Notion database page per JSON array element.
-///
-/// Matches the standard connector signature used by pipeline_engine.rs.
-pub async fn execute(
-    input_path: &Path,
-    config: &serde_json::Value,
-    output_dir: &Path,
+/// Write the step output .md file on success.
+fn write_success_output(
+    output_path: &Path,
     step_name: &str,
-    input_step: &str,
     description: Option<&str>,
-) -> Result<PathBuf, String> {
-    // Parse connector config
-    let connector_config = NotionConnectorConfig::from_value(config)?;
-
-    // Load integration profile from disk
-    let profile = load_notion_profile(&connector_config.integration_id)?;
-
-    // Get Notion API token (never logged or included in errors)
-    let token = get_notion_token(&connector_config.integration_id)?;
-
-    // Create Notion client
-    let client = Client::new(token, None)
-        .map_err(|e| format!("Failed to create Notion client: {:?}", e))?;
-
-    // Read the input file (previous step's output)
-    let raw = fs::read_to_string(input_path)
-        .map_err(|e| format!("Failed to read input file '{}': {}", input_path.display(), e))?;
-
-    // Extract JSON array from LLM output (handles bare JSON and code fences)
-    let items = extract_json_array(&raw)?;
-
-    // Validate LLM output structure against the integration profile schema (AUGM-04, AUGM-05).
-    // Fails with a clear error + raw output if structure doesn't match.
-    validate_llm_output_for_notion(&items, &profile, &raw)?;
-
-    // Create one Notion page per JSON array element
-    let mut page_ids: Vec<String> = Vec::new();
-    for item in &items {
-        let properties = build_notion_properties(item, &profile)?;
-
-        let request = CreateAPageRequest {
-            parent: Parent::DatabaseId {
-                database_id: profile.database_id.clone(),
-            },
-            icon: None,
-            cover: None,
-            properties,
-            children: None,
-        };
-
-        let page = client
-            .pages
-            .create_a_page(request)
-            .await
-            .map_err(|e| format!("Failed to create Notion page: {:?}", e))?;
-
-        page_ids.push(page.id.clone());
-    }
-
-    // Write output markdown with YAML frontmatter
-    fs::create_dir_all(output_dir)
-        .map_err(|e| format!("Failed to create output directory: {}", e))?;
-
-    let output_path = output_dir.join(format!("{}.md", step_name));
+    input_step: &str,
+    integration_id: &str,
+    page_ids: &[String],
+) -> Result<(), NotionError> {
     let now = Utc::now().to_rfc3339();
     let pages_summary = if page_ids.is_empty() {
         "No pages created (empty input array)".to_string()
@@ -546,13 +564,248 @@ error: null
         input_step,
         now,
         now,
-        connector_config.integration_id,
+        integration_id,
         page_ids.len(),
         pages_summary
     );
 
-    fs::write(&output_path, frontmatter)
-        .map_err(|e| format!("Failed to write output file: {}", e))?;
+    fs::write(output_path, frontmatter)
+        .map_err(|e| NotionError {
+            kind: NotionErrorKind::Other(format!("Failed to write output file: {}", e)),
+        })
+}
 
-    Ok(output_path)
+/// Write the step output .md file on failure, optionally preserving raw AI output.
+///
+/// When `raw_llm_output` is `Some`, the raw output is appended to the file body
+/// so users can inspect what the AI actually returned and diagnose prompt issues.
+fn write_failure_output(
+    output_path: &Path,
+    step_name: &str,
+    description: Option<&str>,
+    input_step: &str,
+    integration_id: &str,
+    error_message: &str,
+    raw_llm_output: Option<&str>,
+) -> Result<(), NotionError> {
+    let now = Utc::now().to_rfc3339();
+    let error_escaped = error_message.replace('"', "\\\"").replace('\n', " ");
+
+    let frontmatter = format!(
+        "---\nname: {}\ndescription: \"{}\"\nconnector: notion\ninput: {}\nstatus: failed\ncreated_at: {}\ncompleted_at: {}\nintegration_id: {}\npages_created: 0\nerror: \"{}\"\n---\n",
+        step_name,
+        description.unwrap_or("Create Notion pages"),
+        input_step,
+        now,
+        now,
+        integration_id,
+        error_escaped,
+    );
+
+    let body = match raw_llm_output {
+        Some(raw) => format!(
+            "\n## Error\n{}\n\n## Raw AI Output\n{}\n",
+            error_message, raw
+        ),
+        None => format!("\n## Error\n{}\n", error_message),
+    };
+
+    let content = format!("{}{}", frontmatter, body);
+
+    fs::write(output_path, content)
+        .map_err(|e| NotionError {
+            kind: NotionErrorKind::Other(format!("Failed to write failure output file: {}", e)),
+        })
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Core execution logic (shared between execute() and execute_structured())
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Inner async function: validates and creates Notion pages from an LLM output file.
+/// Returns `Result<(PathBuf, Vec<String>), NotionError>` where the Vec contains page IDs.
+async fn execute_inner(
+    input_path: &Path,
+    config: &serde_json::Value,
+    output_dir: &Path,
+    step_name: &str,
+    input_step: &str,
+    description: Option<&str>,
+) -> Result<(PathBuf, Vec<String>, String), NotionError> {
+    // Parse connector config
+    let connector_config = NotionConnectorConfig::from_value(config)?;
+
+    // Load integration profile from disk
+    let profile = load_notion_profile(&connector_config.integration_id)
+        .map_err(|e| NotionError { kind: NotionErrorKind::Other(e) })?;
+
+    // Get Notion API token (never logged or included in errors)
+    let token = get_notion_token(&connector_config.integration_id)
+        .map_err(|e| NotionError { kind: NotionErrorKind::Other(e) })?;
+
+    // Create Notion client
+    let client = Client::new(token, None)
+        .map_err(|e| NotionError {
+            kind: NotionErrorKind::Other(format!("Failed to create Notion client: {:?}", e)),
+        })?;
+
+    // Read the input file (previous step's output)
+    let raw = fs::read_to_string(input_path)
+        .map_err(|e| NotionError {
+            kind: NotionErrorKind::Other(format!(
+                "Failed to read input file '{}': {}",
+                input_path.display(),
+                e
+            )),
+        })?;
+
+    // Extract JSON array from LLM output (handles bare JSON and code fences)
+    // Returns NotionErrorKind::JsonParse on failure.
+    let items = extract_json_array(&raw)?;
+
+    // Validate LLM output structure against the integration profile schema.
+    // Returns NotionErrorKind::JsonParse on structural mismatch.
+    validate_llm_output_for_notion(&items, &profile, &raw)?;
+
+    // Create one Notion page per JSON array element
+    let mut page_ids: Vec<String> = Vec::new();
+    for item in &items {
+        let properties = build_notion_properties(item, &profile)?;
+
+        let request = CreateAPageRequest {
+            parent: Parent::DatabaseId {
+                database_id: profile.database_id.clone(),
+            },
+            icon: None,
+            cover: None,
+            properties,
+            children: None,
+        };
+
+        let page = client
+            .pages
+            .create_a_page(request)
+            .await
+            .map_err(|e| NotionError {
+                kind: NotionErrorKind::Other(format!("Failed to create Notion page: {:?}", e)),
+            })?;
+
+        page_ids.push(page.id.clone());
+    }
+
+    // Ensure output directory exists
+    fs::create_dir_all(output_dir)
+        .map_err(|e| NotionError {
+            kind: NotionErrorKind::Other(format!("Failed to create output directory: {}", e)),
+        })?;
+
+    let output_path = output_dir.join(format!("{}.md", step_name));
+
+    write_success_output(
+        &output_path,
+        step_name,
+        description,
+        input_step,
+        &connector_config.integration_id,
+        &page_ids,
+    )?;
+
+    Ok((output_path, page_ids, connector_config.integration_id))
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Execute entry points
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Execute Notion connector: parse LLM JSON output, build Notion PageProperty maps,
+/// and create one Notion database page per JSON array element.
+///
+/// Matches the standard connector signature used by pipeline_engine.rs.
+/// For structured error handling (JSON retry logic), use `execute_structured()`.
+pub async fn execute(
+    input_path: &Path,
+    config: &serde_json::Value,
+    output_dir: &Path,
+    step_name: &str,
+    input_step: &str,
+    description: Option<&str>,
+) -> Result<PathBuf, String> {
+    execute_inner(input_path, config, output_dir, step_name, input_step, description)
+        .await
+        .map(|(path, _, _)| path)
+        .map_err(String::from)
+}
+
+/// Execute Notion connector with structured error return.
+///
+/// Returns `NotionError` instead of `String` so the pipeline engine can
+/// distinguish `JsonParse` failures (which benefit from a corrective-prompt
+/// retry) from `Other` failures (which do not).
+///
+/// On `JsonParse` failure the step output .md file is NOT written — the
+/// pipeline engine must call `execute_with_raw_preservation()` after a failed
+/// retry to persist the failure state with raw output.
+pub async fn execute_structured(
+    input_path: &Path,
+    config: &serde_json::Value,
+    output_dir: &Path,
+    step_name: &str,
+    input_step: &str,
+    description: Option<&str>,
+) -> Result<PathBuf, NotionError> {
+    execute_inner(input_path, config, output_dir, step_name, input_step, description)
+        .await
+        .map(|(path, _, _)| path)
+}
+
+/// Execute Notion connector and write the step .md file with raw AI output
+/// preserved on any failure.
+///
+/// This is the final-failure write path called by the pipeline engine after a
+/// retry also fails. It ensures the raw LLM output (from whichever attempt
+/// failed last) is always visible in the step output file.
+///
+/// - `raw_llm_output`: The complete raw LLM output to preserve. If `None`,
+///   falls back to writing a failure file without raw output (same as `execute()`).
+pub async fn execute_with_raw_preservation(
+    input_path: &Path,
+    config: &serde_json::Value,
+    output_dir: &Path,
+    step_name: &str,
+    input_step: &str,
+    description: Option<&str>,
+    raw_llm_output: Option<&str>,
+) -> Result<PathBuf, String> {
+    let result = execute_inner(input_path, config, output_dir, step_name, input_step, description).await;
+
+    match result {
+        Ok((path, _, _)) => Ok(path),
+        Err(e) => {
+            // On failure, write the step .md file with the raw output preserved
+            let error_message = e.to_string();
+
+            // Ensure output dir exists (inner may not have reached that point)
+            let _ = fs::create_dir_all(output_dir);
+
+            let output_path = output_dir.join(format!("{}.md", step_name));
+
+            // Extract integration_id for the failure output file
+            let integration_id = config
+                .get("integration_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+
+            let _ = write_failure_output(
+                &output_path,
+                step_name,
+                description,
+                input_step,
+                integration_id,
+                &error_message,
+                raw_llm_output,
+            );
+
+            Err(error_message)
+        }
+    }
 }
