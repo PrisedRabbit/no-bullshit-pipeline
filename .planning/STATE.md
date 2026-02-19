@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-18)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** Phase 7 (Pipeline Data Model and Tags Migration) — planned, ready to execute
+**Current focus:** Phase 7 (Pipeline Data Model and Tags Migration) — complete
 
 ## Current Position
 
-Phase: 7 of 8 (Pipeline Data Model and Tags Migration) — in progress
-Plan: 1 of 2 in current phase — plan 01 complete
-Status: Phase 7 in progress — 1/2 plans complete
-Last activity: 2026-02-19 — Phase 7 Plan 01 execution complete
+Phase: 7 of 8 (Pipeline Data Model and Tags Migration) — complete
+Plan: 2 of 2 in current phase — plan 02 complete
+Status: Phase 7 complete — 2/2 plans complete
+Last activity: 2026-02-19 — Phase 7 Plan 02 execution complete
 
-Progress: [██████░░░░] 65% (17/26 plans)
+Progress: [███████░░░] 69% (18/26 plans)
 
 ## Performance Metrics
 
@@ -117,6 +117,9 @@ Recent decisions affecting current work:
 - [07-01]: PipelineStatus::Done used for migrated labels — label has no steps to run so Done is the correct terminal state (not Waiting)
 - [07-01]: Migration loads pipelines once, inserts all missing entries in loop, saves once — avoids N disk writes for N tags
 - [07-01]: Migration errors swallowed (let _ =) in read_metadata and list_recordings — migration failure must not block recording access
+- [Phase 07]: Zero-step guard inserted after validate_pipeline() and before transcript check — label pipelines must not require a transcript to execute
+- [Phase 07]: Frontend zero-step guard removed entirely — Rust backend validate_pipeline() is the single authoritative validator
+- [Phase 07]: PIPE-05 output isolation confirmed via test_pipeline_output_dir_isolation — no code changes needed, already working
 
 ### Pending Todos
 
@@ -132,11 +135,11 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Completed 07-01-PLAN.md
+Stopped at: Completed 07-02-PLAN.md
 Resume file: None
 
 ## Next Step
 
-**Action:** execute Phase 7 Plan 02 (Pipeline Data Model and Tags Migration — Wave 2)
-**Command:** /gsd:execute-phase 7
+**Action:** execute Phase 8
+**Command:** /gsd:execute-phase 8
 **Context:** Phase 7 Wave 1 (07-01) complete — types consolidated in pipelines.rs, RecordingMetadata has typed pipelines field, lazy tag migration implemented. Wave 2 (07-02): Zero-step early return in pipeline_engine.execute_pipeline_internal(), remove frontend zero-step guard in pipeline-builder.js.
