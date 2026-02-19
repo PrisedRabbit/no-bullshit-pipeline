@@ -42,6 +42,14 @@ pub struct LinearTeamInfo {
     pub name: String,
 }
 
+/// A mapping from a local alias (e.g. "me") to a Linear team member.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct MemberAlias {
+    pub alias: String,
+    pub member_id: String,
+    pub display_name: String,
+}
+
 /// Full integration profile for a single Linear team connection.
 /// Stored as `~/.nbp/integrations/linear-{id}.json`.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -58,6 +66,8 @@ pub struct LinearIntegrationProfile {
     pub members: Vec<LinearMember>,
     #[serde(default)]
     pub priorities: Vec<LinearPriority>,
+    #[serde(default)]
+    pub member_aliases: Vec<MemberAlias>,
     pub synced_at: String,
 }
 
@@ -208,6 +218,7 @@ pub async fn add_linear_integration(name: String, api_key: String) -> Result<Str
         labels: Vec::new(),
         members: Vec::new(),
         priorities: Vec::new(),
+        member_aliases: Vec::new(),
         synced_at: String::new(),
     };
 
@@ -385,10 +396,10 @@ pub async fn sync_linear_schema(
         LinearPriority { priority: 4, label: "Low".into() },
     ];
 
-    // Load existing profile to preserve name field
-    let existing_name = match load_linear_profile(&integration_id) {
-        Ok(existing) => existing.name,
-        Err(_) => team_name.clone(),
+    // Load existing profile to preserve name and member_aliases fields
+    let (existing_name, existing_aliases) = match load_linear_profile(&integration_id) {
+        Ok(existing) => (existing.name, existing.member_aliases),
+        Err(_) => (team_name.clone(), Vec::new()),
     };
 
     let profile = LinearIntegrationProfile {
@@ -400,12 +411,39 @@ pub async fn sync_linear_schema(
         labels,
         members,
         priorities,
+        member_aliases: existing_aliases,
         synced_at: chrono::Utc::now().to_rfc3339(),
     };
 
     save_linear_profile(&profile)?;
 
     Ok(profile)
+}
+
+/// Update the member aliases (alias-to-member) for a Linear integration.
+/// Validates that all referenced Linear member IDs exist in the profile's members list.
+/// Returns an error if any alias references a member ID not in the team.
+#[tauri::command]
+pub async fn update_linear_member_aliases(
+    integration_id: String,
+    aliases: Vec<MemberAlias>,
+) -> Result<(), String> {
+    let mut profile = load_linear_profile(&integration_id)?;
+
+    // Validate every alias references a known team member
+    for alias in &aliases {
+        let found = profile.members.iter().any(|m| m.id == alias.member_id);
+        if !found {
+            return Err(format!(
+                "Member ID '{}' not found in team members. Re-sync the schema to refresh the member list.",
+                alias.member_id
+            ));
+        }
+    }
+
+    profile.member_aliases = aliases;
+    save_linear_profile(&profile)?;
+    Ok(())
 }
 
 /// List all Linear integration profiles from disk.

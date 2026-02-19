@@ -199,6 +199,7 @@ pub fn run() {
             integrations::linear::test_linear_integration,
             integrations::linear::remove_linear_integration,
             integrations::linear::list_linear_profiles,
+            integrations::linear::update_linear_member_aliases,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
