@@ -626,8 +626,8 @@ pub async fn execute_pipeline_internal(
 
         let step_result = match step.connector {
             ConnectorType::Llm => {
-                // N+1 look-ahead: augment prompt if next step is Notion
-                // Only augments the LLM step directly before a Notion step (v1 scope).
+                // N+1 look-ahead: augment prompt if next step is Notion or Linear.
+                // Only augments the LLM step directly before a delivery step (v1 scope).
                 // Non-contiguous chains like [LLM, Save, Notion] are not augmented.
                 let augmented = if let Some(next_step) = pipeline.steps.get(i + 1) {
                     if next_step.connector == ConnectorType::Notion {
@@ -640,6 +640,16 @@ pub async fn execute_pipeline_internal(
                                 next_step.name
                             ))?;
                         Some(build_augmented_prompt(&step.config, &input_path, integration_id)?)
+                    } else if next_step.connector == ConnectorType::Linear {
+                        let integration_id = next_step.config
+                            .get("integration_id")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| format!(
+                                "Step '{}': Linear step missing integration_id in config \
+                                 (required for prompt augmentation)",
+                                next_step.name
+                            ))?;
+                        Some(build_linear_augmented_prompt(&step.config, &input_path, integration_id)?)
                     } else {
                         None
                     }
@@ -866,22 +876,16 @@ pub async fn execute_pipeline_internal(
                         };
 
                         let retry_result = if let Some(llm_step) = llm_step_for_retry {
-                            // Build original prompt from the LLM step config directly
-                            // (no Notion-style augmentation for Linear yet — that's Phase 15)
-                            let original_prompt = {
-                                let llm_input_path = resolve_input_path(recording_id, pipeline_name, &llm_step.input);
-                                let raw_input = std::fs::read_to_string(&llm_input_path).unwrap_or_default();
-                                let input_content = crate::connectors::strip_frontmatter(&raw_input);
-                                if let Some(tmpl) = llm_step.config.get("prompt_template").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty()) {
-                                    crate::prompt_templates::get_prompt_template_internal(tmpl)
-                                        .map(|t| crate::prompt_templates::substitute_variables(&t.prompt, input_content))
-                                        .unwrap_or_default()
-                                } else if let Some(inline) = llm_step.config.get("prompt_inline").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty()) {
-                                    crate::prompt_templates::substitute_variables(inline, input_content)
-                                } else {
-                                    String::new()
-                                }
-                            };
+                            // Rebuild augmented prompt for retry — uses same schema guidance as original call
+                            let linear_integration_id = step.config
+                                .get("integration_id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            let original_prompt = build_linear_augmented_prompt(
+                                &llm_step.config,
+                                &resolve_input_path(recording_id, pipeline_name, &llm_step.input),
+                                linear_integration_id,
+                            ).unwrap_or_default();
 
                             connectors::llm::execute_retry(
                                 &raw_output,
