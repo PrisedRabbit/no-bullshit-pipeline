@@ -15,6 +15,7 @@ pub enum ConnectorType {
     Slack,
     Mcp,
     Notion,
+    Linear,
 }
 
 impl ConnectorType {
@@ -25,7 +26,7 @@ impl ConnectorType {
     /// Processing connectors (Llm, Mcp) produce output consumed by downstream steps.
     /// Their failure halts all downstream steps because those steps depend on the output.
     pub fn is_delivery(&self) -> bool {
-        matches!(self, ConnectorType::Notion | ConnectorType::Slack | ConnectorType::Webhook | ConnectorType::Save)
+        matches!(self, ConnectorType::Notion | ConnectorType::Linear | ConnectorType::Slack | ConnectorType::Webhook | ConnectorType::Save)
     }
 }
 
@@ -261,6 +262,14 @@ fn validate_step_config(step: &PipelineStep) -> Result<(), String> {
             if step.config.get("integration_id").and_then(|v| v.as_str()).is_none() {
                 return Err(format!(
                     "Step '{}': Notion connector requires 'integration_id' in config",
+                    step.name
+                ));
+            }
+        }
+        ConnectorType::Linear => {
+            if step.config.get("integration_id").and_then(|v| v.as_str()).is_none() {
+                return Err(format!(
+                    "Step '{}': Linear connector requires 'integration_id' in config",
                     step.name
                 ));
             }

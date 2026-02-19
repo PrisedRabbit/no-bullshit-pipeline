@@ -130,7 +130,7 @@ pub fn delete_linear_token(integration_id: &str) -> Result<(), String> {
 // Internal GraphQL helper
 // ──────────────────────────────────────────────────────────────────────────────
 
-async fn graphql_request(
+pub(crate) async fn graphql_request(
     token: &str,
     query: &str,
     variables: Option<serde_json::Value>,

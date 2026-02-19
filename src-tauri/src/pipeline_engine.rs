@@ -638,6 +638,125 @@ pub async fn execute_pipeline_internal(
                     }
                 }
             }
+            ConnectorType::Linear => {
+                // Use execute_structured to detect JSON parse failures for retry.
+                // JSON parse failures trigger exactly one corrective-prompt retry
+                // using the same LLM provider/model. Other errors skip retry.
+                use connectors::linear::LinearErrorKind;
+
+                let linear_result = connectors::linear::execute_structured(
+                    &input_path,
+                    &step.config,
+                    &output_dir,
+                    &step.name,
+                    &step.input,
+                    step.description.as_deref(),
+                )
+                .await;
+
+                match linear_result {
+                    Ok(path) => Ok(path),
+                    Err(ref linear_err) if matches!(linear_err.kind, LinearErrorKind::JsonParse { .. }) => {
+                        let raw_output = match &linear_err.kind {
+                            LinearErrorKind::JsonParse { raw_output, .. } => raw_output.clone(),
+                            _ => unreachable!(),
+                        };
+
+                        eprintln!(
+                            "[pipeline] Linear JSON parse failure on step '{}', retrying with corrective prompt",
+                            step.name
+                        );
+
+                        let llm_step_for_retry = if i > 0 {
+                            pipeline.steps.get(i - 1).filter(|s| s.connector == ConnectorType::Llm)
+                        } else {
+                            None
+                        };
+
+                        let retry_result = if let Some(llm_step) = llm_step_for_retry {
+                            // Build original prompt from the LLM step config directly
+                            // (no Notion-style augmentation for Linear yet — that's Phase 15)
+                            let original_prompt = {
+                                let llm_input_path = resolve_input_path(recording_id, pipeline_name, &llm_step.input);
+                                let raw_input = std::fs::read_to_string(&llm_input_path).unwrap_or_default();
+                                let input_content = crate::connectors::strip_frontmatter(&raw_input);
+                                if let Some(tmpl) = llm_step.config.get("prompt_template").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty()) {
+                                    crate::prompt_templates::get_prompt_template_internal(tmpl)
+                                        .map(|t| crate::prompt_templates::substitute_variables(&t.prompt, input_content))
+                                        .unwrap_or_default()
+                                } else if let Some(inline) = llm_step.config.get("prompt_inline").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty()) {
+                                    crate::prompt_templates::substitute_variables(inline, input_content)
+                                } else {
+                                    String::new()
+                                }
+                            };
+
+                            connectors::llm::execute_retry(
+                                &raw_output,
+                                &original_prompt,
+                                &llm_step.config,
+                                &output_dir,
+                                &llm_step.name,
+                                &llm_step.input,
+                                llm_step.description.as_deref(),
+                            )
+                            .await
+                        } else {
+                            Err(format!(
+                                "Linear JSON parse failure on step '{}': no preceding LLM step found for retry",
+                                step.name
+                            ))
+                        };
+
+                        match retry_result {
+                            Ok(retry_output_path) => {
+                                connectors::linear::execute_with_raw_preservation(
+                                    &retry_output_path,
+                                    &step.config,
+                                    &output_dir,
+                                    &step.name,
+                                    &step.input,
+                                    step.description.as_deref(),
+                                    Some(&raw_output),
+                                )
+                                .await
+                            }
+                            Err(retry_llm_error) => {
+                                let error_message = format!(
+                                    "Linear step '{}' failed with JSON parse error, and retry LLM call also failed: {}",
+                                    step.name, retry_llm_error
+                                );
+
+                                let _ = fs::create_dir_all(&output_dir);
+                                let output_path = output_dir.join(format!("{}.md", step.name));
+                                let integration_id = step.config
+                                    .get("integration_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("unknown");
+                                let now = chrono::Utc::now().to_rfc3339();
+                                let error_escaped = error_message.replace('"', "\\\"").replace('\n', " ");
+                                let file_content = format!(
+                                    "---\nname: {}\ndescription: \"{}\"\nconnector: linear\ninput: {}\nstatus: failed\ncreated_at: {}\ncompleted_at: {}\nintegration_id: {}\nissues_created: 0\nerror: \"{}\"\n---\n\n## Error\n{}\n\n## Raw AI Output\n{}\n",
+                                    step.name,
+                                    step.description.as_deref().unwrap_or("Create Linear issue"),
+                                    step.input,
+                                    now, now,
+                                    integration_id,
+                                    error_escaped,
+                                    error_message,
+                                    raw_output,
+                                );
+                                let _ = fs::write(&output_path, &file_content);
+
+                                Err(error_message)
+                            }
+                        }
+                    }
+                    Err(other_err) => {
+                        Err(other_err.to_string())
+                    }
+                }
+            }
             ConnectorType::Mcp => {
                 Err("MCP connector not yet implemented".to_string())
             }
