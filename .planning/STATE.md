@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-18)
 
 ## Current Position
 
-Phase: 6 of 8 (Pre-Assignment UX and Execution) — in progress
-Plan: 2 of 3 in current phase — 06-01 and 06-02 complete, 06-03 remains
-Status: 06-02 complete — default pipeline setting, last-used persistence, detail view pipeline assignment
-Last activity: 2026-02-19 — 06-02 default/last-used pipeline plan executed
+Phase: 6 of 8 (Pre-Assignment UX and Execution) — complete
+Plan: 3 of 3 in current phase — all plans complete
+Status: 06-03 complete — auto-execute pipeline on recording stop, pipeline status badges in detail view
+Last activity: 2026-02-19 — 06-03 auto-execute and pipeline status plan executed
 
-Progress: [█████░░░░░] 58% (15/26 plans)
+Progress: [██████░░░░] 62% (16/26 plans)
 
 ## Performance Metrics
 
@@ -109,6 +109,10 @@ Recent decisions affecting current work:
 - [06-02]: detailPipelineHandler module-level variable enables removeEventListener before re-attaching on each showDetailView call — prevents stacked async change listeners
 - [06-02]: last_used_pipeline saved immediately after assign_pipeline succeeds in startRecordingWithPipeline() — persists before any UI updates
 - [06-02]: populateDefaultPipelineSelect() called via typeof guard from loadPipelineDefs() — same cross-module pattern as renderPipelineChips()
+- [06-03]: autoTranscribeAndExecute() is NOT awaited in stopRecording() — fire-and-forget so user can continue using app while transcription and pipeline run in background
+- [06-03]: Auto-execute gated on appSettings?.transcription?.enabled — if transcription is disabled, pipeline stays Waiting (no error, no attempt)
+- [06-03]: partial status from Rust displayed as Failed in UI via PIPELINE_STATUS_DISPLAY map — CSS class preserves Rust variant name but display text is user-friendly
+- [06-03]: pipelineProgressUnlisten module-level variable enables unlisten before re-subscribing on each showDetailView() call — prevents stacked pipeline-progress listeners
 
 ### Pending Todos
 
@@ -124,11 +128,11 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Completed 06-pre-assignment-ux-and-execution-06-02-PLAN.md
+Stopped at: Completed 06-pre-assignment-ux-and-execution-06-03-PLAN.md
 Resume file: None
 
 ## Next Step
 
-**Action:** execute Phase 6 Plan 03 (auto-execute pipeline on recording stop)
-**Command:** /gsd:execute-phase 6
-**Context:** 06-01 and 06-02 complete. Pipeline chip bar live, last-used pipeline highlighting persists across launches, detail view pipeline assignment dropdown works. 06-03 adds auto-execute: when a recording stops with an assigned pipeline (stoppedPipeline local var), automatically trigger pipeline execution.
+**Action:** execute Phase 7 (Migration and Cleanup)
+**Command:** /gsd:execute-phase 7
+**Context:** Phase 6 complete. All three plans executed: chip bar assignment (06-01), default/last-used pipeline persistence (06-02), auto-execute with status display (06-03). The zero-post-recording-work promise is now fulfilled. Phase 7 handles lazy migration of legacy recordings with tags to pipeline assignments.

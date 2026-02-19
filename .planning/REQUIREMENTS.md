@@ -65,9 +65,9 @@ Requirements for the Pipelines v2 milestone. Each maps to roadmap phases.
 
 ### Pipeline Execution
 
-- [ ] **EXEC-01**: After recording stops, auto-transcribe followed by auto-pipeline execution with no user action
-- [ ] **EXEC-02**: Pipeline run status per recording visible in recording detail view (Waiting/Running/Done/Failed)
-- [ ] **EXEC-03**: Failed pipeline step shows inline error with the specific step that failed and why
+- [x] **EXEC-01**: After recording stops, auto-transcribe followed by auto-pipeline execution with no user action
+- [x] **EXEC-02**: Pipeline run status per recording visible in recording detail view (Waiting/Running/Done/Failed)
+- [x] **EXEC-03**: Failed pipeline step shows inline error with the specific step that failed and why
 - [x] **EXEC-04**: Notion connector normalizes select values (case-insensitive match) and resolves people aliases to user IDs
 
 ### UI Health Check
@@ -160,9 +160,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AUGM-03 | Phase 3 | Complete |
 | AUGM-04 | Phase 3 | Complete |
 | AUGM-05 | Phase 3 | Complete |
-| EXEC-01 | Phase 6 | Pending |
-| EXEC-02 | Phase 6 | Pending |
-| EXEC-03 | Phase 6 | Pending |
+| EXEC-01 | Phase 6 | Complete |
+| EXEC-02 | Phase 6 | Complete |
+| EXEC-03 | Phase 6 | Complete |
 | EXEC-04 | Phase 2 | Complete (02-01) |
 | HLTH-01 | Phase 8 | Pending |
 | HLTH-02 | Phase 8 | Pending |
