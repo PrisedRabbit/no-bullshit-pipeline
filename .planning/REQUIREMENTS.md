@@ -60,27 +60,27 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LINEAR-01 | — | Pending |
-| LINEAR-02 | — | Pending |
-| LINEAR-03 | — | Pending |
-| LINEAR-04 | — | Pending |
-| LINEAR-05 | — | Pending |
-| LINEAR-06 | — | Pending |
-| LINEAR-07 | — | Pending |
-| LINEAR-08 | — | Pending |
-| LINEAR-09 | — | Pending |
-| LINEAR-10 | — | Pending |
-| TELE-01 | — | Pending |
-| TELE-02 | — | Pending |
-| TELE-03 | — | Pending |
-| TELE-04 | — | Pending |
-| TELE-05 | — | Pending |
+| LINEAR-01 | Phase 13 | Pending |
+| LINEAR-02 | Phase 16 | Pending |
+| LINEAR-03 | Phase 13 | Pending |
+| LINEAR-04 | Phase 16 | Pending |
+| LINEAR-05 | Phase 16 | Pending |
+| LINEAR-06 | Phase 15 | Pending |
+| LINEAR-07 | Phase 14 | Pending |
+| LINEAR-08 | Phase 16 | Pending |
+| LINEAR-09 | Phase 13 | Pending |
+| LINEAR-10 | Phase 14 | Pending |
+| TELE-01 | Phase 17 | Pending |
+| TELE-02 | Phase 17 | Pending |
+| TELE-03 | Phase 17 | Pending |
+| TELE-04 | Phase 17 | Pending |
+| TELE-05 | Phase 17 | Pending |
 
 **Coverage:**
 - v1.2 requirements: 15 total
-- Mapped to phases: 0
-- Unmapped: 15
+- Mapped to phases: 15
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-19*
-*Last updated: 2026-02-19 after initial definition*
+*Last updated: 2026-02-19 — traceability filled in after roadmap creation*

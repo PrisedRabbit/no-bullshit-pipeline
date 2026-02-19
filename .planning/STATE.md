@@ -9,10 +9,10 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 13 — Linear Backend
 Plan: —
-Status: Defining requirements for v1.2
-Last activity: 2026-02-19 — Milestone v1.2 started
+Status: Roadmap created, ready to plan Phase 13
+Last activity: 2026-02-19 — v1.2 roadmap created (5 phases, 15 requirements mapped)
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -40,10 +40,10 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: v1.2 milestone started, defining requirements
+Stopped at: v1.2 roadmap created
 Resume file: None
 
 ## Next Step
 
-**Action:** Complete requirements definition and roadmap creation for v1.2
-**Context:** Linear connector (schema-aware, follows Notion pattern) + Telegram connector (simple delivery). Research skipped per config.
+**Action:** Plan Phase 13 — Linear Backend
+**Context:** Phase 13 covers LINEAR-01 (API key entry), LINEAR-03 (schema fetch/storage), LINEAR-09 (Keychain storage). Follows the Notion connector pattern from phases 1-3. See src-tauri/src/connectors/ for existing patterns (notion/connector.rs is the reference implementation for schema-aware connectors).
