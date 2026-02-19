@@ -9,10 +9,10 @@ Requirements for the Pipelines v2 milestone. Each maps to roadmap phases.
 
 ### Pipeline Model
 
-- [ ] **PIPE-01**: Pipeline with zero steps functions as a label (replaces tags concept)
+- [x] **PIPE-01**: Pipeline with zero steps functions as a label (replaces tags concept)
 - [ ] **PIPE-02**: User can create, edit, and delete pipelines with Processing and Delivery steps
-- [ ] **PIPE-03**: Recording metadata stores pipeline references instead of tags
-- [ ] **PIPE-04**: Existing tag data migrates to pipeline labels automatically on access (lazy migration)
+- [x] **PIPE-03**: Recording metadata stores pipeline references instead of tags
+- [x] **PIPE-04**: Existing tag data migrates to pipeline labels automatically on access (lazy migration)
 - [ ] **PIPE-05**: Multiple pipelines can be assigned to a single recording, each writing to its own output directory
 
 ### Pre-Assignment UX
@@ -122,10 +122,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PIPE-01 | Phase 7 | Pending |
+| PIPE-01 | Phase 7 | Complete |
 | PIPE-02 | Phase 7 | Pending |
-| PIPE-03 | Phase 7 | Pending |
-| PIPE-04 | Phase 7 | Pending |
+| PIPE-03 | Phase 7 | Complete |
+| PIPE-04 | Phase 7 | Complete |
 | PIPE-05 | Phase 7 | Pending |
 | ASGN-01 | Phase 6 | Complete |
 | ASGN-02 | Phase 6 | Complete |

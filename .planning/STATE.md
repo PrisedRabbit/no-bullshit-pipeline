@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-18)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** Phase 7 (Pipeline Data Model and Tags Migration) — needs planning
+**Current focus:** Phase 7 (Pipeline Data Model and Tags Migration) — planned, ready to execute
 
 ## Current Position
 
-Phase: 7 of 8 (Pipeline Data Model and Tags Migration) — not started
-Plan: 0 of 2 in current phase — needs planning
-Status: Phase 6 complete — all 3 plans executed and verified (10/10 must-haves passed)
-Last activity: 2026-02-19 — Phase 6 execution complete, verification passed
+Phase: 7 of 8 (Pipeline Data Model and Tags Migration) — in progress
+Plan: 1 of 2 in current phase — plan 01 complete
+Status: Phase 7 in progress — 1/2 plans complete
+Last activity: 2026-02-19 — Phase 7 Plan 01 execution complete
 
-Progress: [██████░░░░] 62% (16/26 plans)
+Progress: [██████░░░░] 65% (17/26 plans)
 
 ## Performance Metrics
 
@@ -113,6 +113,10 @@ Recent decisions affecting current work:
 - [06-03]: Auto-execute gated on appSettings?.transcription?.enabled — if transcription is disabled, pipeline stays Waiting (no error, no attempt)
 - [06-03]: partial status from Rust displayed as Failed in UI via PIPELINE_STATUS_DISPLAY map — CSS class preserves Rust variant name but display text is user-friendly
 - [06-03]: pipelineProgressUnlisten module-level variable enables unlisten before re-subscribing on each showDetailView() call — prevents stacked pipeline-progress listeners
+- [07-01]: PipelineState derives PartialEq to satisfy RecordingMetadata: PartialEq bound — adding Vec<PipelineState> requires PipelineState to also implement PartialEq
+- [07-01]: PipelineStatus::Done used for migrated labels — label has no steps to run so Done is the correct terminal state (not Waiting)
+- [07-01]: Migration loads pipelines once, inserts all missing entries in loop, saves once — avoids N disk writes for N tags
+- [07-01]: Migration errors swallowed (let _ =) in read_metadata and list_recordings — migration failure must not block recording access
 
 ### Pending Todos
 
@@ -128,11 +132,11 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Phase 6 execution and verification complete
+Stopped at: Completed 07-01-PLAN.md
 Resume file: None
 
 ## Next Step
 
-**Action:** plan Phase 7 (Pipeline Data Model and Tags Migration)
-**Command:** /gsd:plan-phase 7
-**Context:** Phase 6 complete and verified (10/10 must-haves). Phases 1-6 delivered: Notion infrastructure, connector, prompt augmentation, integrations settings UI, pipeline builder redesign, and pre-assignment UX with auto-execute. Phase 7 implements the unified pipeline-as-label model with lazy tags migration. Phase 8 (UI Health Check) follows after.
+**Action:** execute Phase 7 Plan 02 (Pipeline Data Model and Tags Migration — Wave 2)
+**Command:** /gsd:execute-phase 7
+**Context:** Phase 7 Wave 1 (07-01) complete — types consolidated in pipelines.rs, RecordingMetadata has typed pipelines field, lazy tag migration implemented. Wave 2 (07-02): Zero-step early return in pipeline_engine.execute_pipeline_internal(), remove frontend zero-step guard in pipeline-builder.js.
