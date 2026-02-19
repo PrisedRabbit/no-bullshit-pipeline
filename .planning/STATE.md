@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-18)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** Phase 6 (Pre-Assignment UX and Execution) — executing
+**Current focus:** Phase 7 (Pipeline Data Model and Tags Migration) — needs planning
 
 ## Current Position
 
-Phase: 6 of 8 (Pre-Assignment UX and Execution) — complete
-Plan: 3 of 3 in current phase — all plans complete
-Status: 06-03 complete — auto-execute pipeline on recording stop, pipeline status badges in detail view
-Last activity: 2026-02-19 — 06-03 auto-execute and pipeline status plan executed
+Phase: 7 of 8 (Pipeline Data Model and Tags Migration) — not started
+Plan: 0 of 2 in current phase — needs planning
+Status: Phase 6 complete — all 3 plans executed and verified (10/10 must-haves passed)
+Last activity: 2026-02-19 — Phase 6 execution complete, verification passed
 
 Progress: [██████░░░░] 62% (16/26 plans)
 
@@ -128,11 +128,11 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Completed 06-pre-assignment-ux-and-execution-06-03-PLAN.md
+Stopped at: Phase 6 execution and verification complete
 Resume file: None
 
 ## Next Step
 
-**Action:** execute Phase 7 (Migration and Cleanup)
-**Command:** /gsd:execute-phase 7
-**Context:** Phase 6 complete. All three plans executed: chip bar assignment (06-01), default/last-used pipeline persistence (06-02), auto-execute with status display (06-03). The zero-post-recording-work promise is now fulfilled. Phase 7 handles lazy migration of legacy recordings with tags to pipeline assignments.
+**Action:** plan Phase 7 (Pipeline Data Model and Tags Migration)
+**Command:** /gsd:plan-phase 7
+**Context:** Phase 6 complete and verified (10/10 must-haves). Phases 1-6 delivered: Notion infrastructure, connector, prompt augmentation, integrations settings UI, pipeline builder redesign, and pre-assignment UX with auto-execute. Phase 7 implements the unified pipeline-as-label model with lazy tags migration. Phase 8 (UI Health Check) follows after.
