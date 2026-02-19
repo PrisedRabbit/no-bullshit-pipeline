@@ -2567,6 +2567,8 @@ body.is-recording-active .record-btn {
 
 .integration-card-icon.notion { background: #000; color: #fff; }
 .integration-card-icon.slack { background: #4A154B; color: #fff; }
+.integration-card-icon.linear { background: #5E6AD2; color: #fff; }
+.integration-card-icon.webhook { background: #2563EB; color: #fff; font-size: 0.85rem; }
 .integration-card-icon.save-path { background: var(--accent); color: #fff; }
 
 .integration-card-info {

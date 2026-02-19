@@ -665,6 +665,10 @@ function renderAvailableIntegrations() {
           const method = methodSelect ? methodSelect.value : 'POST';
           if (!name) { alert('Please enter a name for the webhook.'); return; }
           if (!url) { alert('Please enter the webhook URL.'); return; }
+          if (!url.startsWith('http://') && !url.startsWith('https://')) {
+            alert('Webhook URL must start with http:// or https://');
+            return;
+          }
           saveBtn.disabled = true;
           try {
             await window.__TAURI__.core.invoke('add_webhook_integration', { name, url, method });

@@ -349,18 +349,16 @@ async function autoTranscribeAndExecute(recordingId, pipelineNames) {
     return; // Do not proceed to pipeline execution if transcription failed
   }
 
-  // Step 2: Execute each assigned pipeline sequentially
+  // Step 2: Execute each assigned pipeline sequentially, refreshing UI after each
   for (const pipelineName of pipelineNames) {
     try {
       await invoke('execute_pipeline', { recordingId, pipelineName });
     } catch (err) {
       console.error(`Auto-pipeline execution failed for "${pipelineName}":`, err);
     }
+    await loadRecordings();
+    if (selectedRecordingId === recordingId) showDetailView(recordingId);
   }
-
-  // Refresh recordings list and detail view
-  await loadRecordings();
-  if (selectedRecordingId === recordingId) showDetailView(recordingId);
 }
 
 async function subscribeToProgress(recordingId) {
@@ -725,13 +723,13 @@ window.showDetailView = async (id) => {
     }, 1000);
   }
 
-  // Detail view pipeline assignment (ASGN-04)
+  // Detail view pipeline run (ASGN-04) — "Run pipeline" dropdown
+  // Always starts at None; selecting a pipeline assigns + executes it (if transcript exists)
   const detailPipelineAssignment = document.getElementById('detail-pipeline-assignment');
   const detailPipelineSelect = document.getElementById('detail-pipeline-select');
   if (detailPipelineAssignment && detailPipelineSelect) {
     if (!isRecording && !isProcessing) {
-      // Populate pipeline options
-      detailPipelineSelect.innerHTML = '<option value="">None</option>';
+      detailPipelineSelect.innerHTML = '<option value="">— Run a pipeline —</option>';
       if (typeof allPipelineDefs !== 'undefined') {
         for (const p of allPipelineDefs) {
           const opt = document.createElement('option');
@@ -739,18 +737,6 @@ window.showDetailView = async (id) => {
           opt.textContent = p.name;
           detailPipelineSelect.appendChild(opt);
         }
-      }
-
-      // Load current pipeline assignment
-      try {
-        const states = await invoke('get_all_pipeline_states', { recordingId: id });
-        if (states && states.length > 0) {
-          detailPipelineSelect.value = states[0].name || '';
-        } else {
-          detailPipelineSelect.value = '';
-        }
-      } catch (e) {
-        detailPipelineSelect.value = '';
       }
 
       detailPipelineAssignment.style.display = 'flex';
@@ -761,13 +747,17 @@ window.showDetailView = async (id) => {
       }
       detailPipelineHandler = async () => {
         const selectedPipeline = detailPipelineSelect.value;
-        if (selectedPipeline) {
-          try {
-            await invoke('assign_pipeline', { recordingId: id, pipelineName: selectedPipeline });
-          } catch (err) {
-            console.error('Failed to assign pipeline from detail view:', err);
-          }
+        if (!selectedPipeline) return;
+        // Reset to placeholder immediately so it reads as an action, not a current state
+        detailPipelineSelect.value = '';
+        try {
+          await invoke('assign_pipeline', { recordingId: id, pipelineName: selectedPipeline });
+          await invoke('execute_pipeline', { recordingId: id, pipelineName: selectedPipeline });
+        } catch (err) {
+          console.error('Failed to run pipeline from detail view:', err);
         }
+        await loadRecordings();
+        if (selectedRecordingId === id) showDetailView(id);
       };
       detailPipelineSelect.addEventListener('change', detailPipelineHandler);
     } else {
@@ -1592,16 +1582,13 @@ function showOverflowPopover(pipelines) {
 async function handleChipClick(pipelineName) {
   if (isRecordingBusy) return;
   if (isRecording) {
-    // Mid-recording toggle: add if not assigned, remove if already assigned (ASGN-03)
+    // Mid-recording toggle: add/remove from local set only.
+    // Backend assignment happens at stop when execute_pipeline is called.
+    // This avoids orphaned PipelineStatus::Waiting states if user deselects.
     if (currentAssignedPipelines.has(pipelineName)) {
       currentAssignedPipelines.delete(pipelineName);
     } else {
-      try {
-        await invoke('assign_pipeline', { recordingId: selectedRecordingId, pipelineName });
-        currentAssignedPipelines.add(pipelineName);
-      } catch (err) {
-        console.error('Failed to assign pipeline mid-recording:', err);
-      }
+      currentAssignedPipelines.add(pipelineName);
     }
     renderPipelineChips();
   } else {
