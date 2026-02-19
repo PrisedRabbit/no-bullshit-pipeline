@@ -97,12 +97,12 @@ Plans:
   4. Steps can be reordered by dragging; the saved pipeline order matches the visual order after drag
   5. A visual chain preview below the step list shows the full pipeline flow including automatic transcript-to-step-1 and step-N-to-next-step chaining
   6. Provider and model settings are hidden by default and available in a collapsed Advanced section per step
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 05-01: Extract `pipeline-builder.js` from `main.js`; establish state-first re-render pattern (`pipelineState.steps` as authoritative source, `renderSteps()` full re-render); integrate SortableJS for drag-and-drop
-- [ ] 05-02: Implement categorized step picker (Processing / Delivery); built-in processing presets with smart defaults; delivery picker filtered to connected integrations only
-- [ ] 05-03: Implement Custom Prompt step with textarea and reusable template checkbox; input chaining toggle; assembly preview; Advanced section with per-step provider/model override
+- [ ] 05-01-PLAN.md — Extract pipeline-builder.js from main.js with SortableJS drag-and-drop replacing native HTML5 DnD
+- [ ] 05-02-PLAN.md — Categorized step picker (Processing/Delivery) with built-in presets and new backend templates
+- [ ] 05-03-PLAN.md — Custom Prompt form with save-as-template, enhanced assembly preview, Advanced section, prompt_inline backend support
 
 ### Phase 6: Pre-Assignment UX and Execution
 **Goal**: Users can select a pipeline before recording starts with a single click, see pipeline run status per recording, and assign multiple pipelines to one recording
