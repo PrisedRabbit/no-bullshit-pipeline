@@ -4,7 +4,7 @@
 
 - ✅ **v1 Pipelines v2** — Phases 1-8 (shipped 2026-02-19) — [archive](milestones/v1-ROADMAP.md)
 - ✅ **v1.1 Resilience & Polish** — Phases 9-12 (shipped 2026-02-19) — [archive](milestones/v1.1-ROADMAP.md)
-- 🚧 **v1.2 Connector Expansion** — Phases 13-17 (in progress)
+- 🚧 **v1.2 Connector Expansion** — Phases 13-18 (in progress)
 
 ## Phases
 
@@ -34,13 +34,14 @@
 
 ### 🚧 v1.2 Connector Expansion (In Progress)
 
-**Milestone Goal:** Add Linear and Telegram delivery connectors so pipelines can create issues in Linear and send messages to Telegram automatically after recording.
+**Milestone Goal:** Add Linear delivery connector, webhook named endpoints, and multi-pipeline-per-recording so pipelines cover all major delivery targets and users can apply multiple processing lenses to a single recording.
 
 - [x] **Phase 13: Linear Backend** — API client, Keychain auth, schema fetch and storage
 - [x] **Phase 14: Linear Delivery** — Structured output parsing, issue creation, JSON retry
 - [x] **Phase 15: Linear Pipeline Integration** — Prompt augmentation with schema format specs, engine match arm
 - [x] **Phase 16: Linear Frontend** — Integration wizard, pipeline builder delivery option, re-sync UI, member alias mapping (completed 2026-02-19)
-- [ ] **Phase 17: Telegram Connector** — Full connector: backend, Keychain auth, chat selection, pipeline builder, delivery
+- [ ] **Phase 17: Webhook Named Endpoints** — Named webhook endpoints in Integrations settings, delivery picker, backend CRUD
+- [ ] **Phase 18: Multi-Pipeline Per Recording** — Chip bar multi-select, parallel pipeline execution on stop, multi-assign in detail view
 
 ## Phase Details
 
@@ -97,23 +98,36 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 16-01-PLAN.md — Linear wizard UI, connected cards, backend member alias support (LINEAR-02, LINEAR-04)
-- [ ] 16-02-PLAN.md — Linear delivery step in pipeline builder and schema re-sync UI (LINEAR-05, LINEAR-08)
+- [x] 16-01: Linear wizard UI, connected cards, backend member alias support (LINEAR-02, LINEAR-04)
+- [x] 16-02: Linear delivery step in pipeline builder and schema re-sync UI (LINEAR-05, LINEAR-08)
 
-### Phase 17: Telegram Connector
-**Goal**: Users can add a Telegram integration and deliver pipeline output as a Telegram message to a configured chat
-**Depends on**: Phase 13 (Keychain pattern established)
-**Requirements**: TELE-01, TELE-02, TELE-03, TELE-04, TELE-05
+### Phase 17: Webhook Named Endpoints
+**Goal**: Users can pre-configure named webhook endpoints in Integrations settings and select them by name in the pipeline builder delivery picker
+**Depends on**: Phase 16
 **Success Criteria** (what must be TRUE):
-  1. User can enter a Telegram bot token in integration settings and select a target chat (via getUpdates or manual chat ID entry) — the integration saves and appears in the list
-  2. The bot token is stored in macOS Keychain with dev-mode bypass
-  3. The pipeline builder shows a Telegram delivery step option only when a Telegram integration exists
-  4. When a pipeline with a Telegram step runs, the step output is delivered as a message to the configured chat
+  1. User can add a named webhook endpoint (name, URL, method, optional headers) in Settings > Integrations — it appears in the Connected list
+  2. The pipeline builder delivery picker shows configured webhook endpoints by name (not a raw URL field)
+  3. When a pipeline step with a named webhook runs, the request is sent to the configured URL with the stored settings
+  4. User can edit or remove a webhook endpoint from the Connected list
 **Plans**: 2 plans
 
 Plans:
-- [ ] 17-01-PLAN.md — Telegram integration module, connector module, ConnectorType wiring (TELE-01, TELE-02, TELE-04, TELE-05)
-- [ ] 17-02-PLAN.md — Telegram wizard UI, connected cards, pipeline builder delivery step (TELE-01, TELE-02, TELE-03)
+- [ ] 17-01-PLAN.md — Backend: WebhookIntegration profile type, CRUD Tauri commands, update connector to use integration_id
+- [ ] 17-02-PLAN.md — Frontend: Integrations settings section (add/edit/remove/test), pipeline builder delivery picker
+
+### Phase 18: Multi-Pipeline Per Recording
+**Goal**: A single recording can have multiple pipelines assigned and all run automatically after stop
+**Depends on**: Phase 17
+**Success Criteria** (what must be TRUE):
+  1. Chip bar supports multi-select — clicking a chip toggles it on/off, multiple chips can be active simultaneously
+  2. After recording stops, all assigned pipelines run (sequentially or with independent progress tracking per pipeline)
+  3. Detail view shows all assigned pipelines with individual run status; user can add or remove pipelines post-recording
+  4. If a transcript already exists (older recording), assigning a new pipeline triggers execution immediately for that pipeline
+**Plans**: 2 plans
+
+Plans:
+- [ ] 18-01-PLAN.md — Frontend chip bar multi-select, autoTranscribeAndExecute multi-pipeline loop, progress tracking per pipeline
+- [ ] 18-02-PLAN.md — Detail view multi-pipeline assignment and status display, post-recording pipeline add/remove
 
 ## Progress
 
@@ -133,6 +147,7 @@ Plans:
 | 12. Schema Management | v1.1 | 2/2 | Complete | 2026-02-19 |
 | 13. Linear Backend | v1.2 | 1/1 | Complete | 2026-02-19 |
 | 14. Linear Delivery | v1.2 | 1/1 | Complete | 2026-02-19 |
-| 15. Linear Pipeline Integration | v1.2 | Complete    | 2026-02-19 | 2026-02-19 |
-| 16. Linear Frontend | 2/2 | Complete    | 2026-02-19 | - |
-| 17. Telegram Connector | v1.2 | 0/2 | Not started | - |
+| 15. Linear Pipeline Integration | v1.2 | 1/1 | Complete | 2026-02-19 |
+| 16. Linear Frontend | v1.2 | 2/2 | Complete | 2026-02-19 |
+| 17. Webhook Named Endpoints | v1.2 | 0/2 | Not started | - |
+| 18. Multi-Pipeline Per Recording | v1.2 | 0/2 | Not started | - |
