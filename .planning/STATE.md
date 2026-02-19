@@ -65,5 +65,5 @@ Resume file: None
 
 ## Next Step
 
-**Action:** Execute Phase 11 (next phase per ROADMAP.md)
-**Context:** Phase 10 complete. Both error recovery plans done: JSON retry (10-01) + partial-success execution (10-02). Full error recovery stack operational.
+**Action:** Run `/gsd:plan-phase 11` to plan UX Polish phase
+**Context:** Phase 10 complete. Phase 11 (UX Polish) has 2 plans outlined in ROADMAP.md but not yet planned: 11-01 (pipeline chip overflow menu) and 11-02 (augmented prompt visibility + per-step timing). Phase 11 depends on Phase 9 (done). Phase 12 depends on Phase 10 (done) + Phase 11.
