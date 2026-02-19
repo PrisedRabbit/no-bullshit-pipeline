@@ -40,10 +40,10 @@
   1. Integrations tab displays all connectors correctly the first time it is opened, without the user clicking or interacting to trigger a re-render
   2. Slack connection status shown in the app bar matches the status shown in the Integrations settings tab without a page reload
   3. Opening the app fresh shows consistent Slack state across all views
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 09-01: Fix MutationObserver selector in integrations-settings.js and consolidate Slack connection state
+- [ ] 09-01-PLAN.md — Fix MutationObserver selector mismatch and consolidate dual Slack state
 
 ### Phase 10: Structured Output Error Recovery
 **Goal**: Pipeline steps that require structured AI output (JSON) handle failures gracefully without silent data loss or pipeline abandonment
