@@ -146,11 +146,11 @@ Plans:
   2. The health check verifies that all v2 interactive elements (chips, builder, integrations page, detail view) exist and respond to synthetic events
   3. Clicking the health badge when failures exist shows a report with specific element names and suggested fixes
   4. User can trigger the interactive walkthrough on demand from Settings; it also appears automatically on first launch
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 08-01: Implement `ui-health-check.js` with `runAudit()` returning `{ passed, failed, issues[] }`; defer via `requestIdleCallback` after all startup `invoke()` calls; status bar badge wired to diagnostic report
-- [ ] 08-02: Implement Level 2 interactive walkthrough; trigger on first launch via settings flag; wire on-demand trigger in Settings
+- [ ] 08-01-PLAN.md — DOM health audit engine, status badge in app bar, diagnostic report modal
+- [ ] 08-02-PLAN.md — Interactive walkthrough with first-launch auto-trigger, Settings on-demand button, walkthrough_completed persistence
 
 ## Progress
 
