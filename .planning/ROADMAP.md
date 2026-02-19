@@ -115,12 +115,12 @@ Plans:
   4. The last-used pipeline chip is visually highlighted on the next app launch
   5. Recording detail view shows pipeline run status (Waiting / Running / Done / Failed) and inline error for the specific step that failed
   6. After recording stops, transcription and pipeline execution begin automatically with no user action required
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 06-01: Implement pipeline chip rendering in `main.js`; `startRecordingWithPipeline()` flow; 5-chip cap with overflow popover; chips remain active during recording
-- [ ] 06-02: Implement default pipeline setting in Settings > General; last-used pipeline persistence; ASGN-04 post-recording detail view assignment
-- [ ] 06-03: Wire auto-transcribe → auto-pipeline execution on recording stop (EXEC-01); surface pipeline run status and per-step failure details in recording detail view (EXEC-02, EXEC-03)
+- [ ] 06-01-PLAN.md — Pipeline chip bar in app bar with renderPipelineChips(), startRecordingWithPipeline(), 5-chip cap with overflow popover, mid-recording assignment
+- [ ] 06-02-PLAN.md — Default pipeline and last-used pipeline in AppSettings; Audio tab dropdown; detail view pipeline assignment dropdown
+- [ ] 06-03-PLAN.md — Auto-transcribe + auto-execute on recording stop; pipeline run status badges in detail view; failed step inline error display
 
 ### Phase 7: Pipeline Data Model and Tags Migration
 **Goal**: The unified pipeline-as-label mental model is enforced in storage; existing recordings with tags are transparently migrated without data loss
