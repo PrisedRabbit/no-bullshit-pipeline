@@ -103,6 +103,73 @@ Write in first person, preserving the personal voice. Format as a warm, readable
 Transcript:
 {transcript}"#.to_string(),
             created_at: now.clone(),
+            updated_at: now.clone(),
+        },
+    );
+
+    templates.insert(
+        "action-items".to_string(),
+        PromptTemplate {
+            name: "action-items".to_string(),
+            description: "Extract action items, tasks, and owners from the conversation".to_string(),
+            prompt: r#"Extract all action items from this transcript.
+
+For each action item, identify:
+1. **Task**: What needs to be done
+2. **Owner**: Who is responsible (if mentioned)
+3. **Due Date**: When it's due (if mentioned)
+4. **Priority**: High/Medium/Low (infer from context)
+
+Format as a clean Markdown checklist.
+
+Transcript:
+{transcript}"#.to_string(),
+            created_at: now.clone(),
+            updated_at: now.clone(),
+        },
+    );
+
+    templates.insert(
+        "summary".to_string(),
+        PromptTemplate {
+            name: "summary".to_string(),
+            description: "Concise summary of key points from the conversation".to_string(),
+            prompt: r#"Create a concise summary of this transcript.
+
+Include:
+1. **Topic**: What the conversation is about
+2. **Key Points**: The most important information discussed (3-7 bullet points)
+3. **Decisions**: Any conclusions or agreements reached
+4. **Open Questions**: Unresolved items or topics needing follow-up
+
+Keep it brief and actionable. Format as clean Markdown.
+
+Transcript:
+{transcript}"#.to_string(),
+            created_at: now.clone(),
+            updated_at: now.clone(),
+        },
+    );
+
+    templates.insert(
+        "structure".to_string(),
+        PromptTemplate {
+            name: "structure".to_string(),
+            description: "Organize content into logical sections with headers".to_string(),
+            prompt: r#"Organize this transcript into a well-structured document.
+
+Instructions:
+1. Identify the main topics and themes discussed
+2. Create logical sections with clear Markdown headers (##)
+3. Group related content under each section
+4. Preserve key details, quotes, and data points
+5. Add a brief introduction summarizing the overall content
+
+Format as clean, readable Markdown with proper hierarchy.
+
+Transcript:
+{transcript}"#.to_string(),
+            created_at: now.clone(),
             updated_at: now,
         },
     );
@@ -172,6 +239,20 @@ pub fn load_prompt_templates() -> Result<HashMap<String, PromptTemplate>, String
         File::open(&path).map_err(|e| format!("Failed to open prompt-templates.json: {}", e))?;
     let templates: HashMap<String, PromptTemplate> = serde_json::from_reader(file)
         .map_err(|e| format!("Failed to parse prompt-templates.json: {}", e))?;
+
+    // Merge any missing built-in templates into existing templates
+    let builtins = get_builtin_templates();
+    let mut templates = templates;
+    let mut added = false;
+    for (key, builtin) in builtins {
+        if !templates.contains_key(&key) {
+            templates.insert(key, builtin);
+            added = true;
+        }
+    }
+    if added {
+        save_prompt_templates_to_disk(&templates)?;
+    }
 
     Ok(templates)
 }
@@ -304,10 +385,13 @@ mod tests {
     #[test]
     fn test_builtin_templates_exist() {
         let templates = get_builtin_templates();
-        assert_eq!(templates.len(), 3);
+        assert_eq!(templates.len(), 6);
         assert!(templates.contains_key("meeting-notes"));
         assert!(templates.contains_key("brainstorm"));
         assert!(templates.contains_key("journal"));
+        assert!(templates.contains_key("action-items"));
+        assert!(templates.contains_key("summary"));
+        assert!(templates.contains_key("structure"));
     }
 
     #[test]
