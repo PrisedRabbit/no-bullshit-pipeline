@@ -3,6 +3,7 @@
 
 // Module state — use `var` so these are on `window` and accessible from main.js
 var notionProfiles = [];
+var linearProfiles = [];
 var savePathIntegrations = [];
 
 const connectedListEl = () => document.getElementById('connected-integrations-list');
@@ -12,6 +13,7 @@ const availableListEl = () => document.getElementById('available-integrations-li
 async function loadAllIntegrations() {
   await Promise.all([
     loadNotionProfiles(),
+    loadLinearProfiles(),
     loadSlackForIntegrations(),
     loadSavePathIntegrations(),
   ]);
@@ -25,6 +27,15 @@ async function loadNotionProfiles() {
   } catch (err) {
     console.error('Failed to load Notion profiles:', err);
     notionProfiles = [];
+  }
+}
+
+async function loadLinearProfiles() {
+  try {
+    linearProfiles = await window.__TAURI__.core.invoke('list_linear_profiles');
+  } catch (err) {
+    console.error('Failed to load Linear profiles:', err);
+    linearProfiles = [];
   }
 }
 
@@ -79,6 +90,40 @@ function renderConnectedIntegrations() {
         <div class="integration-card-actions">
           <button class="mini-action-btn test-notion-btn" data-id="${escapeHtml(profile.id)}">Test</button>
           <button class="mini-action-btn danger remove-notion-btn" data-id="${escapeHtml(profile.id)}">Remove</button>
+        </div>
+      </div>
+    `);
+  }
+
+  // Linear cards
+  for (const profile of linearProfiles) {
+    const safeName = escapeHtml(profile.name);
+    const safeTeam = escapeHtml(profile.team_name || 'No team selected');
+    const syncedAt = profile.synced_at
+      ? new Date(profile.synced_at).toLocaleDateString()
+      : 'Never synced';
+    const daysSinceSync = profile.synced_at
+      ? Math.floor((Date.now() - new Date(profile.synced_at).getTime()) / (1000 * 60 * 60 * 24))
+      : null;
+    const isStale = !profile.synced_at || daysSinceSync > 7;
+    let cardDetail;
+    if (!profile.synced_at) {
+      cardDetail = `${safeTeam} · <span style="color: #e6a700; font-weight: 500;">Never synced — sync schema in wizard</span>`;
+    } else if (isStale) {
+      cardDetail = `${safeTeam} · Synced ${syncedAt} · <span style="color: #e6a700; font-weight: 500;">Schema may be outdated — re-sync recommended</span>`;
+    } else {
+      cardDetail = `${safeTeam} · Synced ${syncedAt}`;
+    }
+    cards.push(`
+      <div class="integration-card" data-type="linear" data-id="${escapeHtml(profile.id)}">
+        <div class="integration-card-icon linear">L</div>
+        <div class="integration-card-info">
+          <div class="integration-card-name">${safeName}</div>
+          <div class="integration-card-detail">${cardDetail}</div>
+        </div>
+        <div class="integration-card-actions">
+          <button class="mini-action-btn test-linear-btn" data-id="${escapeHtml(profile.id)}">Test</button>
+          <button class="mini-action-btn danger remove-linear-btn" data-id="${escapeHtml(profile.id)}">Remove</button>
         </div>
       </div>
     `);
@@ -155,6 +200,40 @@ function renderConnectedIntegrations() {
       if (!confirm(`Remove Notion integration "${profile ? profile.name : id}"?`)) return;
       try {
         await window.__TAURI__.core.invoke('remove_notion_integration', { integrationId: id });
+        await loadAllIntegrations();
+      } catch (err) {
+        alert('Failed to remove: ' + err);
+      }
+    });
+  });
+
+  // Attach Linear handlers
+  el.querySelectorAll('.test-linear-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      btn.disabled = true;
+      btn.textContent = 'Testing...';
+      try {
+        const result = await window.__TAURI__.core.invoke('test_linear_integration', { integrationId: id });
+        alert('Linear: ' + result);
+      } catch (err) {
+        alert('Linear test failed: ' + err);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Test';
+      }
+    });
+  });
+
+  el.querySelectorAll('.remove-linear-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const profile = linearProfiles.find(p => p.id === id);
+      if (!confirm(`Remove Linear integration "${profile ? profile.name : id}"?`)) return;
+      try {
+        await window.__TAURI__.core.invoke('remove_linear_integration', { integrationId: id });
         await loadAllIntegrations();
       } catch (err) {
         alert('Failed to remove: ' + err);
@@ -301,6 +380,18 @@ function renderAvailableIntegrations() {
     </div>
   `);
 
+  // Linear is always available to add (user can have multiple team connections)
+  available.push(`
+    <div class="available-integration-card" data-type="linear" id="add-linear-integration-btn">
+      <div class="integration-card-icon linear">L</div>
+      <div class="integration-card-info">
+        <div class="integration-card-name">Linear</div>
+        <div class="integration-card-detail">Connect Linear to create issues from pipeline output</div>
+      </div>
+      <span class="available-add-label">+ Add</span>
+    </div>
+  `);
+
   // Slack is always available to add
   available.push(`
     <div class="available-integration-card" data-type="slack" id="add-slack-integration-btn">
@@ -335,6 +426,18 @@ function renderAvailableIntegrations() {
         openNotionWizard();
       } else {
         alert('Notion setup wizard not yet available');
+      }
+    });
+  }
+
+  // Linear add → opens wizard
+  const addLinearBtn = document.getElementById('add-linear-integration-btn');
+  if (addLinearBtn) {
+    addLinearBtn.addEventListener('click', () => {
+      if (typeof openLinearWizard === 'function') {
+        openLinearWizard();
+      } else {
+        alert('Linear setup wizard not yet available');
       }
     });
   }
@@ -876,6 +979,434 @@ function replaceNextBtn() {
   const clone = btn.cloneNode(true);
   btn.parentNode.replaceChild(clone, btn);
   return clone;
+}
+
+// ===== LINEAR WIZARD =====
+
+let linearWizardState = {
+  step: 0,            // 0=api-key, 1=team-picker, 2=schema, 3=member-alias
+  integrationId: null,
+  teams: [],
+  selectedTeamId: null,
+  selectedTeamName: null,
+  profile: null,      // Full LinearIntegrationProfile after sync
+  aliases: [],        // [{alias, memberId, displayName}]
+  error: null,
+};
+
+function resetLinearWizardState() {
+  linearWizardState = {
+    step: 0,
+    integrationId: null,
+    teams: [],
+    selectedTeamId: null,
+    selectedTeamName: null,
+    profile: null,
+    aliases: [],
+    error: null,
+  };
+}
+
+function closeLinearWizard() {
+  resetLinearWizardState();
+  const modal = document.getElementById('linear-wizard-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function openLinearWizard() {
+  resetLinearWizardState();
+  const modal = document.getElementById('linear-wizard-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+
+  // Wire cancel button once (not on each render)
+  const cancelBtn = document.getElementById('linear-wizard-cancel');
+  if (cancelBtn) {
+    // Remove previous listener to avoid stacking
+    cancelBtn.replaceWith(cancelBtn.cloneNode(true));
+    const freshCancel = document.getElementById('linear-wizard-cancel');
+    freshCancel.addEventListener('click', async () => {
+      if (linearWizardState.integrationId) {
+        try {
+          await window.__TAURI__.core.invoke('remove_linear_integration', {
+            integrationId: linearWizardState.integrationId,
+          });
+        } catch (err) {
+          console.error('Failed to clean up partial Linear integration on cancel:', err);
+        }
+      }
+      closeLinearWizard();
+    });
+  }
+
+  renderLinearWizardStep();
+}
+
+// Progress percentages per step (4 steps: 0-3)
+const LINEAR_WIZARD_STEP_PROGRESS = ['25%', '50%', '75%', '100%'];
+
+async function renderLinearWizardStep() {
+  const body = document.getElementById('linear-wizard-body');
+  const progressBar = document.getElementById('linear-wizard-progress');
+  const nextBtn = document.getElementById('linear-wizard-next');
+  if (!body || !nextBtn) return;
+
+  // Update progress bar
+  if (progressBar) {
+    progressBar.style.width = LINEAR_WIZARD_STEP_PROGRESS[linearWizardState.step] || '25%';
+  }
+
+  // Update Next button label
+  nextBtn.textContent = linearWizardState.step === 3 ? 'Finish' : 'Next';
+  nextBtn.disabled = false;
+
+  // Render step body
+  switch (linearWizardState.step) {
+    case 0: renderLinearStep0(body, nextBtn); break;
+    case 1: await renderLinearStep1(body, nextBtn); break;
+    case 2: renderLinearStep2(body, nextBtn); break;
+    case 3: renderLinearStep3(body, nextBtn); break;
+  }
+}
+
+// Helper: Replace the Linear Next button node to remove all stacked event listeners
+function replaceLinearNextBtn() {
+  const btn = document.getElementById('linear-wizard-next');
+  if (!btn) return btn;
+  const clone = btn.cloneNode(true);
+  btn.parentNode.replaceChild(clone, btn);
+  return clone;
+}
+
+// Step 0: API Key Entry
+function renderLinearStep0(body, nextBtn) {
+  body.innerHTML = `
+    <div class="wizard-step-title">Enter Linear API Key</div>
+    <p class="wizard-step-description">Create a personal API key at linear.app/settings/api, then paste it below.</p>
+    <div class="wizard-input-group">
+      <div>
+        <label for="wizard-linear-name">Integration Name</label>
+        <input id="wizard-linear-name" type="text" placeholder="Linear" value="Linear" autocomplete="off" />
+      </div>
+      <div>
+        <label for="wizard-linear-apikey">API Key</label>
+        <input id="wizard-linear-apikey" type="password" placeholder="lin_api_..." autocomplete="off" spellcheck="false"
+          style="font-family: 'SF Mono', monospace; font-size: 0.85rem;" />
+      </div>
+    </div>
+    ${linearWizardState.error ? `<div class="wizard-error">${escapeHtml(linearWizardState.error)}</div>` : ''}
+  `;
+
+  const freshNext = replaceLinearNextBtn();
+  freshNext.addEventListener('click', async () => {
+    const name = (document.getElementById('wizard-linear-name').value || 'Linear').trim();
+    const apiKey = (document.getElementById('wizard-linear-apikey').value || '').trim();
+    if (!apiKey) {
+      linearWizardState.error = 'Please enter an API key.';
+      renderLinearWizardStep();
+      return;
+    }
+    freshNext.disabled = true;
+    freshNext.textContent = '...';
+    try {
+      const result = await window.__TAURI__.core.invoke('add_linear_integration', { name, apiKey });
+      linearWizardState.integrationId = result;
+      linearWizardState.error = null;
+      linearWizardState.step = 1;
+      renderLinearWizardStep();
+    } catch (err) {
+      linearWizardState.error = String(err);
+      freshNext.disabled = false;
+      freshNext.textContent = 'Next';
+      renderLinearWizardStep();
+    }
+  });
+}
+
+// Step 1: Team Picker
+async function renderLinearStep1(body, nextBtn) {
+  body.innerHTML = `<div style="color: var(--text-secondary); font-size: 0.85rem;">Loading teams...</div>`;
+  nextBtn.disabled = true;
+
+  try {
+    const teams = await window.__TAURI__.core.invoke('list_linear_teams', {
+      integrationId: linearWizardState.integrationId,
+    });
+    linearWizardState.teams = teams;
+    linearWizardState.error = null;
+    renderLinearStep1Teams(body, nextBtn);
+  } catch (err) {
+    linearWizardState.error = String(err);
+    body.innerHTML = `
+      <div class="wizard-step-title">Select Team</div>
+      <div class="wizard-error">${escapeHtml(String(err))}</div>
+      <button id="linear-retry-teams-btn" class="mini-action-btn" style="margin-top: 12px;">Retry</button>
+    `;
+    const retryBtn = document.getElementById('linear-retry-teams-btn');
+    if (retryBtn) {
+      retryBtn.addEventListener('click', async () => {
+        await renderLinearStep1(body, nextBtn);
+      });
+    }
+    nextBtn.disabled = true;
+  }
+}
+
+function renderLinearStep1Teams(body, nextBtn) {
+  const { teams, selectedTeamId } = linearWizardState;
+
+  const items = teams.map(team => {
+    const isSelected = team.id === selectedTeamId;
+    return `<div class="wizard-db-item${isSelected ? ' selected' : ''}" data-team-id="${escapeHtml(team.id)}" data-team-name="${escapeHtml(team.name)}">${escapeHtml(team.name)}</div>`;
+  }).join('');
+
+  body.innerHTML = `
+    <div class="wizard-step-title">Select Team</div>
+    <div class="wizard-db-list">${items}</div>
+    ${linearWizardState.error ? `<div class="wizard-error">${escapeHtml(linearWizardState.error)}</div>` : ''}
+  `;
+
+  const freshNext = replaceLinearNextBtn();
+  freshNext.disabled = !selectedTeamId;
+  freshNext.textContent = 'Next';
+
+  body.querySelectorAll('.wizard-db-item').forEach(item => {
+    item.addEventListener('click', () => {
+      body.querySelectorAll('.wizard-db-item').forEach(i => i.classList.remove('selected'));
+      item.classList.add('selected');
+      linearWizardState.selectedTeamId = item.dataset.teamId;
+      linearWizardState.selectedTeamName = item.dataset.teamName;
+      freshNext.disabled = false;
+    });
+  });
+
+  freshNext.addEventListener('click', async () => {
+    if (!linearWizardState.selectedTeamId) return;
+    freshNext.disabled = true;
+    freshNext.textContent = '...';
+    try {
+      const profile = await window.__TAURI__.core.invoke('sync_linear_schema', {
+        integrationId: linearWizardState.integrationId,
+        teamId: linearWizardState.selectedTeamId,
+        teamName: linearWizardState.selectedTeamName,
+      });
+      linearWizardState.profile = profile;
+      linearWizardState.error = null;
+      linearWizardState.step = 2;
+      renderLinearWizardStep();
+    } catch (err) {
+      linearWizardState.error = String(err);
+      freshNext.disabled = false;
+      freshNext.textContent = 'Next';
+      renderLinearStep1Teams(body, freshNext);
+    }
+  });
+}
+
+// Step 2: Schema Display
+function renderLinearStep2(body, nextBtn) {
+  const profile = linearWizardState.profile;
+  if (!profile) {
+    body.innerHTML = '<div class="wizard-error">No schema loaded.</div>';
+    return;
+  }
+
+  const syncedAt = profile.synced_at
+    ? new Date(profile.synced_at).toLocaleString()
+    : 'Unknown';
+
+  const stateRows = (profile.workflow_states || []).map(s =>
+    `<tr><td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.type_name)}</td></tr>`
+  ).join('') || '<tr><td colspan="2" style="color: var(--text-secondary);">None</td></tr>';
+
+  const labelRows = (profile.labels || []).map(l =>
+    `<tr><td>${escapeHtml(l.name)}</td><td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${escapeHtml(l.color)};margin-right:4px;"></span>${escapeHtml(l.color)}</td></tr>`
+  ).join('') || '<tr><td colspan="2" style="color: var(--text-secondary);">None</td></tr>';
+
+  const memberRows = (profile.members || []).map(m =>
+    `<tr><td>${escapeHtml(m.display_name)}</td><td>${escapeHtml(m.email || '—')}</td></tr>`
+  ).join('') || '<tr><td colspan="2" style="color: var(--text-secondary);">None</td></tr>';
+
+  const priorityRows = (profile.priorities || []).map(p =>
+    `<tr><td>${escapeHtml(p.label)}</td><td>${p.priority}</td></tr>`
+  ).join('') || '<tr><td colspan="2" style="color: var(--text-secondary);">None</td></tr>';
+
+  body.innerHTML = `
+    <div class="wizard-step-title">Team Schema: ${escapeHtml(profile.team_name)}</div>
+    <div style="max-height: 280px; overflow-y: auto; font-size: 0.82rem;">
+      <div style="margin-bottom: 10px;">
+        <strong>Workflow States</strong>
+        <table class="wizard-schema-table">
+          <thead><tr><th>Name</th><th>Type</th></tr></thead>
+          <tbody>${stateRows}</tbody>
+        </table>
+      </div>
+      <div style="margin-bottom: 10px;">
+        <strong>Labels</strong>
+        <table class="wizard-schema-table">
+          <thead><tr><th>Name</th><th>Color</th></tr></thead>
+          <tbody>${labelRows}</tbody>
+        </table>
+      </div>
+      <div style="margin-bottom: 10px;">
+        <strong>Members</strong>
+        <table class="wizard-schema-table">
+          <thead><tr><th>Display Name</th><th>Email</th></tr></thead>
+          <tbody>${memberRows}</tbody>
+        </table>
+      </div>
+      <div style="margin-bottom: 10px;">
+        <strong>Priorities</strong>
+        <table class="wizard-schema-table">
+          <thead><tr><th>Label</th><th>Value</th></tr></thead>
+          <tbody>${priorityRows}</tbody>
+        </table>
+      </div>
+    </div>
+    <div class="wizard-schema-synced">Last synced: ${escapeHtml(syncedAt)}</div>
+    <button id="linear-resync-btn" class="mini-action-btn" style="margin-top: 10px;">Re-sync Schema</button>
+    ${linearWizardState.error ? `<div class="wizard-error">${escapeHtml(linearWizardState.error)}</div>` : ''}
+  `;
+
+  const resyncBtn = document.getElementById('linear-resync-btn');
+  if (resyncBtn) {
+    resyncBtn.addEventListener('click', async () => {
+      resyncBtn.disabled = true;
+      resyncBtn.textContent = '...';
+      try {
+        const profile = await window.__TAURI__.core.invoke('sync_linear_schema', {
+          integrationId: linearWizardState.integrationId,
+          teamId: linearWizardState.selectedTeamId,
+          teamName: linearWizardState.selectedTeamName,
+        });
+        linearWizardState.profile = profile;
+        linearWizardState.error = null;
+        renderLinearWizardStep();
+      } catch (err) {
+        linearWizardState.error = String(err);
+        renderLinearWizardStep();
+      }
+    });
+  }
+
+  const freshNext = replaceLinearNextBtn();
+  freshNext.textContent = 'Next';
+  freshNext.addEventListener('click', () => {
+    // Pre-populate aliases with one empty row
+    if (linearWizardState.aliases.length === 0) {
+      linearWizardState.aliases = [{ alias: '', memberId: '', displayName: '' }];
+    }
+    linearWizardState.step = 3;
+    renderLinearWizardStep();
+  });
+}
+
+// Step 3: Member Alias Mapping
+function renderLinearStep3(body, nextBtn) {
+  const profile = linearWizardState.profile;
+  const members = (profile && profile.members) ? profile.members : [];
+
+  function renderAliasRows() {
+    const rowsEl = document.getElementById('linear-alias-rows');
+    if (!rowsEl) return;
+
+    const memberOptions = members.map(m =>
+      `<option value="${escapeHtml(m.id)}" data-name="${escapeHtml(m.display_name)}">${escapeHtml(m.display_name)}</option>`
+    ).join('');
+
+    rowsEl.innerHTML = linearWizardState.aliases.map((a, idx) => `
+      <div class="wizard-mapping-row" data-alias-idx="${idx}">
+        <input type="text" class="wizard-mapping-alias" placeholder="Alias (e.g. me)" value="${escapeHtml(a.alias)}" />
+        <select class="wizard-mapping-user">
+          <option value="">Select member...</option>
+          ${memberOptions}
+        </select>
+        <button class="wizard-mapping-remove" title="Remove">x</button>
+      </div>
+    `).join('');
+
+    // Restore selected member values and wire handlers
+    rowsEl.querySelectorAll('.wizard-mapping-row').forEach((row, idx) => {
+      const select = row.querySelector('.wizard-mapping-user');
+      if (select && linearWizardState.aliases[idx].memberId) {
+        select.value = linearWizardState.aliases[idx].memberId;
+      }
+
+      const aliasInput = row.querySelector('.wizard-mapping-alias');
+      aliasInput.addEventListener('input', () => {
+        linearWizardState.aliases[idx].alias = aliasInput.value;
+      });
+
+      select.addEventListener('change', () => {
+        const selectedOpt = select.options[select.selectedIndex];
+        linearWizardState.aliases[idx].memberId = select.value;
+        linearWizardState.aliases[idx].displayName = selectedOpt ? (selectedOpt.dataset.name || '') : '';
+      });
+
+      const removeBtn = row.querySelector('.wizard-mapping-remove');
+      removeBtn.addEventListener('click', () => {
+        linearWizardState.aliases.splice(idx, 1);
+        renderAliasRows();
+      });
+    });
+  }
+
+  body.innerHTML = `
+    <div class="wizard-step-title">Member Alias Mapping</div>
+    <p class="wizard-step-description">Map aliases (like 'me' or 'john') to Linear team members. These aliases can be used in AI output to assign issues.</p>
+    <div id="linear-alias-rows"></div>
+    <button id="linear-add-alias-btn" class="mini-action-btn" style="margin-top: 4px;">+ Add mapping</button>
+    ${linearWizardState.error ? `<div class="wizard-error" id="linear-alias-error">${escapeHtml(linearWizardState.error)}</div>` : ''}
+  `;
+
+  renderAliasRows();
+
+  const addAliasBtn = document.getElementById('linear-add-alias-btn');
+  if (addAliasBtn) {
+    addAliasBtn.addEventListener('click', () => {
+      linearWizardState.aliases.push({ alias: '', memberId: '', displayName: '' });
+      renderAliasRows();
+    });
+  }
+
+  const freshNext = replaceLinearNextBtn();
+  freshNext.textContent = 'Finish';
+  freshNext.addEventListener('click', async () => {
+    // Filter out incomplete rows
+    const cleanAliases = linearWizardState.aliases.filter(a => a.alias.trim() && a.memberId);
+    freshNext.disabled = true;
+    freshNext.textContent = '...';
+
+    try {
+      if (cleanAliases.length > 0) {
+        const payload = cleanAliases.map(a => ({
+          alias: a.alias.trim(),
+          member_id: a.memberId,
+          display_name: a.displayName,
+        }));
+        await window.__TAURI__.core.invoke('update_linear_member_aliases', {
+          integrationId: linearWizardState.integrationId,
+          aliases: payload,
+        });
+      }
+      closeLinearWizard();
+      await loadAllIntegrations();
+    } catch (err) {
+      linearWizardState.error = String(err);
+      freshNext.disabled = false;
+      freshNext.textContent = 'Finish';
+      const errEl = document.getElementById('linear-alias-error');
+      if (errEl) {
+        errEl.textContent = linearWizardState.error;
+      } else {
+        const errDiv = document.createElement('div');
+        errDiv.id = 'linear-alias-error';
+        errDiv.className = 'wizard-error';
+        errDiv.textContent = linearWizardState.error;
+        body.appendChild(errDiv);
+      }
+    }
+  });
 }
 
 // ===== INITIALIZATION =====
