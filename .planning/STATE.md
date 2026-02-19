@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-18)
 ## Current Position
 
 Phase: 6 of 8 (Pre-Assignment UX and Execution) — in progress
-Plan: 1 of 3 in current phase — 06-01 complete, 06-02 and 06-03 remain
-Status: 06-01 complete — pipeline chip bar, startRecordingWithPipeline(), mid-recording assignment implemented
-Last activity: 2026-02-19 — 06-01 pipeline chip bar plan executed
+Plan: 2 of 3 in current phase — 06-01 and 06-02 complete, 06-03 remains
+Status: 06-02 complete — default pipeline setting, last-used persistence, detail view pipeline assignment
+Last activity: 2026-02-19 — 06-02 default/last-used pipeline plan executed
 
-Progress: [█████░░░░░] 54% (14/26 plans)
+Progress: [█████░░░░░] 58% (15/26 plans)
 
 ## Performance Metrics
 
@@ -46,6 +46,7 @@ Progress: [█████░░░░░] 54% (14/26 plans)
 | Phase 05-pipeline-builder-redesign P02 | 2 | 2 tasks | 3 files |
 | Phase 05-pipeline-builder-redesign P03 | 5 | 2 tasks | 5 files |
 | Phase 06-pre-assignment-ux-and-execution P01 | 2 | 2 tasks | 4 files |
+| Phase 06-pre-assignment-ux-and-execution P02 | 2 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -104,6 +105,10 @@ Recent decisions affecting current work:
 - [Phase 06-pre-assignment-ux-and-execution]: Pipeline chip bar uses position:relative on container and position:absolute on overflow popover — chips stay in app bar flow without affecting layout
 - [Phase 06-pre-assignment-ux-and-execution]: renderPipelineChips() replaces entire innerHTML atomically then re-attaches event listeners — consistent with pipeline-builder state-first pattern, prevents DOM/state desync
 - [Phase 06-pre-assignment-ux-and-execution]: stoppedPipeline local variable captured from currentAssignedPipeline at start of stopRecording() try block — 06-03 can read this for auto-execute without race condition
+- [06-02]: PipelineState.name field accessed in JS (not pipeline_name) — Rust struct uses .name for the pipeline name field
+- [06-02]: detailPipelineHandler module-level variable enables removeEventListener before re-attaching on each showDetailView call — prevents stacked async change listeners
+- [06-02]: last_used_pipeline saved immediately after assign_pipeline succeeds in startRecordingWithPipeline() — persists before any UI updates
+- [06-02]: populateDefaultPipelineSelect() called via typeof guard from loadPipelineDefs() — same cross-module pattern as renderPipelineChips()
 
 ### Pending Todos
 
@@ -119,11 +124,11 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Completed 06-pre-assignment-ux-and-execution-06-01-PLAN.md
+Stopped at: Completed 06-pre-assignment-ux-and-execution-06-02-PLAN.md
 Resume file: None
 
 ## Next Step
 
-**Action:** execute Phase 6 Plan 02 (default/last-used pipeline)
+**Action:** execute Phase 6 Plan 03 (auto-execute pipeline on recording stop)
 **Command:** /gsd:execute-phase 6
-**Context:** 06-01 complete. Pipeline chip bar live in app bar. Chips render from allPipelineDefs, clicking starts recording with pipeline pre-assigned. 06-02 adds last-used pipeline default highlighting and appSettings persistence. 06-03 adds auto-execute on recording stop.
+**Context:** 06-01 and 06-02 complete. Pipeline chip bar live, last-used pipeline highlighting persists across launches, detail view pipeline assignment dropdown works. 06-03 adds auto-execute: when a recording stops with an assigned pipeline (stoppedPipeline local var), automatically trigger pipeline execution.

@@ -20,9 +20,9 @@ Requirements for the Pipelines v2 milestone. Each maps to roadmap phases.
 - [x] **ASGN-01**: Pipeline chips appear in the app bar next to the record button
 - [x] **ASGN-02**: Clicking a pipeline chip starts recording immediately with that pipeline pre-assigned
 - [x] **ASGN-03**: Pipeline chips remain active during recording for mid-recording assignment
-- [ ] **ASGN-04**: User can assign/change pipeline after recording in the detail view
-- [ ] **ASGN-05**: Default pipeline setting in Settings applies to all new recordings unless overridden
-- [ ] **ASGN-06**: Last-used pipeline is remembered and highlighted on next app launch
+- [x] **ASGN-04**: User can assign/change pipeline after recording in the detail view
+- [x] **ASGN-05**: Default pipeline setting in Settings applies to all new recordings unless overridden
+- [x] **ASGN-06**: Last-used pipeline is remembered and highlighted on next app launch
 - [x] **ASGN-07**: Chip bar shows top N pipelines with overflow menu for additional pipelines
 
 ### Pipeline Builder
@@ -130,9 +130,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ASGN-01 | Phase 6 | Complete |
 | ASGN-02 | Phase 6 | Complete |
 | ASGN-03 | Phase 6 | Complete |
-| ASGN-04 | Phase 6 | Pending |
-| ASGN-05 | Phase 6 | Pending |
-| ASGN-06 | Phase 6 | Pending |
+| ASGN-04 | Phase 6 | Complete |
+| ASGN-05 | Phase 6 | Complete |
+| ASGN-06 | Phase 6 | Complete |
 | ASGN-07 | Phase 6 | Complete |
 | BLDR-01 | Phase 5 | Complete |
 | BLDR-02 | Phase 5 | Complete |
