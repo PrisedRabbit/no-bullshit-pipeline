@@ -610,6 +610,10 @@ function showStepEditor(index) {
           <option value="">Select Notion database...</option>
           ${notionOptions}
         </select></div>
+        <div class="step-editor-row">
+          <button class="mini-action-btn resync-notion-schema-btn" style="font-size: 0.8rem;">Re-sync Schema</button>
+          <span class="resync-status" style="font-size: 0.8rem; color: var(--text-secondary); margin-left: 8px;"></span>
+        </div>
       `;
     }
   }
@@ -640,6 +644,65 @@ function showStepEditor(index) {
   `;
 
   stepEl.replaceWith(editorEl);
+
+  // Re-sync Schema button handler (Notion only, wired after editor is in DOM)
+  if (step.connector === 'notion') {
+    const resyncBtn = editorEl.querySelector('.resync-notion-schema-btn');
+    if (resyncBtn) {
+      resyncBtn.addEventListener('click', async () => {
+        // Get currently selected integration_id from the dropdown
+        const integrationSelect = editorEl.querySelector('[data-field="integration_id"]');
+        const integrationId = integrationSelect ? integrationSelect.value : '';
+        if (!integrationId) {
+          const statusSpan = editorEl.querySelector('.resync-status');
+          if (statusSpan) statusSpan.textContent = 'Select an integration first';
+          return;
+        }
+
+        // Find the profile to get database_id and database_name
+        const profiles = (typeof notionProfiles !== 'undefined') ? notionProfiles : [];
+        const profile = profiles.find(p => p.id === integrationId);
+        if (!profile || !profile.database_id) {
+          const statusSpan = editorEl.querySelector('.resync-status');
+          if (statusSpan) statusSpan.textContent = 'No database synced for this integration';
+          return;
+        }
+
+        resyncBtn.disabled = true;
+        resyncBtn.textContent = 'Syncing...';
+        const statusSpan = editorEl.querySelector('.resync-status');
+        if (statusSpan) statusSpan.textContent = '';
+
+        try {
+          const updatedProfile = await window.__TAURI__.core.invoke('sync_notion_schema', {
+            integrationId: integrationId,
+            databaseId: profile.database_id,
+            databaseName: profile.database_name,
+          });
+
+          // Update the notionProfiles global so other UI stays current
+          const idx = notionProfiles.findIndex(p => p.id === integrationId);
+          if (idx >= 0) {
+            notionProfiles[idx] = updatedProfile;
+          }
+
+          resyncBtn.textContent = 'Re-sync Schema';
+          resyncBtn.disabled = false;
+          if (statusSpan) {
+            statusSpan.style.color = 'var(--text-secondary)';
+            statusSpan.textContent = 'Schema synced successfully';
+          }
+        } catch (err) {
+          resyncBtn.textContent = 'Re-sync Schema';
+          resyncBtn.disabled = false;
+          if (statusSpan) {
+            statusSpan.style.color = '#e6453d';
+            statusSpan.textContent = 'Sync failed: ' + String(err);
+          }
+        }
+      });
+    }
+  }
 
   // Connector change → re-render config fields
   const connectorSelect = editorEl.querySelector('[data-field="connector"]');
