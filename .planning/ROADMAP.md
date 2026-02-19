@@ -53,10 +53,10 @@
   2. Given a verified API key, the system fetches and persists the team/project schema (custom fields, labels, priorities, status options, team members)
   3. The Linear API key is stored in macOS Keychain and retrieved transparently (with dev-mode bypass)
   4. Schema data is stored in the integration profile on disk alongside the credential reference
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 13-01: Linear API client and credential storage (Rust connector stub, Keychain integration, GraphQL schema fetch)
+- [ ] 13-01: Linear API client, credential storage, and schema fetch (types, GraphQL client, Keychain integration, team listing, schema persistence)
 
 ### Phase 14: Linear Delivery
 **Goal**: The pipeline engine can create a Linear issue from structured LLM output, with retry on parse failure
