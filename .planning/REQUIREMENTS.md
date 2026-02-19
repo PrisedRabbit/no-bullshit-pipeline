@@ -9,8 +9,8 @@ Requirements for v1.1 release. Each maps to roadmap phases.
 
 ### Bug Fixes
 
-- [ ] **BUG-01**: Integrations tab renders correctly on first load without requiring user interaction (MutationObserver selector fix)
-- [ ] **BUG-02**: Slack connection state is consistent across all UI views without requiring page reload (dual state consolidation)
+- [x] **BUG-01**: Integrations tab renders correctly on first load without requiring user interaction (MutationObserver selector fix)
+- [x] **BUG-02**: Slack connection state is consistent across all UI views without requiring page reload (dual state consolidation)
 
 ### Error Recovery
 
@@ -67,8 +67,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BUG-01 | Phase 9 | Pending |
-| BUG-02 | Phase 9 | Pending |
+| BUG-01 | Phase 9 | Complete |
+| BUG-02 | Phase 9 | Complete |
 | ERR-01 | Phase 10 | Pending |
 | ERR-02 | Phase 10 | Pending |
 | ERR-03 | Phase 10 | Pending |
