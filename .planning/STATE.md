@@ -58,5 +58,5 @@ Resume file: None
 
 ## Next Step
 
-**Action:** Advance to next phase in v1.2 roadmap
-**Context:** Phase 15 complete. Linear LLM→delivery augmentation matches Notion augmentation pattern. pipeline_engine.rs now handles both Notion and Linear N+1 look-ahead with augmented retries.
+**Action:** Plan Phase 16 — Linear Frontend
+**Context:** Phase 15 complete. Linear backend (13), delivery (14), and pipeline integration (15) all shipped. Phase 16 adds the UI: integration wizard, pipeline builder Linear step, member alias mapping, schema re-sync. 2 plans in roadmap (16-01, 16-02). Depends on Phase 15.
