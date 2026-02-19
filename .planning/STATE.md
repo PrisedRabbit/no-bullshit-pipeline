@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-18)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** Phase 5 (Pipeline Builder Redesign) — complete, all 3 plans done
+**Current focus:** Phase 6 (Pre-Assignment UX and Execution) — executing
 
 ## Current Position
 
-Phase: 5 of 8 (Pipeline Builder Redesign) — complete
-Plan: 3 of 3 in current phase — 05-01, 05-02, and 05-03 all complete
-Status: Phase 5 complete — Custom Prompt form, delivery preview distinction, Advanced section, prompt_inline Rust backend
-Last activity: 2026-02-19 — 05-03 complete (Custom Prompt form + renderPipelinePreview + Advanced section + prompt_inline in Rust)
+Phase: 6 of 8 (Pre-Assignment UX and Execution) — in progress
+Plan: 1 of 3 in current phase — 06-01 complete, 06-02 and 06-03 remain
+Status: 06-01 complete — pipeline chip bar, startRecordingWithPipeline(), mid-recording assignment implemented
+Last activity: 2026-02-19 — 06-01 pipeline chip bar plan executed
 
-Progress: [█████░░░░░] 50% (13/26 plans)
+Progress: [█████░░░░░] 54% (14/26 plans)
 
 ## Performance Metrics
 
@@ -45,6 +45,7 @@ Progress: [█████░░░░░] 50% (13/26 plans)
 | Phase 05-pipeline-builder-redesign P01 | 4 | 2 tasks | 5 files |
 | Phase 05-pipeline-builder-redesign P02 | 2 | 2 tasks | 3 files |
 | Phase 05-pipeline-builder-redesign P03 | 5 | 2 tasks | 5 files |
+| Phase 06-pre-assignment-ux-and-execution P01 | 2 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -100,6 +101,9 @@ Recent decisions affecting current work:
 - [Phase 05-03]: build_augmented_prompt() reads input file inside each branch independently — self-contained, no stale references
 - [Phase 05-03]: deliveryConnectors hardcoded in renderPipelinePreview() — mirrors Rust ConnectorType enum values
 - [Phase 05-03]: <details> Advanced section in step editor — querySelectorAll('[data-field]') finds elements inside details, no handler changes needed
+- [Phase 06-pre-assignment-ux-and-execution]: Pipeline chip bar uses position:relative on container and position:absolute on overflow popover — chips stay in app bar flow without affecting layout
+- [Phase 06-pre-assignment-ux-and-execution]: renderPipelineChips() replaces entire innerHTML atomically then re-attaches event listeners — consistent with pipeline-builder state-first pattern, prevents DOM/state desync
+- [Phase 06-pre-assignment-ux-and-execution]: stoppedPipeline local variable captured from currentAssignedPipeline at start of stopRecording() try block — 06-03 can read this for auto-execute without race condition
 
 ### Pending Todos
 
@@ -115,11 +119,11 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Completed 05-pipeline-builder-redesign/05-03-PLAN.md
+Stopped at: Completed 06-pre-assignment-ux-and-execution-06-01-PLAN.md
 Resume file: None
 
 ## Next Step
 
-**Action:** plan Phase 6 (Pre-Assignment UX and Execution)
-**Command:** /gsd:plan-phase 6
-**Context:** Phase 5 complete. All BLDR requirements (01-08) satisfied. prompt_inline pipeline steps fully supported end-to-end. Phase 6 needs planning before execution — pipeline chip bar, one-click recording, run status visibility, and multiple pipeline support.
+**Action:** execute Phase 6 Plan 02 (default/last-used pipeline)
+**Command:** /gsd:execute-phase 6
+**Context:** 06-01 complete. Pipeline chip bar live in app bar. Chips render from allPipelineDefs, clicking starts recording with pipeline pre-assigned. 06-02 adds last-used pipeline default highlighting and appSettings persistence. 06-03 adds auto-execute on recording stop.
