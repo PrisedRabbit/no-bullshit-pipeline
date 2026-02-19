@@ -179,10 +179,9 @@ function showPicker() {
       const preset = PROCESSING_PRESETS.find(p => p.label === label);
       if (!preset) return;
       if (preset.step === null) {
-        // Custom Prompt — placeholder: add blank LLM step for now (Plan 05-03 replaces this)
-        addPresetStep({
-          step: { name: 'custom-prompt', connector: 'llm', input: 'transcript', config: {}, description: 'Custom prompt' }
-        });
+        closePicker();
+        showCustomPromptForm();
+        return;
       } else {
         addPresetStep(preset);
       }
@@ -228,6 +227,106 @@ function addPresetStep(preset) {
   renderPipelineSteps();
   renderPipelinePreview();
   closePicker();
+}
+
+function showCustomPromptForm() {
+  // Remove any existing form
+  const existingForm = document.querySelector('.custom-prompt-form');
+  if (existingForm) existingForm.remove();
+
+  const formEl = document.createElement('div');
+  formEl.className = 'custom-prompt-form';
+  formEl.innerHTML = `
+    <div class="custom-prompt-header">Custom Prompt Step</div>
+    <textarea class="custom-prompt-textarea" rows="4"
+      placeholder="Write your prompt here. Use {transcript} for the input text."></textarea>
+    <label class="custom-prompt-save-label">
+      <input type="checkbox" class="custom-prompt-save-checkbox" />
+      Save as reusable template
+    </label>
+    <div class="custom-prompt-name-row" style="display:none;">
+      <input type="text" class="custom-prompt-name-input settings-input-text" placeholder="Template name (e.g. weekly-report)" />
+    </div>
+    <div class="custom-prompt-actions">
+      <button class="mini-action-btn custom-prompt-cancel">Cancel</button>
+      <button class="mini-action-btn primary custom-prompt-confirm">Add Step</button>
+    </div>
+  `;
+
+  // Insert form after the step list
+  pipelineStepsListEl.parentNode.insertBefore(formEl, pipelineStepsListEl.nextSibling);
+
+  // Wire checkbox toggle for name input
+  const checkbox = formEl.querySelector('.custom-prompt-save-checkbox');
+  const nameRow = formEl.querySelector('.custom-prompt-name-row');
+  checkbox.addEventListener('change', () => {
+    nameRow.style.display = checkbox.checked ? 'block' : 'none';
+  });
+
+  // Cancel
+  formEl.querySelector('.custom-prompt-cancel').addEventListener('click', () => {
+    formEl.remove();
+  });
+
+  // Confirm — Add Step
+  formEl.querySelector('.custom-prompt-confirm').addEventListener('click', async () => {
+    const promptText = formEl.querySelector('.custom-prompt-textarea').value.trim();
+    if (!promptText) {
+      alert('Prompt text is required');
+      return;
+    }
+
+    const saveAsTemplate = checkbox.checked;
+    let stepConfig = {};
+
+    if (saveAsTemplate) {
+      const templateName = formEl.querySelector('.custom-prompt-name-input').value.trim();
+      if (!templateName) {
+        alert('Template name is required when saving as template');
+        return;
+      }
+      // Save template to backend
+      try {
+        await invoke('save_prompt_template', {
+          template: {
+            name: templateName,
+            description: 'Custom prompt template',
+            prompt: promptText,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }
+        });
+        // Reload templates so the step editor can see the new template
+        if (typeof loadPromptTemplates === 'function') await loadPromptTemplates();
+        stepConfig = { prompt_template: templateName };
+      } catch (err) {
+        alert('Failed to save template: ' + err);
+        return;
+      }
+    } else {
+      // Inline prompt — no template saved
+      stepConfig = { prompt_inline: promptText };
+    }
+
+    const step = {
+      name: saveAsTemplate
+        ? formEl.querySelector('.custom-prompt-name-input').value.trim()
+        : 'custom-prompt',
+      connector: 'llm',
+      input: 'transcript',
+      config: stepConfig,
+      description: saveAsTemplate ? null : promptText.substring(0, 60) + (promptText.length > 60 ? '...' : '')
+    };
+
+    pipelineEditorSteps.push(step);
+    fixStepInputs();
+    formEl.remove();
+    renderPipelineSteps();
+    renderPipelinePreview();
+  });
+
+  // Focus textarea
+  formEl.querySelector('.custom-prompt-textarea').focus();
 }
 
 async function loadPipelineDefs() {
@@ -426,14 +525,23 @@ function showStepEditor(index) {
   // Build connector-specific config fields
   let configFields = '';
   if (step.connector === 'llm') {
+    let promptField;
+    if (step.config?.prompt_inline) {
+      promptField = `<div class="step-editor-row"><label>Prompt</label><textarea data-field="prompt_inline" rows="3">${escapeHtml(step.config.prompt_inline)}</textarea></div>`;
+    } else {
+      promptField = `<div class="step-editor-row"><label>Prompt</label><select data-field="prompt_template"><option value="">Select template...</option>${promptTemplateOptions}</select></div>`;
+    }
     configFields = `
-      <div class="step-editor-row"><label>Prompt</label><select data-field="prompt_template"><option value="">Select template...</option>${promptTemplateOptions}</select></div>
-      <div class="step-editor-row"><label>Provider</label><select data-field="provider">
-        <option value="openai" ${step.config?.provider === 'openai' ? 'selected' : ''}>OpenAI</option>
-        <option value="google" ${step.config?.provider === 'google' ? 'selected' : ''}>Google</option>
-        <option value="anthropic" ${step.config?.provider === 'anthropic' ? 'selected' : ''}>Anthropic</option>
-      </select></div>
-      <div class="step-editor-row"><label>Model</label><input data-field="model" value="${escapeHtml(step.config?.model || '')}" placeholder="e.g. gpt-4o" /></div>
+      ${promptField}
+      <details class="step-editor-advanced">
+        <summary>Advanced</summary>
+        <div class="step-editor-row"><label>Provider</label><select data-field="provider">
+          <option value="openai" ${step.config?.provider === 'openai' ? 'selected' : ''}>OpenAI</option>
+          <option value="google" ${step.config?.provider === 'google' ? 'selected' : ''}>Google</option>
+          <option value="anthropic" ${step.config?.provider === 'anthropic' ? 'selected' : ''}>Anthropic</option>
+        </select></div>
+        <div class="step-editor-row"><label>Model</label><input data-field="model" value="${escapeHtml(step.config?.model || '')}" placeholder="e.g. gpt-4o" /></div>
+      </details>
     `;
   } else if (step.connector === 'save') {
     const savePaths = (typeof savePathIntegrations !== 'undefined') ? savePathIntegrations : [];
@@ -571,10 +679,13 @@ function renderPipelinePreview() {
     return;
   }
 
+  const deliveryConnectors = ['save', 'notion', 'slack', 'webhook', 'mcp'];
   let html = '<span class="preview-node source">transcript</span>';
   for (const step of pipelineEditorSteps) {
+    const isDelivery = deliveryConnectors.includes(step.connector);
+    const nodeClass = isDelivery ? 'preview-node delivery' : 'preview-node step';
     html += '<span class="preview-arrow">&rarr;</span>';
-    html += `<span class="preview-node step">${escapeHtml(step.name || '?')} <small style="opacity:0.6">(${escapeHtml(step.connector)})</small></span>`;
+    html += `<span class="${nodeClass}">${escapeHtml(step.name || '?')} <small style="opacity:0.6">(${escapeHtml(step.connector)})</small></span>`;
   }
   pipelinePreviewEl.innerHTML = html;
 }
