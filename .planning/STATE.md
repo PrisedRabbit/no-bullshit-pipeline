@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 ## Current Position
 
-Phase: 14 — Linear Delivery (COMPLETE)
-Plan: 14-01 done (1 plan, 1 wave, 2 tasks — commit d413ca0)
-Status: Phase 14 complete, Phase 15 needs planning
-Last activity: 2026-02-19 — Phase 14 executed (Linear connector + pipeline engine integration)
+Phase: 15 — Linear Pipeline Integration (DONE)
+Plan: 15-01 complete (1/1 plans done)
+Status: Phase 15 complete — Linear schema prompt augmentation shipped
+Last activity: 2026-02-19 — Phase 15 executed (build_linear_format_spec, build_linear_augmented_prompt, LLM look-ahead + retry augmentation)
 
-Progress: [████░░░░░░] 40% (2/5 phases)
+Progress: [█████░░░░░] 60% (3/5 phases)
 
 ## Performance Metrics
 
@@ -38,6 +38,9 @@ All decisions archived in PROJECT.md Key Decisions table (15 v1 + 7 v1.1 decisio
 - Linear connector extracts single JSON object (not array like Notion) — one issue per delivery step
 - Field resolution is case-insensitive against profile data — tolerant of LLM output casing
 - graphql_request made pub(crate) so both integrations and connectors modules can share it
+- Linear format spec outputs singular "JSON object" (not array) — consistent with one-issue-per-step model
+- Hard fail on workflow_states.is_empty() && team_id.is_empty() — both empty = unsynced profile
+- display_name preferred over name for member assignee — matches what users see in Linear UI
 
 ### Pending Todos
 
@@ -50,10 +53,10 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Phase 14 complete
+Stopped at: Completed 15-01-PLAN.md — Phase 15 Linear Pipeline Integration done
 Resume file: None
 
 ## Next Step
 
-**Action:** Plan Phase 15 — Linear Pipeline Integration
-**Context:** Phase 15 adds prompt augmentation for Linear schema format specs. When an LLM step immediately precedes a Linear step, the prompt should be augmented with Linear field format instructions (priority values, label names, status options, member names). Extends the existing `build_augmented_prompt` function pattern used for Notion. See ROADMAP.md Phase 15 details.
+**Action:** Advance to next phase in v1.2 roadmap
+**Context:** Phase 15 complete. Linear LLM→delivery augmentation matches Notion augmentation pattern. pipeline_engine.rs now handles both Notion and Linear N+1 look-ahead with augmented retries.

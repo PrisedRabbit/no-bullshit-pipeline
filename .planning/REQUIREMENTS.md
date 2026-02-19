@@ -14,7 +14,7 @@ Requirements for v1.2 release. Each maps to roadmap phases.
 - [ ] **LINEAR-03**: System reads and stores Linear project schema (custom fields, labels, priorities, status options, team members)
 - [ ] **LINEAR-04**: User can map Linear team members to name aliases for participant resolution
 - [ ] **LINEAR-05**: User can add a Linear delivery step in pipeline builder (only shown when Linear integration exists)
-- [ ] **LINEAR-06**: When an LLM step precedes a Linear step, prompt is auto-augmented with Linear schema format specs
+- [x] **LINEAR-06**: When an LLM step precedes a Linear step, prompt is auto-augmented with Linear schema format specs
 - [ ] **LINEAR-07**: Structured LLM output is parsed and mapped to Linear issue fields (title, description, priority, label, assignee, status)
 - [ ] **LINEAR-08**: User can re-sync Linear project schema from pipeline builder and integration settings, with staleness warnings
 - [ ] **LINEAR-09**: Linear API key stored in macOS Keychain with dev-mode credential bypass
@@ -65,7 +65,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LINEAR-03 | Phase 13 | Pending |
 | LINEAR-04 | Phase 16 | Pending |
 | LINEAR-05 | Phase 16 | Pending |
-| LINEAR-06 | Phase 15 | Pending |
+| LINEAR-06 | Phase 15 | Complete |
 | LINEAR-07 | Phase 14 | Pending |
 | LINEAR-08 | Phase 16 | Pending |
 | LINEAR-09 | Phase 13 | Pending |
