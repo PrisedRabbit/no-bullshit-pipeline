@@ -243,6 +243,198 @@ fn build_notion_format_spec(
     lines.join("\n")
 }
 
+/// Build a compact JSON format specification from a Linear integration profile.
+/// The spec instructs the LLM to output a single JSON object (not an array —
+/// Linear creates one issue per delivery step, unlike Notion which creates multiple pages).
+/// Token budget: typically 50-150 tokens for a typical team schema.
+fn build_linear_format_spec(
+    profile: &crate::integrations::linear::LinearIntegrationProfile,
+) -> String {
+    let mut lines: Vec<String> = Vec::new();
+
+    lines.push("Output a JSON object with these fields:".to_string());
+    lines.push(format!("Team: {}", profile.team_name));
+    lines.push(String::new());
+
+    // title (always required)
+    lines.push("- \"title\" (string, REQUIRED): issue title".to_string());
+
+    // description
+    lines.push("- \"description\" (string): issue description in markdown".to_string());
+
+    // priority — from profile.priorities
+    {
+        let priority_labels: Vec<&str> = profile.priorities.iter()
+            .map(|p| p.label.as_str())
+            .collect();
+        if priority_labels.is_empty() {
+            lines.push("- \"priority\" (string): priority level".to_string());
+        } else {
+            lines.push(format!(
+                "- \"priority\" (string): one of: {}",
+                priority_labels.join(", ")
+            ));
+        }
+    }
+
+    // status — from profile.workflow_states
+    {
+        let all_states: Vec<&str> = profile.workflow_states.iter()
+            .map(|s| s.name.as_str())
+            .collect();
+        if all_states.is_empty() {
+            lines.push("- \"status\" (string): workflow state name".to_string());
+        } else {
+            let (shown, overflow) = if all_states.len() > MAX_OPTIONS_IN_SPEC {
+                (&all_states[..MAX_OPTIONS_IN_SPEC], all_states.len() - MAX_OPTIONS_IN_SPEC)
+            } else {
+                (&all_states[..], 0)
+            };
+            if overflow > 0 {
+                lines.push(format!(
+                    "- \"status\" (string): one of: {} (+ {} more)",
+                    shown.join(", "),
+                    overflow
+                ));
+            } else {
+                lines.push(format!(
+                    "- \"status\" (string): one of: {}",
+                    shown.join(", ")
+                ));
+            }
+        }
+    }
+
+    // labels — from profile.labels
+    {
+        let all_labels: Vec<&str> = profile.labels.iter()
+            .map(|l| l.name.as_str())
+            .collect();
+        if all_labels.is_empty() {
+            lines.push("- \"labels\" (array of strings): label names".to_string());
+        } else {
+            let (shown, overflow) = if all_labels.len() > MAX_OPTIONS_IN_SPEC {
+                (&all_labels[..MAX_OPTIONS_IN_SPEC], all_labels.len() - MAX_OPTIONS_IN_SPEC)
+            } else {
+                (&all_labels[..], 0)
+            };
+            if overflow > 0 {
+                lines.push(format!(
+                    "- \"labels\" (array of strings): values from: {} (+ {} more)",
+                    shown.join(", "),
+                    overflow
+                ));
+            } else {
+                lines.push(format!(
+                    "- \"labels\" (array of strings): values from: {}",
+                    shown.join(", ")
+                ));
+            }
+        }
+    }
+
+    // assignee — from profile.members (prefer display_name, fallback to name)
+    {
+        let all_members: Vec<String> = profile.members.iter()
+            .map(|m| {
+                if !m.display_name.is_empty() {
+                    m.display_name.clone()
+                } else {
+                    m.name.clone()
+                }
+            })
+            .collect();
+        let member_refs: Vec<&str> = all_members.iter().map(|s| s.as_str()).collect();
+        if member_refs.is_empty() {
+            lines.push("- \"assignee\" (string): team member name".to_string());
+        } else {
+            let (shown, overflow) = if member_refs.len() > MAX_OPTIONS_IN_SPEC {
+                (&member_refs[..MAX_OPTIONS_IN_SPEC], member_refs.len() - MAX_OPTIONS_IN_SPEC)
+            } else {
+                (&member_refs[..], 0)
+            };
+            if overflow > 0 {
+                lines.push(format!(
+                    "- \"assignee\" (string): one of: {} (+ {} more)",
+                    shown.join(", "),
+                    overflow
+                ));
+            } else {
+                lines.push(format!(
+                    "- \"assignee\" (string): one of: {}",
+                    shown.join(", ")
+                ));
+            }
+        }
+    }
+
+    lines.push(String::new());
+    lines.push("Omit any field you cannot determine from the transcript. Use null for unknown optional fields.".to_string());
+    lines.push("Return ONLY the JSON object. No prose, no markdown, no code fences.".to_string());
+
+    lines.join("\n")
+}
+
+/// Build an augmented prompt for an LLM step that feeds into a Linear delivery step.
+/// Loads the prompt template, substitutes the transcript, then appends a format spec
+/// derived from the Linear integration profile.
+///
+/// Returns `Err` if the profile is missing, corrupt, or has no synced schema —
+/// this is a HARD FAIL that prevents the expensive LLM API call.
+fn build_linear_augmented_prompt(
+    step_config: &serde_json::Value,
+    input_path: &std::path::Path,
+    linear_integration_id: &str,
+) -> Result<String, String> {
+    // Load base prompt from template name or inline prompt
+    let base_prompt = if let Some(template_name) = step_config
+        .get("prompt_template")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+    {
+        let template = crate::prompt_templates::get_prompt_template_internal(template_name)?;
+        let raw_input = std::fs::read_to_string(input_path)
+            .map_err(|e| format!("Failed to read input file for augmentation: {}", e))?;
+        let input_content = crate::connectors::strip_frontmatter(&raw_input);
+        crate::prompt_templates::substitute_variables(&template.prompt, input_content)
+    } else if let Some(inline_prompt) = step_config
+        .get("prompt_inline")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+    {
+        let raw_input = std::fs::read_to_string(input_path)
+            .map_err(|e| format!("Failed to read input file for augmentation: {}", e))?;
+        let input_content = crate::connectors::strip_frontmatter(&raw_input);
+        crate::prompt_templates::substitute_variables(inline_prompt, input_content)
+    } else {
+        return Err("LLM step missing prompt_template or prompt_inline in config".to_string());
+    };
+
+    // Load Linear integration profile — hard fail if missing
+    let profile = crate::integrations::linear::load_linear_profile(linear_integration_id)
+        .map_err(|_| format!(
+            "Cannot augment prompt: Linear integration '{}' profile not found. \
+             Sync schema in Settings > Integrations before running this pipeline.",
+            linear_integration_id
+        ))?;
+
+    // Verify profile has synced schema (not just an empty initial profile)
+    if profile.workflow_states.is_empty() && profile.team_id.is_empty() {
+        return Err(format!(
+            "Cannot augment prompt: Linear integration '{}' has no schema synced. \
+             Open Settings > Integrations > {} > Sync Schema before running this pipeline.",
+            linear_integration_id,
+            profile.name
+        ));
+    }
+
+    // Build format spec from profile
+    let format_spec = build_linear_format_spec(&profile);
+
+    // Append format spec to base prompt
+    Ok(format!("{}\n\n{}", base_prompt, format_spec))
+}
+
 /// Validate that an augmented prompt fits within the model's context window.
 ///
 /// Called after `build_augmented_prompt` and before the LLM API call to prevent
