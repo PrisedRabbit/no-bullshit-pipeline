@@ -131,11 +131,11 @@ Plans:
   2. Opening a recording that has `tags` in its metadata shows those tags as pipeline labels without any manual migration step
   3. Recording metadata stores pipeline references (by ID), not raw string tags, after migration
   4. Multiple pipelines can be assigned to a single recording; each pipeline's output is written to its own directory under the recording
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 07-01: Extend `RecordingMetadata` with `pipelines` field; implement `storage::migrate_tags_to_pipeline_labels()` lazy per-recording migration (on access, not batch); retain `tags` field for backward compatibility
-- [ ] 07-02: Implement zero-step pipeline support in engine (label-only pipeline that skips execution); wire PIPE-05 multiple pipeline output directory isolation
+- [ ] 07-01-PLAN.md — Move PipelineState types to pipelines.rs, add typed `pipelines` field to RecordingMetadata, implement lazy tag-to-pipeline-label migration, remove zero-step validation guard
+- [ ] 07-02-PLAN.md — Zero-step early return in pipeline engine (label-only pipeline skips execution), remove frontend zero-step guard in pipeline builder
 
 ### Phase 8: UI Health Check
 **Goal**: The app automatically verifies that all interactive UI elements are present and functional on every startup, with an optional guided walkthrough for first-time users
