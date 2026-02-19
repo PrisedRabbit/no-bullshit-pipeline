@@ -47,7 +47,7 @@ pub enum PipelineStatus {
 }
 
 /// Pipeline execution state stored in recording metadata
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PipelineState {
     pub name: String,
     pub status: PipelineStatus,

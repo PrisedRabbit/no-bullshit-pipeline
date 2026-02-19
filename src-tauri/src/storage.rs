@@ -3,6 +3,7 @@ use std::fs::{self, File};
 use std::path::PathBuf;
 use uuid::Uuid;
 use chrono::Utc;
+use crate::pipelines::PipelineState;
 
 /// Metadata for a recording session
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -16,6 +17,8 @@ pub struct RecordingMetadata {
     pub audio: AudioFiles,
     #[serde(default)]
     pub health: Option<RecordingHealth>,
+    #[serde(default)]
+    pub pipelines: Vec<PipelineState>,
 }
 
 fn default_status() -> String {
@@ -107,6 +110,7 @@ pub fn create_recording(title: String, tags: Vec<String>) -> Result<RecordingMet
             status: "ok".to_string(),
             issues: vec![],
         }),
+        pipelines: vec![],
     };
     
     // Create the recording directory
@@ -135,6 +139,67 @@ pub fn write_metadata(metadata: &RecordingMetadata) -> Result<(), String> {
         .map_err(|e| format!("Failed to finalize metadata: {}", e))?;
 
     Ok(())
+}
+
+/// Sanitize a tag string for use as a pipeline name.
+/// Replaces filesystem-unsafe characters (/, \, :, null) with hyphens.
+fn sanitize_pipeline_name(tag: &str) -> String {
+    tag.replace('/', "-")
+       .replace('\\', "-")
+       .replace(':', "-")
+       .replace('\0', "-")
+}
+
+/// Migrate legacy `tags` to zero-step pipeline labels on recording access.
+/// Returns Ok(true) if migration was performed, Ok(false) if already migrated or no tags.
+/// Idempotent: running twice produces the same result.
+pub fn migrate_tags_to_pipeline_labels(metadata: &mut RecordingMetadata) -> Result<bool, String> {
+    if metadata.tags.is_empty() {
+        return Ok(false);
+    }
+
+    // Check which tags are not yet represented as pipeline states
+    let existing_names: std::collections::HashSet<&str> =
+        metadata.pipelines.iter().map(|s| s.name.as_str()).collect();
+    let unmigrated_tags: Vec<String> = metadata.tags.iter()
+        .map(|t| sanitize_pipeline_name(t))
+        .filter(|sanitized| !existing_names.contains(sanitized.as_str()))
+        .collect();
+
+    if unmigrated_tags.is_empty() {
+        return Ok(false);
+    }
+
+    // Ensure each tag has a corresponding zero-step pipeline in pipelines.json
+    let mut pipelines = crate::pipelines::load_pipelines()?;
+    for tag_name in &unmigrated_tags {
+        if !pipelines.contains_key(tag_name) {
+            pipelines.insert(tag_name.clone(), crate::pipelines::Pipeline {
+                name: tag_name.clone(),
+                description: format!("Label (migrated from tag)"),
+                steps: vec![],
+            });
+        }
+    }
+    crate::pipelines::save_pipelines_to_disk(&pipelines)?;
+
+    // Add Done pipeline states for unmigrated tags
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    for tag_name in unmigrated_tags {
+        metadata.pipelines.push(PipelineState {
+            name: tag_name,
+            status: crate::pipelines::PipelineStatus::Done,
+            started_at: Some(now.clone()),
+            completed_at: Some(now.clone()),
+            current_step: None,
+            error: None,
+        });
+    }
+
+    // Write updated metadata back
+    write_metadata(metadata)?;
+
+    Ok(true)
 }
 
 /// Update tags for a recording
@@ -177,7 +242,8 @@ pub fn delete_recording(recording_id: &str) -> Result<(), String> {
 pub fn read_metadata(recording_id: &str) -> Result<RecordingMetadata, String> {
     let metadata_path = get_recording_dir(recording_id).join("metadata.json");
     let file = File::open(metadata_path).map_err(|e| e.to_string())?;
-    let metadata = serde_json::from_reader(file).map_err(|e| e.to_string())?;
+    let mut metadata: RecordingMetadata = serde_json::from_reader(file).map_err(|e| e.to_string())?;
+    let _ = migrate_tags_to_pipeline_labels(&mut metadata);
     Ok(metadata)
 }
 
@@ -200,7 +266,8 @@ pub fn list_recordings() -> Result<Vec<RecordingMetadata>, String> {
             let metadata_path = path.join("metadata.json");
             if metadata_path.exists() {
                 if let Ok(file) = File::open(&metadata_path) {
-                    if let Ok(metadata) = serde_json::from_reader::<_, RecordingMetadata>(file) {
+                    if let Ok(mut metadata) = serde_json::from_reader::<_, RecordingMetadata>(file) {
+                        let _ = migrate_tags_to_pipeline_labels(&mut metadata);
                         recordings.push(metadata);
                     }
                 }
