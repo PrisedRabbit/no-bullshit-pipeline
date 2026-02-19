@@ -20,6 +20,216 @@ const savePipelineDefBtn = document.getElementById('save-pipeline-def-btn');
 const deletePipelineDefBtn = document.getElementById('delete-pipeline-def-btn');
 const closePipelineEditorBtn = document.getElementById('close-pipeline-editor');
 
+const PROCESSING_PRESETS = [
+  {
+    label: 'Meeting Notes',
+    icon: '📝',
+    step: {
+      name: 'meeting-notes',
+      connector: 'llm',
+      input: 'transcript',
+      config: { prompt_template: 'meeting-notes' },
+      description: 'Extract attendees, decisions, action items'
+    }
+  },
+  {
+    label: 'Action Items',
+    icon: '✅',
+    step: {
+      name: 'action-items',
+      connector: 'llm',
+      input: 'transcript',
+      config: { prompt_template: 'action-items' },
+      description: 'Extract tasks and owners'
+    }
+  },
+  {
+    label: 'Summary',
+    icon: '📋',
+    step: {
+      name: 'summary',
+      connector: 'llm',
+      input: 'transcript',
+      config: { prompt_template: 'summary' },
+      description: 'Concise summary of key points'
+    }
+  },
+  {
+    label: 'Structure',
+    icon: '🏗',
+    step: {
+      name: 'structure',
+      connector: 'llm',
+      input: 'transcript',
+      config: { prompt_template: 'structure' },
+      description: 'Organize content into sections'
+    }
+  },
+  {
+    label: 'Custom Prompt',
+    icon: '✏️',
+    step: null  // handled specially in Plan 05-03
+  }
+];
+
+let pickerVisible = false;
+
+function buildDeliveryOptions() {
+  const options = [];
+  const profiles = (typeof notionProfiles !== 'undefined') ? notionProfiles : [];
+  for (const p of profiles) {
+    options.push({
+      label: p.name + ' (Notion)',
+      icon: '📓',
+      step: {
+        name: 'send-to-' + p.name.toLowerCase().replace(/\s+/g, '-'),
+        connector: 'notion',
+        input: 'transcript',
+        config: { integration_id: p.id },
+        description: 'Send to ' + p.name
+      }
+    });
+  }
+  const savePaths = (typeof savePathIntegrations !== 'undefined') ? savePathIntegrations : [];
+  for (const sp of savePaths) {
+    options.push({
+      label: sp.name + ' (Save)',
+      icon: '💾',
+      step: {
+        name: 'save-to-' + sp.name.toLowerCase().replace(/\s+/g, '-'),
+        connector: 'save',
+        input: 'transcript',
+        config: { save_path_id: sp.id, path: sp.path },
+        description: 'Save to ' + sp.name
+      }
+    });
+  }
+  const slackWs = (typeof slackIntegrations !== 'undefined') ? slackIntegrations : {};
+  for (const [id, data] of Object.entries(slackWs)) {
+    options.push({
+      label: (data.name || id) + ' (Slack)',
+      icon: '💬',
+      step: {
+        name: 'send-to-' + (data.name || id).toLowerCase().replace(/\s+/g, '-'),
+        connector: 'slack',
+        input: 'transcript',
+        config: { integration_id: id },
+        description: 'Send to ' + (data.name || id)
+      }
+    });
+  }
+  return options;
+}
+
+function togglePicker() {
+  const existing = document.getElementById('step-picker');
+  if (existing) {
+    existing.remove();
+    pickerVisible = false;
+    return;
+  }
+  showPicker();
+}
+
+function showPicker() {
+  const existing = document.getElementById('step-picker');
+  if (existing) existing.remove();
+
+  const picker = document.createElement('div');
+  picker.id = 'step-picker';
+  picker.className = 'step-picker';
+
+  // Processing section
+  let html = '<div class="step-picker-section"><div class="step-picker-section-title">Processing</div>';
+  for (const preset of PROCESSING_PRESETS) {
+    html += `<button class="step-picker-option" data-preset-label="${escapeHtml(preset.label)}">
+      <span class="step-picker-icon">${preset.icon}</span>
+      <span class="step-picker-label">${escapeHtml(preset.label)}</span>
+    </button>`;
+  }
+  html += '</div>';
+
+  // Delivery section
+  const deliveryOptions = buildDeliveryOptions();
+  html += '<div class="step-picker-section"><div class="step-picker-section-title">Delivery</div>';
+  if (deliveryOptions.length === 0) {
+    html += '<div class="step-picker-empty">Connect integrations in Settings &gt; Integrations to enable delivery steps.</div>';
+  } else {
+    for (let i = 0; i < deliveryOptions.length; i++) {
+      const opt = deliveryOptions[i];
+      html += `<button class="step-picker-option" data-delivery-index="${i}">
+        <span class="step-picker-icon">${opt.icon}</span>
+        <span class="step-picker-label">${escapeHtml(opt.label)}</span>
+      </button>`;
+    }
+  }
+  html += '</div>';
+
+  picker.innerHTML = html;
+
+  // Insert picker right after the add-pipeline-step-btn
+  addPipelineStepBtn.parentNode.insertBefore(picker, addPipelineStepBtn.nextSibling);
+  pickerVisible = true;
+
+  // Wire preset clicks
+  picker.querySelectorAll('[data-preset-label]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const label = btn.dataset.presetLabel;
+      const preset = PROCESSING_PRESETS.find(p => p.label === label);
+      if (!preset) return;
+      if (preset.step === null) {
+        // Custom Prompt — placeholder: add blank LLM step for now (Plan 05-03 replaces this)
+        addPresetStep({
+          step: { name: 'custom-prompt', connector: 'llm', input: 'transcript', config: {}, description: 'Custom prompt' }
+        });
+      } else {
+        addPresetStep(preset);
+      }
+    });
+  });
+
+  // Wire delivery clicks
+  picker.querySelectorAll('[data-delivery-index]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.deliveryIndex);
+      const opt = deliveryOptions[idx];
+      if (opt) addPresetStep(opt);
+    });
+  });
+
+  // Dismiss picker on outside click
+  setTimeout(() => {
+    document.addEventListener('click', dismissPicker);
+  }, 0);
+}
+
+function dismissPicker(e) {
+  const picker = document.getElementById('step-picker');
+  if (picker && !picker.contains(e.target) && e.target !== addPipelineStepBtn) {
+    picker.remove();
+    pickerVisible = false;
+    document.removeEventListener('click', dismissPicker);
+  }
+}
+
+function closePicker() {
+  const picker = document.getElementById('step-picker');
+  if (picker) picker.remove();
+  pickerVisible = false;
+  document.removeEventListener('click', dismissPicker);
+}
+
+function addPresetStep(preset) {
+  const step = JSON.parse(JSON.stringify(preset.step));
+  pipelineEditorSteps.push(step);
+  fixStepInputs();
+  renderPipelineSteps();
+  renderPipelinePreview();
+  closePicker();
+}
+
 async function loadPipelineDefs() {
   try {
     allPipelineDefs = await invoke('list_pipelines');
@@ -373,21 +583,9 @@ if (addPipelineDefBtn) addPipelineDefBtn.addEventListener('click', () => openPip
 if (closePipelineEditorBtn) closePipelineEditorBtn.addEventListener('click', closePipelineEditor);
 
 if (addPipelineStepBtn) {
-  addPipelineStepBtn.addEventListener('click', () => {
-    const prevStepName = pipelineEditorSteps.length > 0
-      ? pipelineEditorSteps[pipelineEditorSteps.length - 1].name
-      : null;
-    pipelineEditorSteps.push({
-      name: '',
-      connector: 'llm',
-      input: prevStepName || 'transcript',
-      config: {},
-      description: null
-    });
-    renderPipelineSteps();
-    renderPipelinePreview();
-    // Auto-open editor for new step
-    showStepEditor(pipelineEditorSteps.length - 1);
+  addPipelineStepBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    togglePicker();
   });
 }
 

@@ -2809,3 +2809,55 @@ body.is-recording-active .record-btn {
   background: var(--accent-soft, rgba(99, 102, 241, 0.1));
   border: 1px dashed var(--accent, #6366f1);
 }
+
+/* Step Picker */
+.step-picker {
+  position: relative;
+  background: var(--card-bg, #1e1e2e);
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  padding: 8px 0;
+  margin-top: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 10;
+}
+
+.step-picker-section-title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary, #888);
+  padding: 6px 12px 4px;
+}
+
+.step-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  color: var(--text-primary, #e0e0e0);
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.step-picker-option:hover {
+  background: var(--hover-bg, rgba(255, 255, 255, 0.06));
+}
+
+.step-picker-icon {
+  font-size: 1rem;
+  width: 20px;
+  text-align: center;
+}
+
+.step-picker-empty {
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  color: var(--text-secondary, #888);
+  font-style: italic;
+}
