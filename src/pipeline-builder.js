@@ -334,6 +334,7 @@ async function loadPipelineDefs() {
     allPipelineDefs = await invoke('list_pipelines');
     renderPipelineDefsList();
     updateSidebarCounts();
+    if (typeof renderPipelineChips === 'function') renderPipelineChips();
   } catch (err) {
     console.error('Failed to load pipelines:', err);
   }

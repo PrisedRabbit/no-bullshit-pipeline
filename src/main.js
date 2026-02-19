@@ -38,6 +38,7 @@ let selectedRecordingId = null;
 
 let permissions = { mic: false, system_audio: false };
 let appSettings = null;
+let currentAssignedPipeline = null;
 
 // ===== DOM ELEMENTS =====
 const statusIndicator = document.getElementById("status-indicator");
@@ -1241,6 +1242,88 @@ const sidebarTemplateCount = document.getElementById('sidebar-template-count');
 function updateSidebarCounts() {
   if (sidebarPipelineCount) sidebarPipelineCount.textContent = allPipelineDefs.length || '';
   if (sidebarTemplateCount) sidebarTemplateCount.textContent = allPromptTemplates.length || '';
+}
+
+function renderPipelineChips() {
+  const chipBar = document.getElementById('pipeline-chip-bar');
+  if (!chipBar) return;
+
+  if (typeof allPipelineDefs === 'undefined' || allPipelineDefs.length === 0) {
+    chipBar.innerHTML = '';
+    return;
+  }
+
+  const MAX_CHIPS = 5;
+  const visible = allPipelineDefs.slice(0, MAX_CHIPS);
+  const overflow = allPipelineDefs.slice(MAX_CHIPS);
+
+  let html = '';
+  for (const p of visible) {
+    let cls = 'pipeline-chip';
+    if (isRecording && currentAssignedPipeline === p.name) {
+      cls += ' is-assigned';
+    } else if (!isRecording && appSettings?.last_used_pipeline === p.name) {
+      cls += ' is-last-used';
+    }
+    html += `<button class="${cls}" data-pipeline-name="${escapeHtml(p.name)}">${escapeHtml(p.name)}</button>`;
+  }
+
+  if (overflow.length > 0) {
+    html += `<button class="chip-overflow-btn" id="chip-overflow-btn">+${overflow.length}</button>`;
+  }
+
+  chipBar.innerHTML = html;
+
+  chipBar.querySelectorAll('.pipeline-chip').forEach(chip => {
+    chip.addEventListener('click', () => handleChipClick(chip.dataset.pipelineName));
+  });
+
+  const overflowBtn = chipBar.querySelector('#chip-overflow-btn');
+  if (overflowBtn) {
+    overflowBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showOverflowPopover(overflow);
+    });
+  }
+}
+
+function showOverflowPopover(pipelines) {
+  const existing = document.querySelector('.chip-overflow-popover');
+  if (existing) existing.remove();
+
+  const chipBar = document.getElementById('pipeline-chip-bar');
+  if (!chipBar) return;
+
+  const popover = document.createElement('div');
+  popover.className = 'chip-overflow-popover';
+
+  for (const p of pipelines) {
+    let cls = 'pipeline-chip';
+    if (isRecording && currentAssignedPipeline === p.name) {
+      cls += ' is-assigned';
+    } else if (!isRecording && appSettings?.last_used_pipeline === p.name) {
+      cls += ' is-last-used';
+    }
+    const btn = document.createElement('button');
+    btn.className = cls;
+    btn.dataset.pipelineName = p.name;
+    btn.textContent = p.name;
+    btn.addEventListener('click', () => {
+      popover.remove();
+      handleChipClick(p.name);
+    });
+    popover.appendChild(btn);
+  }
+
+  chipBar.appendChild(popover);
+
+  function dismissOverflow(e) {
+    if (!popover.contains(e.target)) {
+      popover.remove();
+    }
+  }
+
+  setTimeout(() => document.addEventListener('click', dismissOverflow, { once: true }), 0);
 }
 
 if (sidebarPipelinesBtn) {

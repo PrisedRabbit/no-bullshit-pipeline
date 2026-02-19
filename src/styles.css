@@ -2938,3 +2938,101 @@ body.is-recording-active .record-btn {
 .step-editor-advanced summary:hover {
   color: var(--text-primary, #e0e0e0);
 }
+
+/* Pipeline Chip Bar */
+.pipeline-chip-bar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  overflow: visible;
+  position: relative;
+}
+
+.pipeline-chip {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  font-family: inherit;
+}
+
+.pipeline-chip:focus {
+  outline: none;
+  background: none;
+}
+
+.pipeline-chip:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.pipeline-chip.is-last-used {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.pipeline-chip.is-assigned {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.chip-overflow-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  font-family: inherit;
+}
+
+.chip-overflow-btn:focus {
+  outline: none;
+}
+
+.chip-overflow-btn:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.chip-overflow-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 140px;
+}
+
+.chip-overflow-popover .pipeline-chip {
+  border-radius: 6px;
+  text-align: left;
+  border: none;
+  padding: 6px 10px;
+  width: 100%;
+}
+
+.chip-overflow-popover .pipeline-chip:hover {
+  background: var(--accent-soft);
+}
