@@ -66,12 +66,17 @@ Zero post-recording work: select pipeline → record → stop → everything hap
 
 ### Active
 
-(None — planning next milestone)
+- [ ] Linear connector with schema-aware structured output (follows Notion pattern)
+- [ ] Linear integration setup wizard (API key → team → schema → field mapping)
+- [ ] Telegram connector for simple message delivery (Bot API)
+- [ ] Telegram integration setup wizard (bot token → chat selection)
+- [ ] Pipeline builder shows Linear and Telegram as delivery step options
+- [ ] Integrations settings page supports Linear and Telegram setup
 
 ### Out of Scope
 
-- Linear/Jira connectors — Notion first, others follow same pattern later
-- Telegram connector — marked "soon" in designs, not shipped
+- Jira connector — Linear first, Jira follows same pattern later
+- Linear OAuth — API key sufficient for single-user (same rationale as Notion)
 - MCP connector — placeholder exists but no specification
 - OAuth for Notion — API key (internal integration) sufficient for single-user
 - Automatic schema re-sync on each pipeline run — manual button shipped
@@ -79,6 +84,15 @@ Zero post-recording work: select pipeline → record → stop → everything hap
 - Pipeline marketplace/sharing — personal use focus
 - Branching/conditional pipeline logic — 90% of use cases are linear chains
 - CSS/UI framework adoption — vanilla JS approach maintained
+
+## Current Milestone: v1.2 Connector Expansion
+
+**Goal:** Extend the pipeline delivery ecosystem with Linear (schema-aware structured output) and Telegram (simple message delivery) connectors, leveraging the architecture established in v1.
+
+**Target features:**
+- Linear connector — schema-aware setup wizard, structured property mapping, prompt augmentation integration
+- Telegram connector — bot token auth, chat/group selection, simple message delivery
+- Integration settings and pipeline builder updated for both new connectors
 
 ## Context
 
@@ -136,4 +150,4 @@ Zero post-recording work: select pipeline → record → stop → everything hap
 | Manual schema re-sync with staleness warning | 7-day threshold + in-builder button. Simpler and safer than automatic re-sync. | ✓ Good — v1.1 Phase 12 |
 
 ---
-*Last updated: 2026-02-19 after v1.1 Resilience & Polish milestone completion*
+*Last updated: 2026-02-19 after v1.2 Connector Expansion milestone start*

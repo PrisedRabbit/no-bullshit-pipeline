@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-19)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** Planning next milestone
+**Current focus:** v1.2 Connector Expansion
 
 ## Current Position
 
-Phase: All complete through v1.1
-Plan: N/A
-Status: v1 (Phases 1-8) and v1.1 (Phases 9-12) shipped and archived
-Last activity: 2026-02-19 — v1.1 milestone archived
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements for v1.2
+Last activity: 2026-02-19 — Milestone v1.2 started
 
-Progress: [██████████] 100% (v1 + v1.1)
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -40,10 +40,10 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: v1.1 milestone archived, ready for next milestone
+Stopped at: v1.2 milestone started, defining requirements
 Resume file: None
 
 ## Next Step
 
-**Action:** Run `/gsd:new-milestone` to start next milestone (questioning → research → requirements → roadmap)
-**Context:** v1 and v1.1 shipped. Next milestone candidates from backlog: new connectors (Linear/Jira, Telegram, MCP), branching pipeline logic, Notion OAuth, pipeline templates. See PROJECT.md Out of Scope and BRIEF.md for full candidate list.
+**Action:** Complete requirements definition and roadmap creation for v1.2
+**Context:** Linear connector (schema-aware, follows Notion pattern) + Telegram connector (simple delivery). Research skipped per config.
