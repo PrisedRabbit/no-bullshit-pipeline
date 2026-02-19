@@ -5,6 +5,7 @@
 var notionProfiles = [];
 var linearProfiles = [];
 var savePathIntegrations = [];
+var webhookProfiles = [];
 
 const connectedListEl = () => document.getElementById('connected-integrations-list');
 const availableListEl = () => document.getElementById('available-integrations-list');
@@ -16,6 +17,7 @@ async function loadAllIntegrations() {
     loadLinearProfiles(),
     loadSlackForIntegrations(),
     loadSavePathIntegrations(),
+    loadWebhookProfiles(),
   ]);
   renderConnectedIntegrations();
   renderAvailableIntegrations();
@@ -51,6 +53,15 @@ async function loadSavePathIntegrations() {
   } catch (err) {
     console.error('Failed to load save path integrations:', err);
     savePathIntegrations = [];
+  }
+}
+
+async function loadWebhookProfiles() {
+  try {
+    webhookProfiles = await window.__TAURI__.core.invoke('list_webhook_profiles');
+  } catch (err) {
+    console.error('Failed to load webhook profiles:', err);
+    webhookProfiles = [];
   }
 }
 
@@ -163,6 +174,26 @@ function renderConnectedIntegrations() {
         <div class="integration-card-actions">
           <button class="mini-action-btn edit-save-path-btn" data-id="${escapeHtml(sp.id)}">Edit</button>
           <button class="mini-action-btn danger remove-save-path-btn" data-id="${escapeHtml(sp.id)}">Remove</button>
+        </div>
+      </div>
+    `);
+  }
+
+  // Webhook cards
+  for (const wh of webhookProfiles) {
+    const safeName = escapeHtml(wh.name);
+    const safeUrl = escapeHtml(wh.url);
+    const safeMethod = escapeHtml(wh.method || 'POST');
+    cards.push(`
+      <div class="integration-card" data-type="webhook" data-id="${escapeHtml(wh.id)}">
+        <div class="integration-card-icon webhook">&#x1F517;</div>
+        <div class="integration-card-info">
+          <div class="integration-card-name">${safeName}</div>
+          <div class="integration-card-detail">${safeMethod} ${safeUrl}</div>
+        </div>
+        <div class="integration-card-actions">
+          <button class="mini-action-btn test-webhook-btn" data-id="${escapeHtml(wh.id)}">Test</button>
+          <button class="mini-action-btn danger remove-webhook-btn" data-id="${escapeHtml(wh.id)}">Remove</button>
         </div>
       </div>
     `);
@@ -391,6 +422,40 @@ function renderConnectedIntegrations() {
       }
     });
   });
+
+  // Attach Webhook handlers
+  el.querySelectorAll('.test-webhook-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      btn.disabled = true;
+      btn.textContent = 'Testing...';
+      try {
+        const result = await window.__TAURI__.core.invoke('test_webhook_integration', { id });
+        alert('Webhook: ' + result);
+      } catch (err) {
+        alert('Webhook test failed: ' + err);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Test';
+      }
+    });
+  });
+
+  el.querySelectorAll('.remove-webhook-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const wh = webhookProfiles.find(p => p.id === id);
+      if (!confirm(`Remove webhook "${wh ? wh.name : id}"?`)) return;
+      try {
+        await window.__TAURI__.core.invoke('remove_webhook_integration', { id });
+        await loadAllIntegrations();
+      } catch (err) {
+        alert('Failed to remove: ' + err);
+      }
+    });
+  });
 }
 
 // ===== RENDER AVAILABLE =====
@@ -443,6 +508,18 @@ function renderAvailableIntegrations() {
       <div class="integration-card-info">
         <div class="integration-card-name">Save Path</div>
         <div class="integration-card-detail">Save pipeline output to a named folder location</div>
+      </div>
+      <span class="available-add-label">+ Add</span>
+    </div>
+  `);
+
+  // Webhook is always available to add
+  available.push(`
+    <div class="available-integration-card" data-type="webhook" id="add-webhook-btn">
+      <div class="integration-card-icon webhook">&#x1F517;</div>
+      <div class="integration-card-info">
+        <div class="integration-card-name">Webhook</div>
+        <div class="integration-card-detail">Send pipeline output to any HTTP endpoint</div>
       </div>
       <span class="available-add-label">+ Add</span>
     </div>
@@ -546,6 +623,60 @@ function renderAvailableIntegrations() {
       }
 
       const cancelBtn = document.getElementById('new-sp-cancel-btn');
+      if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => {
+          renderAvailableIntegrations();
+        });
+      }
+    });
+  }
+
+  // Webhook add → inline form
+  const addWebhookBtn = document.getElementById('add-webhook-btn');
+  if (addWebhookBtn) {
+    addWebhookBtn.addEventListener('click', () => {
+      addWebhookBtn.outerHTML = `
+        <div class="available-integration-card webhook-add-form" id="add-webhook-form">
+          <div class="integration-card-icon webhook">&#x1F517;</div>
+          <div class="integration-card-info" style="flex: 1; gap: 6px; display: flex; flex-direction: column;">
+            <input id="new-wh-name" type="text" placeholder="Endpoint name (e.g. n8n Meetings)" style="width: 100%;" />
+            <input id="new-wh-url" type="text" placeholder="https://hooks.example.com/..." style="width: 100%;" />
+            <select id="new-wh-method" style="width: 100px;">
+              <option value="POST">POST</option>
+              <option value="PUT">PUT</option>
+              <option value="PATCH">PATCH</option>
+            </select>
+          </div>
+          <div class="integration-card-actions">
+            <button id="new-wh-save-btn" class="mini-action-btn">Save</button>
+            <button id="new-wh-cancel-btn" class="mini-action-btn">Cancel</button>
+          </div>
+        </div>
+      `;
+
+      const saveBtn = document.getElementById('new-wh-save-btn');
+      if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+          const nameInput = document.getElementById('new-wh-name');
+          const urlInput = document.getElementById('new-wh-url');
+          const methodSelect = document.getElementById('new-wh-method');
+          const name = nameInput ? nameInput.value.trim() : '';
+          const url = urlInput ? urlInput.value.trim() : '';
+          const method = methodSelect ? methodSelect.value : 'POST';
+          if (!name) { alert('Please enter a name for the webhook.'); return; }
+          if (!url) { alert('Please enter the webhook URL.'); return; }
+          saveBtn.disabled = true;
+          try {
+            await window.__TAURI__.core.invoke('add_webhook_integration', { name, url, method });
+            await loadAllIntegrations();
+          } catch (err) {
+            alert('Failed to add webhook: ' + err);
+            saveBtn.disabled = false;
+          }
+        });
+      }
+
+      const cancelBtn = document.getElementById('new-wh-cancel-btn');
       if (cancelBtn) {
         cancelBtn.addEventListener('click', () => {
           renderAvailableIntegrations();

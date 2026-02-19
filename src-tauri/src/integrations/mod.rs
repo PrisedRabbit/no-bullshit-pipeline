@@ -5,6 +5,7 @@ pub mod slack;
 pub mod notion;
 pub mod save_path;
 pub mod linear;
+pub mod webhook;
 
 pub const KEYCHAIN_SERVICE: &str = "com.skopanev.nbp";
 

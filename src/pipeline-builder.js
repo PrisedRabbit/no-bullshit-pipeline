@@ -1,6 +1,6 @@
 // ===== PIPELINE DEFINITION MANAGEMENT =====
 // Globals from main.js (loaded before this script): escapeHtml, invoke, allPromptTemplates, slackIntegrations, updateSidebarCounts
-// Globals from integrations-settings.js (loaded before this script): notionProfiles (via typeof guard), linearProfiles (via typeof guard), savePathIntegrations (via typeof guard)
+// Globals from integrations-settings.js (loaded before this script): notionProfiles, linearProfiles, savePathIntegrations, webhookProfiles (all via typeof guard)
 
 var allPipelineDefs = []; // var so main.js updateSidebarCounts() can access allPipelineDefs.length
 let editingPipelineDef = null; // null = new, string = editing name
@@ -129,6 +129,20 @@ function buildDeliveryOptions() {
         input: 'transcript',
         config: { integration_id: id },
         description: 'Send to ' + (data.name || id)
+      }
+    });
+  }
+  const whooks = (typeof webhookProfiles !== 'undefined') ? webhookProfiles : [];
+  for (const wh of whooks) {
+    options.push({
+      label: wh.name + ' (Webhook)',
+      icon: '🔗',
+      step: {
+        name: 'send-to-' + wh.name.toLowerCase().replace(/\s+/g, '-'),
+        connector: 'webhook',
+        input: 'transcript',
+        config: { integration_id: wh.id },
+        description: 'Send to ' + wh.name
       }
     });
   }
@@ -581,14 +595,23 @@ function showStepEditor(index) {
       `;
     }
   } else if (step.connector === 'webhook') {
-    configFields = `
-      <div class="step-editor-row"><label>URL</label><input data-field="url" value="${escapeHtml(step.config?.url || '')}" placeholder="https://hooks.example.com/..." /></div>
-      <div class="step-editor-row"><label>Method</label><select data-field="method">
-        <option value="POST" ${step.config?.method === 'POST' ? 'selected' : ''}>POST</option>
-        <option value="PUT" ${step.config?.method === 'PUT' ? 'selected' : ''}>PUT</option>
-        <option value="PATCH" ${step.config?.method === 'PATCH' ? 'selected' : ''}>PATCH</option>
-      </select></div>
-    `;
+    const whProfiles = (typeof webhookProfiles !== 'undefined') ? webhookProfiles : [];
+    const webhookOptions = whProfiles.map(p =>
+      `<option value="${escapeHtml(p.id)}" ${step.config?.integration_id === p.id ? 'selected' : ''}>${escapeHtml(p.name)} (${escapeHtml(p.method || 'POST')})</option>`
+    ).join('');
+
+    if (whProfiles.length === 0) {
+      configFields = `
+        <div class="step-editor-row" style="color: var(--text-secondary); font-size: 0.85rem;">No webhook endpoints configured. Add one in Settings &gt; Integrations.</div>
+      `;
+    } else {
+      configFields = `
+        <div class="step-editor-row"><label>Endpoint</label><select data-field="integration_id">
+          <option value="">Select endpoint...</option>
+          ${webhookOptions}
+        </select></div>
+      `;
+    }
   } else if (step.connector === 'slack') {
     const slackIntegrationOptions = Object.entries(slackIntegrations).map(([id, data]) =>
       `<option value="${escapeHtml(id)}" ${step.config?.integration_id === id ? 'selected' : ''}>${escapeHtml(data.name)}</option>`

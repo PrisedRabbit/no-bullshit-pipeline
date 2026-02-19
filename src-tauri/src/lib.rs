@@ -200,6 +200,11 @@ pub fn run() {
             integrations::linear::remove_linear_integration,
             integrations::linear::list_linear_profiles,
             integrations::linear::update_linear_member_aliases,
+            // Webhook integrations
+            integrations::webhook::add_webhook_integration,
+            integrations::webhook::list_webhook_profiles,
+            integrations::webhook::remove_webhook_integration,
+            integrations::webhook::test_webhook_integration,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

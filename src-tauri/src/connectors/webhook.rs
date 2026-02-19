@@ -15,11 +15,28 @@ struct WebhookConfig {
 }
 
 impl WebhookConfig {
+    /// Build config from step config JSON.
+    /// If `integration_id` is present, loads the named webhook profile from disk.
+    /// Falls back to inline fields (url, method, etc.) for backward compatibility.
     fn from_value(config: &serde_json::Value) -> Result<Self, String> {
+        // Named endpoint path: load integration profile by id
+        if let Some(integration_id) = config.get("integration_id").and_then(|v| v.as_str()) {
+            let profile =
+                crate::integrations::webhook::load_webhook_profile(integration_id)?;
+            return Ok(WebhookConfig {
+                url: profile.url,
+                method: profile.method,
+                headers: profile.headers,
+                body_format: profile.body_format,
+                timeout_sec: profile.timeout_sec,
+            });
+        }
+
+        // Inline config path (backward compatibility)
         let url = config
             .get("url")
             .and_then(|v| v.as_str())
-            .ok_or("Webhook connector config missing 'url'")?
+            .ok_or("Webhook connector config missing 'url' or 'integration_id'")?
             .to_string();
 
         let method = config
