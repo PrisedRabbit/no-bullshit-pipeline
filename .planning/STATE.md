@@ -9,17 +9,18 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 ## Current Position
 
-Phase: 13 — Linear Backend
-Plan: 13-01 planned (1 plan, 1 wave, 2 tasks)
-Status: Phase 13 planned, ready to execute
-Last activity: 2026-02-19 — Phase 13 planned (1 plan, verification passed)
+Phase: 14 — Linear Delivery
+Plan: Not yet planned
+Status: Phase 13 complete, Phase 14 needs planning
+Last activity: 2026-02-19 — Phase 13 executed (1 plan, 1 commit: feat(linear) a763800)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██░░░░░░░░] 20% (1/5 phases)
 
 ## Performance Metrics
 
 **Velocity (v1):** 8 phases, 20 plans — shipped 2026-02-18 to 2026-02-19
 **Velocity (v1.1):** 4 phases, 7 plans, 12 tasks, 13 feat/fix commits — shipped 2026-02-19
+**Velocity (v1.2):** Phase 13 done in 1 plan, 1 commit
 
 See milestones/v1-ROADMAP.md and milestones/v1.1-ROADMAP.md for full details.
 
@@ -28,6 +29,12 @@ See milestones/v1-ROADMAP.md and milestones/v1.1-ROADMAP.md for full details.
 ### Decisions
 
 All decisions archived in PROJECT.md Key Decisions table (15 v1 + 7 v1.1 decisions).
+
+**v1.2 decisions:**
+- Linear uses raw reqwest GraphQL (no SDK crate) — simpler, no new dependency
+- Linear auth header: raw token, no "Bearer" prefix
+- 3 separate GraphQL queries for schema sync (states, labels, members) — clear error messages
+- Priorities hardcoded (0-4) — Linear's priority levels are fixed
 
 ### Pending Todos
 
@@ -40,10 +47,10 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Phase 13 planned
+Stopped at: Phase 13 executed
 Resume file: None
 
 ## Next Step
 
-**Action:** Execute Phase 13 — Linear Backend
-**Context:** 1 plan (13-01) in wave 1, autonomous. Creates `integrations/linear.rs` with 6 Tauri commands (add, test, remove, list_teams, sync_schema, list_profiles), Keychain credential storage, GraphQL client, and profile persistence. No new crate dependencies — uses existing reqwest. Follow Notion connector pattern in `integrations/notion.rs`.
+**Action:** Plan Phase 14 — Linear Delivery
+**Context:** Phase 14 creates the Linear issue delivery connector — structured output parsing, issue creation via GraphQL mutation, and JSON retry on parse failure. Depends on Phase 13 (now complete). Follow the Notion connector pattern in `connectors/notion.rs`. See ROADMAP.md Phase 14 details for requirements and success criteria.

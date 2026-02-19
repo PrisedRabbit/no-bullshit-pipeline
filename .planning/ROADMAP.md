@@ -36,7 +36,7 @@
 
 **Milestone Goal:** Add Linear and Telegram delivery connectors so pipelines can create issues in Linear and send messages to Telegram automatically after recording.
 
-- [ ] **Phase 13: Linear Backend** — API client, Keychain auth, schema fetch and storage
+- [x] **Phase 13: Linear Backend** — API client, Keychain auth, schema fetch and storage
 - [ ] **Phase 14: Linear Delivery** — Structured output parsing, issue creation, JSON retry
 - [ ] **Phase 15: Linear Pipeline Integration** — Prompt augmentation with schema format specs, engine match arm
 - [ ] **Phase 16: Linear Frontend** — Integration wizard, pipeline builder delivery option, re-sync UI, member alias mapping
@@ -56,7 +56,7 @@
 **Plans**: 1 plan
 
 Plans:
-- [ ] 13-01: Linear API client, credential storage, and schema fetch (types, GraphQL client, Keychain integration, team listing, schema persistence)
+- [x] 13-01: Linear API client, credential storage, and schema fetch (types, GraphQL client, Keychain integration, team listing, schema persistence)
 
 ### Phase 14: Linear Delivery
 **Goal**: The pipeline engine can create a Linear issue from structured LLM output, with retry on parse failure
@@ -131,7 +131,7 @@ Plans:
 | 10. Structured Output Error Recovery | v1.1 | 2/2 | Complete | 2026-02-19 |
 | 11. UX Polish | v1.1 | 2/2 | Complete | 2026-02-19 |
 | 12. Schema Management | v1.1 | 2/2 | Complete | 2026-02-19 |
-| 13. Linear Backend | v1.2 | 0/1 | Planned | - |
+| 13. Linear Backend | v1.2 | 1/1 | Complete | 2026-02-19 |
 | 14. Linear Delivery | v1.2 | 0/1 | Not started | - |
 | 15. Linear Pipeline Integration | v1.2 | 0/1 | Not started | - |
 | 16. Linear Frontend | v1.2 | 0/2 | Not started | - |
