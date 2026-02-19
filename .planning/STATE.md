@@ -148,5 +148,5 @@ Resume file: None
 
 ## Next Step
 
-**Action:** All 8 phases complete — Pipelines v2 milestone achieved
-**Context:** Phase 8 Plan 02 (08-02) complete. Interactive walkthrough with 7-step spotlight overlay implemented. walkthrough_completed persisted via AppSettings. All 26 plans across all 8 phases are complete.
+**Action:** Milestone complete — run `/gsd:audit-milestone` or `/gsd:complete-milestone` to archive
+**Context:** All 8 phases executed and verified. 26 plans, 52+ tasks, 6 commits for phase 8 alone. Phase 8 verification: 9/9 must-haves passed, 4 items for human visual testing. Full Pipelines v2 milestone delivered.
