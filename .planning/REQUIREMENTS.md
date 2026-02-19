@@ -13,10 +13,10 @@ Requirements for v1.2 release. Each maps to roadmap phases.
 - [x] **LINEAR-02**: User can select a Linear team and project during setup wizard
 - [ ] **LINEAR-03**: System reads and stores Linear project schema (custom fields, labels, priorities, status options, team members)
 - [x] **LINEAR-04**: User can map Linear team members to name aliases for participant resolution
-- [ ] **LINEAR-05**: User can add a Linear delivery step in pipeline builder (only shown when Linear integration exists)
+- [x] **LINEAR-05**: User can add a Linear delivery step in pipeline builder (only shown when Linear integration exists)
 - [x] **LINEAR-06**: When an LLM step precedes a Linear step, prompt is auto-augmented with Linear schema format specs
 - [ ] **LINEAR-07**: Structured LLM output is parsed and mapped to Linear issue fields (title, description, priority, label, assignee, status)
-- [ ] **LINEAR-08**: User can re-sync Linear project schema from pipeline builder and integration settings, with staleness warnings
+- [x] **LINEAR-08**: User can re-sync Linear project schema from pipeline builder and integration settings, with staleness warnings
 - [ ] **LINEAR-09**: Linear API key stored in macOS Keychain with dev-mode credential bypass
 - [ ] **LINEAR-10**: JSON parse failures on Linear delivery trigger structured-output retry (same pattern as Notion)
 
@@ -64,10 +64,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LINEAR-02 | Phase 16 | Complete |
 | LINEAR-03 | Phase 13 | Pending |
 | LINEAR-04 | Phase 16 | Complete |
-| LINEAR-05 | Phase 16 | Pending |
+| LINEAR-05 | Phase 16 | Complete |
 | LINEAR-06 | Phase 15 | Complete |
 | LINEAR-07 | Phase 14 | Pending |
-| LINEAR-08 | Phase 16 | Pending |
+| LINEAR-08 | Phase 16 | Complete |
 | LINEAR-09 | Phase 13 | Pending |
 | LINEAR-10 | Phase 14 | Pending |
 | TELE-01 | Phase 17 | Pending |
