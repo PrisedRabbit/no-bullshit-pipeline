@@ -54,11 +54,11 @@ Plans:
   2. When structured output parsing fails after retry, the pipeline run output shows the raw AI response alongside a clear, actionable error message
   3. When one delivery step fails, subsequent independent steps in the pipeline still execute and deliver their output
   4. Pipeline run output distinguishes between steps that succeeded, steps that failed, and steps that were skipped
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 10-01: Implement JSON retry logic with stricter prompt for structured delivery steps
-- [ ] 10-02: Add failure display (raw output + error message) and partial-success pipeline execution
+- [ ] 10-01-PLAN.md — JSON retry logic with error categorization and raw output preservation (ERR-01, ERR-02)
+- [ ] 10-02-PLAN.md — Partial-success pipeline execution and per-step status UI (ERR-03)
 
 ### Phase 11: UX Polish
 **Goal**: Pipeline interaction and run output provide clear, transparent information so users understand what the system did and can manage many pipelines efficiently
@@ -103,6 +103,6 @@ Plans:
 | 7. Pipeline Data Model and Tags Migration | v1 | 2/2 | Complete | 2026-02-19 |
 | 8. UI Health Check | v1 | 2/2 | Complete | 2026-02-19 |
 | 9. Bug Fixes | 1/1 | Complete    | 2026-02-19 | - |
-| 10. Structured Output Error Recovery | v1.1 | 0/2 | Not started | - |
+| 10. Structured Output Error Recovery | v1.1 | 0/2 | Planned | - |
 | 11. UX Polish | v1.1 | 0/2 | Not started | - |
 | 12. Schema Management | v1.1 | 0/2 | Not started | - |
