@@ -39,7 +39,7 @@
 - [x] **Phase 13: Linear Backend** — API client, Keychain auth, schema fetch and storage
 - [x] **Phase 14: Linear Delivery** — Structured output parsing, issue creation, JSON retry
 - [x] **Phase 15: Linear Pipeline Integration** — Prompt augmentation with schema format specs, engine match arm
-- [ ] **Phase 16: Linear Frontend** — Integration wizard, pipeline builder delivery option, re-sync UI, member alias mapping
+- [x] **Phase 16: Linear Frontend** — Integration wizard, pipeline builder delivery option, re-sync UI, member alias mapping (completed 2026-02-19)
 - [ ] **Phase 17: Telegram Connector** — Full connector: backend, Keychain auth, chat selection, pipeline builder, delivery
 
 ## Phase Details
@@ -134,5 +134,5 @@ Plans:
 | 13. Linear Backend | v1.2 | 1/1 | Complete | 2026-02-19 |
 | 14. Linear Delivery | v1.2 | 1/1 | Complete | 2026-02-19 |
 | 15. Linear Pipeline Integration | v1.2 | Complete    | 2026-02-19 | 2026-02-19 |
-| 16. Linear Frontend | 1/2 | In Progress|  | - |
+| 16. Linear Frontend | 2/2 | Complete   | 2026-02-19 | - |
 | 17. Telegram Connector | v1.2 | 0/2 | Not started | - |

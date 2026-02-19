@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 ## Current Position
 
-Phase: 16 — Linear Frontend (IN PROGRESS)
-Plan: 1/2 plans executed (16-01 complete, 16-02 wave 2 pending)
-Status: Phase 16 in progress — 16-01 complete (Linear wizard UI + member alias backend), 16-02 pending
-Last activity: 2026-02-19 — 16-01 complete (MemberAlias backend, 4-step wizard, connected cards, available integration entry)
+Phase: 16 — Linear Frontend (COMPLETE)
+Plan: 2/2 plans executed (16-01 complete, 16-02 complete)
+Status: Phase 16 complete — Linear wizard UI + member alias backend (16-01) + pipeline builder Linear step + re-sync UI (16-02)
+Last activity: 2026-02-19 — 16-02 complete (Linear delivery option in pipeline builder, re-sync from step editor and settings card)
 
-Progress: [█████░░░░░] 60% (3/5 phases)
+Progress: [██████░░░░] 70% (4/5 phases)
 
 ## Performance Metrics
 
@@ -43,6 +43,8 @@ All decisions archived in PROJECT.md Key Decisions table (15 v1 + 7 v1.1 decisio
 - display_name preferred over name for member assignee — matches what users see in Linear UI
 - [Phase 16]: MemberAlias struct follows Notion PeopleMapping pattern for consistent alias resolution across integrations
 - [Phase 16]: 4-step Linear wizard omits Notion share-instruction step — Linear API key grants direct team access
+- [Phase 16-02]: typeof linearProfiles guard in pipeline-builder.js — allows independent loading before integrations-settings.js globals are set
+- [Phase 16-02]: Linear added to deliveryConnectors array — ensures delivery styling in pipeline preview
 
 ### Pending Todos
 
@@ -55,10 +57,10 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Completed Phase 16 Plan 01 — Linear wizard UI and member alias backend
+Stopped at: Completed Phase 16 Plan 02 — Pipeline Builder Linear Step + Re-sync UI
 Resume file: None
 
 ## Next Step
 
-**Action:** Execute Phase 16 Plan 02 — Pipeline Builder Linear Step + Re-sync UI
-**Context:** 16-01 complete. 16-02 (wave 2) covers pipeline builder Linear step and re-sync UI (LINEAR-05, LINEAR-08).
+**Action:** Phase 16 complete — all plans executed. Advance to next phase per ROADMAP.md.
+**Context:** 16-02 complete. Linear connector is end-to-end: backend (Phase 13), wizard UI (16-01), pipeline builder + re-sync (16-02).
