@@ -105,4 +105,4 @@ Plans:
 | 9. Bug Fixes | 1/1 | Complete    | 2026-02-19 | - |
 | 10. Structured Output Error Recovery | 2/2 | Complete    | 2026-02-19 | 2026-02-19 |
 | 11. UX Polish | 2/2 | Complete   | 2026-02-19 | - |
-| 12. Schema Management | 2/2 | Complete   | 2026-02-19 | - |
+| 12. Schema Management | 2/2 | Complete    | 2026-02-19 | - |
