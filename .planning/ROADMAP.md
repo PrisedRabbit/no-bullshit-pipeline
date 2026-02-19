@@ -80,7 +80,7 @@ Plans:
   1. When a pipeline has an LLM step immediately before a Linear step, the LLM prompt is automatically augmented with Linear field format specifications (priority values, label names, status options, team member IDs)
   2. The augmentation reflects the current stored schema, not hardcoded values
   3. Pipelines without a Linear step receive no Linear augmentation
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
 - [ ] 15-01: Prompt augmentation for Linear schema and pipeline engine match arm
