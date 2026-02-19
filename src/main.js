@@ -39,7 +39,7 @@ let detailPipelineHandler = null; // Module-level ref to avoid stacking change l
 
 let permissions = { mic: false, system_audio: false };
 let appSettings = null;
-let currentAssignedPipeline = null;
+let currentAssignedPipelines = new Set(); // pipelines assigned to the current/last recording
 let pipelineProgressUnlisten = null;
 
 // ===== DOM ELEMENTS =====
@@ -256,13 +256,13 @@ async function startRecording() {
     setRecordingUI(true);
 
     // Auto-assign default pipeline if set and no chip was clicked
-    if (appSettings?.default_pipeline && currentAssignedPipeline === null) {
+    if (appSettings?.default_pipeline && currentAssignedPipelines.size === 0) {
       try {
-        currentAssignedPipeline = appSettings.default_pipeline;
+        currentAssignedPipelines.add(appSettings.default_pipeline);
         await invoke('assign_pipeline', { recordingId: metadata.id, pipelineName: appSettings.default_pipeline });
       } catch (e) {
         console.error('Failed to auto-assign default pipeline:', e);
-        currentAssignedPipeline = null;
+        currentAssignedPipelines.delete(appSettings.default_pipeline);
       }
     }
 
@@ -288,7 +288,7 @@ async function stopRecording() {
   isRecordingBusy = true;
   try {
     const currentId = selectedRecordingId;
-    const stoppedPipeline = currentAssignedPipeline; // Capture before clearing (for 06-03 auto-execute)
+    const stoppedPipelines = [...currentAssignedPipelines]; // Capture before clearing (for 06-03 auto-execute)
 
     if (detailTitleInput && selectedRecordingId) {
       try {
@@ -300,7 +300,7 @@ async function stopRecording() {
 
     await invoke("stop_recording");
     isRecording = false;
-    currentAssignedPipeline = null; // Clear global after capturing to local
+    currentAssignedPipelines = new Set(); // Clear global after capturing to local
 
     stopTimer();
     stopWaveformAnimation();
@@ -315,14 +315,14 @@ async function stopRecording() {
     }
 
     // Auto-transcribe + auto-execute (EXEC-01) — fire and forget
-    if (stoppedPipeline && appSettings?.transcription?.enabled) {
-      autoTranscribeAndExecute(currentId, stoppedPipeline);
+    if (stoppedPipelines.length > 0 && appSettings?.transcription?.enabled) {
+      autoTranscribeAndExecute(currentId, stoppedPipelines);
     }
 
   } catch (error) {
     // Always reset UI state, even on error
     isRecording = false;
-    currentAssignedPipeline = null;
+    currentAssignedPipelines = new Set();
     stopTimer();
     stopWaveformAnimation();
     setRecordingUI(false);
@@ -337,24 +337,25 @@ async function stopRecording() {
   }
 }
 
-async function autoTranscribeAndExecute(recordingId, pipelineName) {
-  // Step 1: Transcribe (blocking — must complete before pipeline)
+async function autoTranscribeAndExecute(recordingId, pipelineNames) {
+  // Step 1: Transcribe once (blocking — must complete before any pipeline)
   try {
     if (window.__NBP_setTranscribingId) window.__NBP_setTranscribingId(recordingId);
     await invoke('transcribe_recording', { recordingId });
   } catch (err) {
     console.error('Auto-transcription failed:', err);
-    // Refresh detail view to show current state
     await loadRecordings();
     if (selectedRecordingId === recordingId) showDetailView(recordingId);
     return; // Do not proceed to pipeline execution if transcription failed
   }
 
-  // Step 2: Execute pipeline (non-blocking from user perspective — status shown in detail view)
-  try {
-    await invoke('execute_pipeline', { recordingId, pipelineName });
-  } catch (err) {
-    console.error('Auto-pipeline execution failed:', err);
+  // Step 2: Execute each assigned pipeline sequentially
+  for (const pipelineName of pipelineNames) {
+    try {
+      await invoke('execute_pipeline', { recordingId, pipelineName });
+    } catch (err) {
+      console.error(`Auto-pipeline execution failed for "${pipelineName}":`, err);
+    }
   }
 
   // Refresh recordings list and detail view
@@ -1518,7 +1519,7 @@ function renderPipelineChips() {
   let html = '';
   for (const p of visible) {
     let cls = 'pipeline-chip';
-    if (isRecording && currentAssignedPipeline === p.name) {
+    if (isRecording && currentAssignedPipelines.has(p.name)) {
       cls += ' is-assigned';
     } else if (!isRecording && appSettings?.last_used_pipeline === p.name) {
       cls += ' is-last-used';
@@ -1560,7 +1561,7 @@ function showOverflowPopover(pipelines) {
 
   for (const p of pipelines) {
     let cls = 'pipeline-chip';
-    if (isRecording && currentAssignedPipeline === p.name) {
+    if (isRecording && currentAssignedPipelines.has(p.name)) {
       cls += ' is-assigned';
     } else if (!isRecording && appSettings?.last_used_pipeline === p.name) {
       cls += ' is-last-used';
@@ -1591,14 +1592,18 @@ function showOverflowPopover(pipelines) {
 async function handleChipClick(pipelineName) {
   if (isRecordingBusy) return;
   if (isRecording) {
-    // Mid-recording assignment (ASGN-03)
-    try {
-      await invoke('assign_pipeline', { recordingId: selectedRecordingId, pipelineName });
-      currentAssignedPipeline = pipelineName;
-      renderPipelineChips(); // Update visual state
-    } catch (err) {
-      console.error('Failed to assign pipeline mid-recording:', err);
+    // Mid-recording toggle: add if not assigned, remove if already assigned (ASGN-03)
+    if (currentAssignedPipelines.has(pipelineName)) {
+      currentAssignedPipelines.delete(pipelineName);
+    } else {
+      try {
+        await invoke('assign_pipeline', { recordingId: selectedRecordingId, pipelineName });
+        currentAssignedPipelines.add(pipelineName);
+      } catch (err) {
+        console.error('Failed to assign pipeline mid-recording:', err);
+      }
     }
+    renderPipelineChips();
   } else {
     await startRecordingWithPipeline(pipelineName);
   }
@@ -1612,7 +1617,7 @@ async function startRecordingWithPipeline(pipelineName) {
   try {
     const metadata = await invoke('start_recording', { saveMixOnly });
     isRecording = true;
-    currentAssignedPipeline = pipelineName;
+    currentAssignedPipelines = new Set([pipelineName]);
     await invoke('assign_pipeline', { recordingId: metadata.id, pipelineName });
     // Save last-used pipeline so chip bar highlights it on next launch
     appSettings.last_used_pipeline = pipelineName;
@@ -1626,7 +1631,7 @@ async function startRecordingWithPipeline(pipelineName) {
   } catch (error) {
     // Revert all state on failure
     isRecording = false;
-    currentAssignedPipeline = null;
+    currentAssignedPipelines = new Set();
     stopTimer();
     stopWaveformAnimation();
     setRecordingUI(false);
