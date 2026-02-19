@@ -275,6 +275,7 @@ async function stopRecording() {
   isRecordingBusy = true;
   try {
     const currentId = selectedRecordingId;
+    const stoppedPipeline = currentAssignedPipeline; // Capture before clearing (for 06-03 auto-execute)
 
     if (detailTitleInput && selectedRecordingId) {
       try {
@@ -286,23 +287,28 @@ async function stopRecording() {
 
     await invoke("stop_recording");
     isRecording = false;
+    currentAssignedPipeline = null; // Clear global after capturing to local
 
     stopTimer();
     stopWaveformAnimation();
     setRecordingUI(false);
+    renderPipelineChips(); // Reset chip visual state after recording stops
 
     await loadRecordings();
 
     if (selectedRecordingId === currentId) {
       showDetailView(currentId);
+      renderPipelineChips(); // Ensure chips are updated after detail view re-renders
     }
 
   } catch (error) {
     // Always reset UI state, even on error
     isRecording = false;
+    currentAssignedPipeline = null;
     stopTimer();
     stopWaveformAnimation();
     setRecordingUI(false);
+    renderPipelineChips();
     console.error("Failed to stop:", error);
     if (error && error.includes && error.includes("discarded")) {
       hideDetailView();
@@ -1324,6 +1330,52 @@ function showOverflowPopover(pipelines) {
   }
 
   setTimeout(() => document.addEventListener('click', dismissOverflow, { once: true }), 0);
+}
+
+async function handleChipClick(pipelineName) {
+  if (isRecordingBusy) return;
+  if (isRecording) {
+    // Mid-recording assignment (ASGN-03)
+    try {
+      await invoke('assign_pipeline', { recordingId: selectedRecordingId, pipelineName });
+      currentAssignedPipeline = pipelineName;
+      renderPipelineChips(); // Update visual state
+    } catch (err) {
+      console.error('Failed to assign pipeline mid-recording:', err);
+    }
+  } else {
+    await startRecordingWithPipeline(pipelineName);
+  }
+}
+
+async function startRecordingWithPipeline(pipelineName) {
+  isRecordingBusy = true;
+  ViewManager.showRecordings();
+
+  const saveMixOnly = appSettings?.save_mix_only !== false;
+  try {
+    const metadata = await invoke('start_recording', { saveMixOnly });
+    isRecording = true;
+    currentAssignedPipeline = pipelineName;
+    await invoke('assign_pipeline', { recordingId: metadata.id, pipelineName });
+    setRecordingUI(true);
+    await loadRecordings();
+    startTimer();
+    startWaveformAnimation();
+    showDetailView(metadata.id);
+    renderPipelineChips(); // Update chip visual state (show assigned chip)
+  } catch (error) {
+    // Revert all state on failure
+    isRecording = false;
+    currentAssignedPipeline = null;
+    stopTimer();
+    stopWaveformAnimation();
+    setRecordingUI(false);
+    console.error('Failed to start recording with pipeline:', error);
+    alert('Failed to start: ' + error);
+  } finally {
+    isRecordingBusy = false;
+  }
 }
 
 if (sidebarPipelinesBtn) {
