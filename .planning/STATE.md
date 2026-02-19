@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-19)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** v1.2 Connector Expansion
+**Current focus:** v1.2 Connector Expansion — Telegram Connector
 
 ## Current Position
 
-Phase: 16 — Linear Frontend (COMPLETE)
-Plan: 2/2 plans executed (16-01 complete, 16-02 complete)
-Status: Phase 16 complete — Linear wizard UI + member alias backend (16-01) + pipeline builder Linear step + re-sync UI (16-02)
-Last activity: 2026-02-19 — 16-02 complete (Linear delivery option in pipeline builder, re-sync from step editor and settings card)
+Phase: 17 — Telegram Connector (READY TO PLAN)
+Plan: 0/2 plans — plans need to be created
+Status: Phase 16 complete, Phase 17 ready to plan
+Last activity: 2026-02-19 — Phase 16 complete (Linear frontend: wizard, pipeline builder, re-sync)
 
-Progress: [██████░░░░] 70% (4/5 phases)
+Progress: [████████░░] 80% (4/5 phases)
 
 ## Performance Metrics
 
@@ -57,10 +57,10 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Completed Phase 16 Plan 02 — Pipeline Builder Linear Step + Re-sync UI
+Stopped at: Phase 16 complete, transitioning to Phase 17 planning
 Resume file: None
 
 ## Next Step
 
-**Action:** Phase 16 complete — all plans executed. Advance to next phase per ROADMAP.md.
-**Context:** 16-02 complete. Linear connector is end-to-end: backend (Phase 13), wizard UI (16-01), pipeline builder + re-sync (16-02).
+**Action:** Plan Phase 17 — Telegram Connector
+**Context:** Linear connector is fully shipped (Phases 13-16). Phase 17 is the last phase in v1.2 — Telegram connector for simple message delivery. ROADMAP has 2 plan slots (17-01 backend, 17-02 frontend) but plans need to be created via /gsd:plan-phase 17.

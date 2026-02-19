@@ -63,15 +63,17 @@ Zero post-recording work: select pipeline → record → stop → everything hap
 - ✓ Token budget validation before augmented LLM execution — v1.1
 - ✓ Schema staleness warning (7-day threshold) in integration profiles — v1.1
 - ✓ In-builder schema re-sync button for Notion steps — v1.1
+- ✓ Linear connector with schema-aware structured output — v1.2 Phases 13-15
+- ✓ Linear integration setup wizard (API key → team → schema → member alias mapping) — v1.2 Phase 16
+- ✓ Pipeline builder shows Linear as delivery step option — v1.2 Phase 16
+- ✓ Integration settings Linear setup with re-sync and staleness warnings — v1.2 Phase 16
 
 ### Active
 
-- [ ] Linear connector with schema-aware structured output (follows Notion pattern)
-- [ ] Linear integration setup wizard (API key → team → schema → field mapping)
 - [ ] Telegram connector for simple message delivery (Bot API)
 - [ ] Telegram integration setup wizard (bot token → chat selection)
-- [ ] Pipeline builder shows Linear and Telegram as delivery step options
-- [ ] Integrations settings page supports Linear and Telegram setup
+- [ ] Pipeline builder shows Telegram as delivery step option
+- [ ] Integrations settings page supports Telegram setup
 
 ### Out of Scope
 
@@ -96,10 +98,10 @@ Zero post-recording work: select pipeline → record → stop → everything hap
 
 ## Context
 
-**Current codebase state (v1.1 shipped):**
-- 5 connectors: LLM, Save, Webhook, Slack, Notion (in `src-tauri/src/connectors/`)
-- Pipeline engine (`pipeline_engine.rs`) with N+1 look-ahead prompt augmentation, token budget validation, partial-success execution, and JSON retry
-- Integrations architecture with profiles in `~/.nbp/integrations/`
+**Current codebase state (v1.2 Linear complete):**
+- 6 connectors: LLM, Save, Webhook, Slack, Notion, Linear (in `src-tauri/src/connectors/`)
+- Pipeline engine (`pipeline_engine.rs`) with N+1 look-ahead prompt augmentation (Notion + Linear), token budget validation, partial-success execution, and JSON retry
+- Integrations architecture with profiles in `~/.nbp/integrations/` (Notion, Linear with member aliases)
 - 6 built-in prompt templates (meeting-notes, action-items, summary, structure, brainstorm, journal)
 - Pipeline builder extracted to `src/pipeline-builder.js` with SortableJS and in-builder schema re-sync
 - Integrations settings wizard in `src/integrations-settings.js` with schema staleness warnings
@@ -148,6 +150,10 @@ Zero post-recording work: select pipeline → record → stop → everything hap
 | Sidecar .augmented-prompt.txt files | Avoids modifying connector frontmatter format across all connectors. | ✓ Good — v1.1 Phase 11 |
 | Token budget pre-flight validation | Check budget before API call, not inside connector. Prevents costly over-limit calls. | ✓ Good — v1.1 Phase 12 |
 | Manual schema re-sync with staleness warning | 7-day threshold + in-builder button. Simpler and safer than automatic re-sync. | ✓ Good — v1.1 Phase 12 |
+| Raw reqwest GraphQL for Linear (no SDK) | Simpler, no new dependency. 3 queries for states/labels/members. | ✓ Good — v1.2 Phase 13 |
+| Linear single JSON object (not array) | One issue per delivery step. Consistent with one-issue-per-step model. | ✓ Good — v1.2 Phase 14 |
+| MemberAlias follows PeopleMapping pattern | Consistent alias resolution across Notion and Linear integrations. | ✓ Good — v1.2 Phase 16 |
+| 4-step Linear wizard (no share step) | Linear API key grants direct team access — no DB-sharing step needed like Notion. | ✓ Good — v1.2 Phase 16 |
 
 ---
-*Last updated: 2026-02-19 after v1.2 Connector Expansion milestone start*
+*Last updated: 2026-02-19 after Phase 16 (Linear Frontend)*
