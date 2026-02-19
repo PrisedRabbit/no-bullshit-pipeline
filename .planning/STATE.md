@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-19)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** v1.1 Resilience & Polish — Phase 11 complete (2/2 plans done)
+**Current focus:** v1.1 Resilience & Polish — Phase 12 planned (2 plans in 1 wave)
 
 ## Current Position
 
-Phase: 11 of 12 (UX Polish) — COMPLETE
-Plan: 2/2 plans executed
-Status: Plan 11-02 complete — Phase 11 fully done, ready for Phase 12
-Last activity: 2026-02-19 — Plan 11-02 executed: augmented prompt expandable section + per-step timing in pipeline run output
+Phase: 12 of 12 (Schema Management) — PLANNED
+Plan: 0/2 plans executed
+Status: Phase 12 planned — 2 plans created and verified, ready for execution
+Last activity: 2026-02-19 — Phase 12 planned: token budget validation (SCHM-01), schema staleness UI (SCHM-02), re-sync in builder (SCHM-03)
 
-Progress: [███████░░░] 70% (v1.1)
+Progress: [████████░░] 80% (v1.1)
 
 ## Performance Metrics
 
@@ -68,10 +68,10 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Plan 11-02 complete (augmented prompt visibility + per-step timing)
+Stopped at: Phase 12 planned (2 plans verified by plan-checker)
 Resume file: None
 
 ## Next Step
 
-**Action:** Run `/gsd:execute-phase 12` to begin Phase 12 (Schema sync/validation)
-**Context:** Phase 11 fully complete. Phase 12 (SCHM-01) addresses prompt augmentation token budget and schema staleness. Phase 12 depends on Phase 11 being done.
+**Action:** Run `/gsd:execute-phase 12` to execute Phase 12 (Schema Management)
+**Context:** Phase 12 planned with 2 plans in wave 1 (parallel). Plan 12-01: token budget validation + schema staleness UI (SCHM-01, SCHM-02). Plan 12-02: re-sync schema button in pipeline builder (SCHM-03). Plans verified by plan-checker — all requirements covered, all dimensions passed.
