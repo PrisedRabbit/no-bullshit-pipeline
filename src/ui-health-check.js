@@ -139,4 +139,130 @@ function initHealthCheck() {
       }
     });
   }
+
+  // Walkthrough navigation buttons
+  const prevBtn = document.getElementById('walkthrough-prev');
+  if (prevBtn) {
+    prevBtn.addEventListener('click', function() {
+      if (walkthroughStep > 0) {
+        showWalkthroughStep(--walkthroughStep);
+      }
+    });
+  }
+
+  const nextBtn = document.getElementById('walkthrough-next');
+  if (nextBtn) {
+    nextBtn.addEventListener('click', function() {
+      if (walkthroughStep >= WALKTHROUGH_STEPS.length - 1) {
+        finishWalkthrough();
+      } else {
+        showWalkthroughStep(++walkthroughStep);
+      }
+    });
+  }
+
+  const skipBtn = document.getElementById('walkthrough-skip');
+  if (skipBtn) {
+    skipBtn.addEventListener('click', function() {
+      finishWalkthrough();
+    });
+  }
+
+  const startBtn = document.getElementById('start-walkthrough-btn');
+  if (startBtn) {
+    startBtn.addEventListener('click', function() {
+      startWalkthrough();
+    });
+  }
+}
+
+// ===== WALKTHROUGH ENGINE =====
+
+const WALKTHROUGH_STEPS = [
+  { selector: '#pipeline-chip-bar',     title: 'Pipeline Chips',    desc: 'Click any chip to instantly start recording with that pipeline pre-assigned. No menus, no navigation.' },
+  { selector: '#record-toggle-btn',     title: 'Record Button',     desc: 'Start or stop recording. When a recording is selected, this plays it back instead.' },
+  { selector: '#sidebar-pipelines-btn', title: 'Pipelines',         desc: 'Open Settings > Pipelines to create multi-step AI processing pipelines with drag-and-drop.' },
+  { selector: '#sidebar-templates-btn', title: 'Templates',         desc: 'Open Settings > Templates to create reusable AI prompt templates.' },
+  { selector: '#settings-btn',          title: 'Settings',          desc: 'Configure audio, integrations (Notion, Slack), pipelines, and appearance.' },
+  { selector: '#recordings-list',       title: 'Recordings',        desc: 'All your recordings appear here. Click any recording to open its detail view with transcript and pipeline status.' },
+  { selector: '#health-badge',          title: 'Health Badge',      desc: 'This badge confirms all UI elements loaded correctly. Green means healthy. Red means something is missing — click it for details.' },
+];
+
+let walkthroughStep = 0;
+
+function startWalkthrough() {
+  walkthroughStep = 0;
+  const overlay = document.getElementById('walkthrough-overlay');
+  if (overlay) overlay.style.display = 'flex';
+  showWalkthroughStep(0);
+}
+
+function showWalkthroughStep(stepIndex) {
+  const step = WALKTHROUGH_STEPS[stepIndex];
+  if (!step) return;
+
+  const target = document.querySelector(step.selector);
+  const spotlight = document.getElementById('walkthrough-spotlight');
+  const titleEl = document.getElementById('walkthrough-title');
+  const descEl = document.getElementById('walkthrough-desc');
+  const stepCounter = document.getElementById('walkthrough-step');
+  const prevBtn = document.getElementById('walkthrough-prev');
+  const nextBtn = document.getElementById('walkthrough-next');
+  const card = document.getElementById('walkthrough-card');
+
+  if (titleEl) titleEl.textContent = step.title;
+  if (descEl) descEl.textContent = step.desc;
+  if (stepCounter) stepCounter.textContent = (stepIndex + 1) + ' / ' + WALKTHROUGH_STEPS.length;
+  if (prevBtn) prevBtn.style.display = stepIndex === 0 ? 'none' : '';
+  if (nextBtn) nextBtn.textContent = stepIndex === WALKTHROUGH_STEPS.length - 1 ? 'Done' : 'Next';
+
+  if (target && card && spotlight) {
+    const rect = target.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      const pad = 8;
+      spotlight.style.position = 'fixed';
+      spotlight.style.top = (rect.top - pad) + 'px';
+      spotlight.style.left = (rect.left - pad) + 'px';
+      spotlight.style.width = (rect.width + pad * 2) + 'px';
+      spotlight.style.height = (rect.height + pad * 2) + 'px';
+      spotlight.style.boxShadow = '0 0 0 9999px rgba(0,0,0,0.6)';
+      spotlight.style.display = 'block';
+
+      // Position card below spotlight, or above if near bottom of viewport
+      const spotlightBottom = rect.bottom + pad + 12;
+      const cardHeight = 180; // estimated
+      card.style.position = 'fixed';
+      card.style.left = Math.max(8, rect.left - pad) + 'px';
+      if (spotlightBottom + cardHeight > window.innerHeight) {
+        card.style.top = (rect.top - pad - cardHeight - 12) + 'px';
+      } else {
+        card.style.top = spotlightBottom + 'px';
+      }
+      return;
+    }
+  }
+
+  // Target not found or zero dimensions — hide spotlight and center the card
+  if (spotlight) spotlight.style.display = 'none';
+  if (card) {
+    card.style.position = 'fixed';
+    card.style.top = '50%';
+    card.style.left = '50%';
+    card.style.transform = 'translate(-50%, -50%)';
+  }
+}
+
+async function finishWalkthrough() {
+  const overlay = document.getElementById('walkthrough-overlay');
+  if (overlay) overlay.style.display = 'none';
+
+  if (typeof appSettings !== 'undefined' && appSettings) {
+    appSettings.walkthrough_completed = true;
+  }
+
+  try {
+    await invoke('save_settings', { settings: appSettings });
+  } catch (e) {
+    console.error('Failed to save walkthrough_completed:', e);
+  }
 }

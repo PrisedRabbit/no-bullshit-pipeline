@@ -82,6 +82,9 @@ pub struct AppSettings {
     /// Last pipeline used — highlighted in chip bar on next launch
     #[serde(default)]
     pub last_used_pipeline: Option<String>,
+    /// Whether the user has completed the interactive UI walkthrough
+    #[serde(default)]
+    pub walkthrough_completed: bool,
 }
 
 fn default_true() -> bool {
@@ -101,6 +104,7 @@ impl Default for AppSettings {
             integrations: IntegrationsConfig::default(),
             default_pipeline: None,
             last_used_pipeline: None,
+            walkthrough_completed: false,
         }
     }
 }
