@@ -94,11 +94,11 @@ Plans:
   2. The pipeline builder shows a Linear delivery step option only when a Linear integration exists
   3. User can map Linear team member display names to name aliases used in transcripts (participant resolution)
   4. User can trigger a schema re-sync from integration settings or from the pipeline builder, and the UI shows a staleness warning when the schema is outdated
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 16-01: Linear integration wizard and settings UI (API key entry, team/project selection, member alias mapping)
-- [ ] 16-02: Linear step in pipeline builder and schema re-sync UI
+- [ ] 16-01-PLAN.md — Linear wizard UI, connected cards, backend member alias support (LINEAR-02, LINEAR-04)
+- [ ] 16-02-PLAN.md — Linear delivery step in pipeline builder and schema re-sync UI (LINEAR-05, LINEAR-08)
 
 ### Phase 17: Telegram Connector
 **Goal**: Users can add a Telegram integration and deliver pipeline output as a Telegram message to a configured chat
