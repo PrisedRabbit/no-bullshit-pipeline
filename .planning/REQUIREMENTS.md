@@ -31,8 +31,8 @@ Requirements for the Pipelines v2 milestone. Each maps to roadmap phases.
 - [ ] **BLDR-02**: Built-in processing presets available with one click: Meeting Notes, Action Items, Summary, Structure, Custom Prompt
 - [ ] **BLDR-03**: Preset steps add with zero fields to fill (smart defaults for name, connector, input)
 - [ ] **BLDR-04**: Custom prompt step has one field (textarea) with optional "Save as reusable template" checkbox
-- [ ] **BLDR-05**: Step input chaining is automatic: step 1 = transcript, step N = previous step output, with toggle to override
-- [ ] **BLDR-06**: Pipeline steps can be reordered via drag-and-drop
+- [x] **BLDR-05**: Step input chaining is automatic: step 1 = transcript, step N = previous step output, with toggle to override
+- [x] **BLDR-06**: Pipeline steps can be reordered via drag-and-drop
 - [ ] **BLDR-07**: Pipeline assembly preview shows visual chain of steps below the step list
 - [ ] **BLDR-08**: Provider/Model hidden by default, uses global settings; per-step override available in Advanced section
 
@@ -138,8 +138,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BLDR-02 | Phase 5 | Pending |
 | BLDR-03 | Phase 5 | Pending |
 | BLDR-04 | Phase 5 | Pending |
-| BLDR-05 | Phase 5 | Pending |
-| BLDR-06 | Phase 5 | Pending |
+| BLDR-05 | Phase 5 | Complete |
+| BLDR-06 | Phase 5 | Complete |
 | BLDR-07 | Phase 5 | Pending |
 | BLDR-08 | Phase 5 | Pending |
 | INTG-01 | Phase 4 | Complete |
