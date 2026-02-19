@@ -377,6 +377,55 @@ async function subscribeToProgress(recordingId) {
   });
 }
 
+const PIPELINE_STATUS_DISPLAY = {
+  waiting: 'Waiting',
+  running: 'Running',
+  done: 'Done',
+  partial: 'Failed'
+};
+
+async function renderPipelineStatus(recordingId) {
+  const section = document.getElementById('pipeline-status-section');
+  const content = document.getElementById('pipeline-status-content');
+  if (!section || !content) return;
+
+  try {
+    const states = await invoke('get_all_pipeline_states', { recordingId });
+    if (!states || states.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+
+    section.style.display = '';
+
+    let html = '';
+    for (const state of states) {
+      const displayText = PIPELINE_STATUS_DISPLAY[state.status] || state.status;
+      html += `<div class="pipeline-status-row">
+  <span class="pipeline-status-name">${escapeHtml(state.name)}</span>
+  <span class="pipeline-status-badge status-${escapeHtml(state.status)}">${escapeHtml(displayText)}</span>
+</div>`;
+
+      if (state.status === 'partial') {
+        try {
+          const steps = await invoke('get_step_outputs', { recordingId, pipelineName: state.name });
+          const failedStep = steps ? steps.find(s => s.status === 'failed') : null;
+          if (failedStep) {
+            html += `<div class="pipeline-step-error">Step "${escapeHtml(failedStep.name)}" failed: ${escapeHtml(failedStep.error || 'Unknown error')}</div>`;
+          }
+        } catch (e) {
+          console.error('Failed to load step outputs:', e);
+        }
+      }
+    }
+
+    content.innerHTML = html;
+  } catch (e) {
+    console.error('Failed to load pipeline states:', e);
+    section.style.display = 'none';
+  }
+}
+
 // ===== PERMISSIONS =====
 async function updatePermissionStatus() {
   try {
@@ -677,6 +726,11 @@ window.showDetailView = async (id) => {
   const hideContent = isRecording || isProcessing;
   const contentGrid = document.getElementById('detail-content-grid');
   if (contentGrid) contentGrid.style.display = hideContent ? 'none' : 'flex';
+
+  // Render pipeline status (runs in parallel with transcript loading — no await needed)
+  if (!hideContent) {
+    renderPipelineStatus(id);
+  }
 
   // Load Transcript only if not recording/processing
   if (!hideContent && detailTranscriptEl) {

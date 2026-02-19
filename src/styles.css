@@ -3057,3 +3057,59 @@ body.is-recording-active .record-btn {
   border-radius: 6px;
   max-width: 200px;
 }
+
+/* ===== PIPELINE STATUS SECTION ===== */
+.pipeline-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.pipeline-status-name {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.pipeline-status-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 4px;
+  padding: 2px 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.pipeline-status-badge.status-waiting {
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.pipeline-status-badge.status-running {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.pipeline-status-badge.status-done {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--success);
+}
+
+/* Rust uses "partial" for failed pipelines — display "Failed" text */
+.pipeline-status-badge.status-partial {
+  background: rgba(248, 113, 113, 0.15);
+  color: var(--danger);
+}
+
+.pipeline-step-error {
+  font-size: 0.75rem;
+  color: var(--danger);
+  margin-top: 4px;
+  padding: 6px 10px;
+  background: rgba(248, 113, 113, 0.08);
+  border-radius: 4px;
+  border-left: 2px solid var(--danger);
+  line-height: 1.4;
+}
