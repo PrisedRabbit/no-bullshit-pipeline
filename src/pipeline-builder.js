@@ -707,7 +707,6 @@ if (savePipelineDefBtn) {
     const name = pipelineEditorName.value.trim();
     const desc = pipelineEditorDesc.value.trim();
     if (!name) { alert('Pipeline name is required'); return; }
-    if (pipelineEditorSteps.length === 0) { alert('Pipeline must have at least one step'); return; }
 
     // Validate step names
     for (let i = 0; i < pipelineEditorSteps.length; i++) {
