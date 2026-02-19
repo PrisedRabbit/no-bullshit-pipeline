@@ -406,12 +406,44 @@ async function renderPipelineStatus(recordingId) {
   <span class="pipeline-status-badge status-${escapeHtml(state.status)}">${escapeHtml(displayText)}</span>
 </div>`;
 
+      // Show per-step status detail for partial pipelines (some steps failed/skipped)
       if (state.status === 'partial') {
         try {
           const steps = await invoke('get_step_outputs', { recordingId, pipelineName: state.name });
-          const failedStep = steps ? steps.find(s => s.status === 'failed') : null;
-          if (failedStep) {
-            html += `<div class="pipeline-step-error">Step "${escapeHtml(failedStep.name)}" failed: ${escapeHtml(failedStep.error || 'Unknown error')}</div>`;
+          if (steps && steps.length > 0) {
+            html += '<div class="pipeline-steps-detail">';
+            for (const step of steps) {
+              let rowClass = 'pipeline-step-row';
+              let iconHtml = '';
+              let extraHtml = '';
+
+              if (step.status === 'done') {
+                rowClass += ' step-done';
+                iconHtml = '<span class="step-status-icon">&#10003;</span>';
+              } else if (step.status === 'failed') {
+                rowClass += ' step-failed';
+                iconHtml = '<span class="step-status-icon">&#10007;</span>';
+                if (step.error) {
+                  const shortError = step.error.length > 80 ? step.error.substring(0, 80) + '...' : step.error;
+                  extraHtml = `<span class="step-error" title="${escapeHtml(step.error)}">${escapeHtml(shortError)}</span>`;
+                }
+              } else if (step.status === 'skipped') {
+                rowClass += ' step-skipped';
+                iconHtml = '<span class="step-status-icon">&#9675;</span>';
+                extraHtml = '<span class="step-skipped-label">(skipped)</span>';
+              } else {
+                // pending or running — should not appear in final state but handle gracefully
+                rowClass += ' step-pending';
+                iconHtml = '<span class="step-status-icon">&#9675;</span>';
+              }
+
+              html += `<div class="${rowClass}">
+  ${iconHtml}
+  <span class="step-name">${escapeHtml(step.name)}</span>
+  ${extraHtml}
+</div>`;
+            }
+            html += '</div>';
           }
         } catch (e) {
           console.error('Failed to load step outputs:', e);
