@@ -133,6 +133,6 @@ Plans:
 | 12. Schema Management | v1.1 | 2/2 | Complete | 2026-02-19 |
 | 13. Linear Backend | v1.2 | 1/1 | Complete | 2026-02-19 |
 | 14. Linear Delivery | v1.2 | 1/1 | Complete | 2026-02-19 |
-| 15. Linear Pipeline Integration | v1.2 | 1/1 | Complete | 2026-02-19 |
+| 15. Linear Pipeline Integration | v1.2 | Complete    | 2026-02-19 | 2026-02-19 |
 | 16. Linear Frontend | v1.2 | 0/2 | Not started | - |
 | 17. Telegram Connector | v1.2 | 0/2 | Not started | - |
