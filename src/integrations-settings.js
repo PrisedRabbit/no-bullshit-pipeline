@@ -57,12 +57,24 @@ function renderConnectedIntegrations() {
     const syncedAt = profile.synced_at
       ? new Date(profile.synced_at).toLocaleDateString()
       : 'Never synced';
+    const daysSinceSync = profile.synced_at
+      ? Math.floor((Date.now() - new Date(profile.synced_at).getTime()) / (1000 * 60 * 60 * 24))
+      : null;
+    const isStale = !profile.synced_at || daysSinceSync > 7;
+    let cardDetail;
+    if (!profile.synced_at) {
+      cardDetail = `${safeDb} · <span style="color: #e6a700; font-weight: 500;">Never synced — sync schema in wizard</span>`;
+    } else if (isStale) {
+      cardDetail = `${safeDb} · Synced ${syncedAt} · <span style="color: #e6a700; font-weight: 500;">Schema may be outdated — re-sync recommended</span>`;
+    } else {
+      cardDetail = `${safeDb} · Synced ${syncedAt}`;
+    }
     cards.push(`
       <div class="integration-card" data-type="notion" data-id="${escapeHtml(profile.id)}">
         <div class="integration-card-icon notion">N</div>
         <div class="integration-card-info">
           <div class="integration-card-name">${safeName}</div>
-          <div class="integration-card-detail">${safeDb} · Synced ${syncedAt}</div>
+          <div class="integration-card-detail">${cardDetail}</div>
         </div>
         <div class="integration-card-actions">
           <button class="mini-action-btn test-notion-btn" data-id="${escapeHtml(profile.id)}">Test</button>
