@@ -153,6 +153,12 @@
                 class="detail-title-input"
                 placeholder="Untitled Recording"
               />
+              <div id="detail-pipeline-assignment" class="detail-pipeline-assignment" style="display: none;">
+                <label>Pipeline</label>
+                <select id="detail-pipeline-select" class="settings-select compact-select">
+                  <option value="">None</option>
+                </select>
+              </div>
 
             </div>
 
@@ -500,6 +506,23 @@
                       />
                       <span class="slider round"></span>
                     </label>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Recording Defaults -->
+              <div class="settings-section">
+                <h3>Recording</h3>
+                <div class="settings-item">
+                  <div class="settings-info">
+                    <label>Default Pipeline</label>
+                    <p>Auto-assign to new recordings when no chip is clicked</p>
+                  </div>
+                  <div class="settings-input-group">
+                    <select id="settings-default-pipeline" class="settings-select">
+                      <option value="">None</option>
+                      <!-- Options populated by JS -->
+                    </select>
                   </div>
                 </div>
               </div>

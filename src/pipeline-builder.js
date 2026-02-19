@@ -335,6 +335,7 @@ async function loadPipelineDefs() {
     renderPipelineDefsList();
     updateSidebarCounts();
     if (typeof renderPipelineChips === 'function') renderPipelineChips();
+    if (typeof populateDefaultPipelineSelect === 'function') populateDefaultPipelineSelect();
   } catch (err) {
     console.error('Failed to load pipelines:', err);
   }

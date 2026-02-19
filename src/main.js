@@ -253,6 +253,17 @@ async function startRecording() {
     isRecording = true;
     setRecordingUI(true);
 
+    // Auto-assign default pipeline if set and no chip was clicked
+    if (appSettings?.default_pipeline && currentAssignedPipeline === null) {
+      try {
+        currentAssignedPipeline = appSettings.default_pipeline;
+        await invoke('assign_pipeline', { recordingId: metadata.id, pipelineName: appSettings.default_pipeline });
+      } catch (e) {
+        console.error('Failed to auto-assign default pipeline:', e);
+        currentAssignedPipeline = null;
+      }
+    }
+
     await loadRecordings();
     startTimer();
     startWaveformAnimation();
@@ -893,6 +904,30 @@ if (extractBtn) {
 }
 
 
+// ===== DEFAULT PIPELINE SELECT =====
+function populateDefaultPipelineSelect() {
+  const select = document.getElementById('settings-default-pipeline');
+  if (!select) return;
+
+  const currentValue = select.value; // preserve current selection if any
+  select.innerHTML = '<option value="">None</option>';
+  if (typeof allPipelineDefs !== 'undefined') {
+    for (const p of allPipelineDefs) {
+      const opt = document.createElement('option');
+      opt.value = p.name;
+      opt.textContent = p.name;
+      select.appendChild(opt);
+    }
+  }
+
+  // Restore saved default_pipeline from appSettings
+  if (appSettings && appSettings.default_pipeline) {
+    select.value = appSettings.default_pipeline;
+  } else {
+    select.value = currentValue || '';
+  }
+}
+
 // ===== SETTINGS ELEMENTS =====
 const transcriptionEnabledCheckbox = document.getElementById("settings-transcription-enabled");
 const transcriptionDetailsEl = document.getElementById("transcription-details");
@@ -1007,6 +1042,12 @@ async function saveSettings() {
     if (saveMixOnlyCheckbox) {
       appSettings.save_mix_only = saveMixOnlyCheckbox.checked;
       console.log('DEBUG: Saving save_mix_only =', saveMixOnlyCheckbox.checked);
+    }
+
+    // Default pipeline setting
+    const defaultPipelineSelect = document.getElementById('settings-default-pipeline');
+    if (defaultPipelineSelect) {
+      appSettings.default_pipeline = defaultPipelineSelect.value || null;
     }
 
     await invoke("save_settings", { settings: appSettings });
