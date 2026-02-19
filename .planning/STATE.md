@@ -58,5 +58,5 @@ Resume file: None
 
 ## Next Step
 
-**Action:** Run `/gsd:execute-phase 10` to execute next phase
-**Context:** Phase 9 complete — both bugs fixed. BUG-01: MutationObserver now attaches to integrations tab without bogus guard. BUG-02: Single slackIntegrations variable in main.js is sole source of truth, dead renderSlackIntegrationsList removed.
+**Action:** Run `/gsd:plan-phase 10` to plan Structured Output Error Recovery phase
+**Context:** Phase 9 complete — both bugs fixed. Phase 10 plans are TBD in ROADMAP.md and need detailed planning before execution. Phase 10 depends on Phase 9 (now complete). Phase 10 has 2 planned plans: (1) JSON retry logic with stricter prompt, (2) failure display and partial-success pipeline execution.
