@@ -1,6 +1,6 @@
 // ===== PIPELINE DEFINITION MANAGEMENT =====
 // Globals from main.js (loaded before this script): escapeHtml, invoke, allPromptTemplates, slackIntegrations, updateSidebarCounts
-// Globals from integrations-settings.js (loaded before this script): notionProfiles (via typeof guard), savePathIntegrations (via typeof guard)
+// Globals from integrations-settings.js (loaded before this script): notionProfiles (via typeof guard), linearProfiles (via typeof guard), savePathIntegrations (via typeof guard)
 
 var allPipelineDefs = []; // var so main.js updateSidebarCounts() can access allPipelineDefs.length
 let editingPipelineDef = null; // null = new, string = editing name
@@ -87,6 +87,20 @@ function buildDeliveryOptions() {
         input: 'transcript',
         config: { integration_id: p.id },
         description: 'Send to ' + p.name
+      }
+    });
+  }
+  const linProfiles = (typeof linearProfiles !== 'undefined') ? linearProfiles : [];
+  for (const p of linProfiles) {
+    options.push({
+      label: p.name + ' (Linear)',
+      icon: '🔷',
+      step: {
+        name: 'create-in-' + p.name.toLowerCase().replace(/\s+/g, '-'),
+        connector: 'linear',
+        input: 'transcript',
+        config: { integration_id: p.id },
+        description: 'Create issue in ' + p.name
       }
     });
   }
@@ -616,6 +630,29 @@ function showStepEditor(index) {
         </div>
       `;
     }
+  } else if (step.connector === 'linear') {
+    // Build Linear integration options from linearProfiles (loaded by integrations-settings.js)
+    const linProfiles = (typeof linearProfiles !== 'undefined') ? linearProfiles : [];
+    const linearOptions = linProfiles.map(p =>
+      `<option value="${escapeHtml(p.id)}" ${step.config?.integration_id === p.id ? 'selected' : ''}>${escapeHtml(p.name)} (${escapeHtml(p.team_name || 'No team')})</option>`
+    ).join('');
+
+    if (linProfiles.length === 0) {
+      configFields = `
+        <div class="step-editor-row" style="color: var(--text-secondary); font-size: 0.85rem;">No Linear integrations connected. Add one in Settings &gt; Integrations.</div>
+      `;
+    } else {
+      configFields = `
+        <div class="step-editor-row"><label>Integration</label><select data-field="integration_id">
+          <option value="">Select Linear team...</option>
+          ${linearOptions}
+        </select></div>
+        <div class="step-editor-row">
+          <button class="mini-action-btn resync-linear-schema-btn" style="font-size: 0.8rem;">Re-sync Schema</button>
+          <span class="resync-status" style="font-size: 0.8rem; color: var(--text-secondary); margin-left: 8px;"></span>
+        </div>
+      `;
+    }
   }
 
   // Replace step item (or existing editor) with new editor
@@ -634,6 +671,7 @@ function showStepEditor(index) {
       <option value="slack" ${step.connector === 'slack' ? 'selected' : ''}>Slack</option>
       <option value="mcp" ${step.connector === 'mcp' ? 'selected' : ''}>MCP</option>
       <option value="notion" ${step.connector === 'notion' ? 'selected' : ''}>Notion</option>
+      <option value="linear" ${step.connector === 'linear' ? 'selected' : ''}>Linear</option>
     </select></div>
     <div class="step-editor-row"><label>Input</label><select data-field="input">${inputOptions}</select></div>
     <div class="step-editor-row"><label>Description</label><input data-field="description" value="${escapeHtml(step.description || '')}" placeholder="What this step does..." /></div>
@@ -704,6 +742,63 @@ function showStepEditor(index) {
     }
   }
 
+  // Re-sync Schema button handler (Linear only, wired after editor is in DOM)
+  if (step.connector === 'linear') {
+    const resyncBtn = editorEl.querySelector('.resync-linear-schema-btn');
+    if (resyncBtn) {
+      resyncBtn.addEventListener('click', async () => {
+        const integrationSelect = editorEl.querySelector('[data-field="integration_id"]');
+        const integrationId = integrationSelect ? integrationSelect.value : '';
+        if (!integrationId) {
+          const statusSpan = editorEl.querySelector('.resync-status');
+          if (statusSpan) statusSpan.textContent = 'Select an integration first';
+          return;
+        }
+
+        const linProfiles = (typeof linearProfiles !== 'undefined') ? linearProfiles : [];
+        const profile = linProfiles.find(p => p.id === integrationId);
+        if (!profile || !profile.team_id) {
+          const statusSpan = editorEl.querySelector('.resync-status');
+          if (statusSpan) statusSpan.textContent = 'No team synced for this integration';
+          return;
+        }
+
+        resyncBtn.disabled = true;
+        resyncBtn.textContent = 'Syncing...';
+        const statusSpan = editorEl.querySelector('.resync-status');
+        if (statusSpan) statusSpan.textContent = '';
+
+        try {
+          const updatedProfile = await window.__TAURI__.core.invoke('sync_linear_schema', {
+            integrationId: integrationId,
+            teamId: profile.team_id,
+            teamName: profile.team_name,
+          });
+
+          // Update the linearProfiles global
+          const idx = linearProfiles.findIndex(p => p.id === integrationId);
+          if (idx >= 0) {
+            linearProfiles[idx] = updatedProfile;
+          }
+
+          resyncBtn.textContent = 'Re-sync Schema';
+          resyncBtn.disabled = false;
+          if (statusSpan) {
+            statusSpan.style.color = 'var(--text-secondary)';
+            statusSpan.textContent = 'Schema synced successfully';
+          }
+        } catch (err) {
+          resyncBtn.textContent = 'Re-sync Schema';
+          resyncBtn.disabled = false;
+          if (statusSpan) {
+            statusSpan.style.color = '#e6453d';
+            statusSpan.textContent = 'Sync failed: ' + String(err);
+          }
+        }
+      });
+    }
+  }
+
   // Connector change → re-render config fields
   const connectorSelect = editorEl.querySelector('[data-field="connector"]');
   connectorSelect.addEventListener('change', () => {
@@ -744,7 +839,7 @@ function renderPipelinePreview() {
     return;
   }
 
-  const deliveryConnectors = ['save', 'notion', 'slack', 'webhook', 'mcp'];
+  const deliveryConnectors = ['save', 'notion', 'linear', 'slack', 'webhook', 'mcp'];
   let html = '<span class="preview-node source">transcript</span>';
   for (const step of pipelineEditorSteps) {
     const isDelivery = deliveryConnectors.includes(step.connector);
