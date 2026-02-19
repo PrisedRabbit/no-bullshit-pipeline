@@ -120,6 +120,6 @@ Resume file: None
 
 ## Next Step
 
-**Action:** execute Phase 6 (Recording UX + Auto-pipeline trigger)
-**Command:** /gsd:execute-phase 6
-**Context:** Phase 5 complete. All BLDR requirements (01-08) satisfied. prompt_inline pipeline steps fully supported end-to-end. Next phase focuses on recording UX and automatic pipeline trigger after transcription.
+**Action:** plan Phase 6 (Pre-Assignment UX and Execution)
+**Command:** /gsd:plan-phase 6
+**Context:** Phase 5 complete. All BLDR requirements (01-08) satisfied. prompt_inline pipeline steps fully supported end-to-end. Phase 6 needs planning before execution — pipeline chip bar, one-click recording, run status visibility, and multiple pipeline support.
