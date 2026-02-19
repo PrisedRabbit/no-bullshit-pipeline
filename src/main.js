@@ -406,8 +406,8 @@ async function renderPipelineStatus(recordingId) {
   <span class="pipeline-status-badge status-${escapeHtml(state.status)}">${escapeHtml(displayText)}</span>
 </div>`;
 
-      // Show per-step status detail for partial pipelines (some steps failed/skipped)
-      if (state.status === 'partial') {
+      // Show per-step status detail for partial and done pipelines
+      if (state.status === 'partial' || state.status === 'done') {
         try {
           const steps = await invoke('get_step_outputs', { recordingId, pipelineName: state.name });
           if (steps && steps.length > 0) {
@@ -437,11 +437,31 @@ async function renderPipelineStatus(recordingId) {
                 iconHtml = '<span class="step-status-icon">&#9675;</span>';
               }
 
+              // Per-step wall-clock duration (only for completed steps)
+              let durationHtml = '';
+              if (step.duration_secs != null && step.duration_secs > 0) {
+                const formatted = step.duration_secs >= 60
+                  ? `${Math.floor(step.duration_secs / 60)}m ${Math.round(step.duration_secs % 60)}s`
+                  : `${step.duration_secs.toFixed(1)}s`;
+                durationHtml = `<span class="step-duration">${formatted}</span>`;
+              }
+
               html += `<div class="${rowClass}">
   ${iconHtml}
   <span class="step-name">${escapeHtml(step.name)}</span>
+  ${durationHtml}
   ${extraHtml}
 </div>`;
+
+              // Expandable augmented prompt section (LLM steps with prompt augmentation)
+              if (step.augmented_prompt) {
+                html += `<div class="augmented-prompt-section">
+  <button class="augmented-prompt-toggle" onclick="this.parentElement.classList.toggle('expanded')">
+    &#9654; Augmented prompt
+  </button>
+  <div class="augmented-prompt-content"><pre>${escapeHtml(step.augmented_prompt)}</pre></div>
+</div>`;
+              }
             }
             html += '</div>';
           }

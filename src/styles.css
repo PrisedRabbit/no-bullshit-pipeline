@@ -3173,6 +3173,63 @@ body.is-recording-active .record-btn {
   font-style: italic;
 }
 
+/* Per-step duration */
+.step-duration {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  margin-left: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Augmented prompt expandable section */
+.augmented-prompt-section {
+  margin-left: 24px;
+  margin-bottom: 4px;
+}
+
+.augmented-prompt-toggle {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  cursor: pointer;
+  padding: 2px 4px;
+  font-family: inherit;
+  transition: color 0.15s;
+}
+
+.augmented-prompt-toggle:hover {
+  color: var(--text-secondary);
+}
+
+.augmented-prompt-content {
+  display: none;
+  margin-top: 4px;
+  padding: 8px;
+  background: var(--bg-main);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.augmented-prompt-content pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.augmented-prompt-section.expanded .augmented-prompt-content {
+  display: block;
+}
+
+.augmented-prompt-section.expanded .augmented-prompt-toggle {
+  color: var(--text-secondary);
+}
+
 /* Health Badge */
 .health-badge {
   font-size: 0.7rem;
