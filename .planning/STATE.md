@@ -77,10 +77,10 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Completed 12-01-PLAN.md (Phase 12 Plan 01 — Token Budget Validation + Schema Staleness UI)
+Stopped at: Phase 12 complete, v1.1 milestone complete — all phases executed and verified
 Resume file: None
 
 ## Next Step
 
-**Action:** v1.1 milestone complete — all 12 phases executed. Ready for v1.2 planning or release.
-**Context:** Phase 12 complete. SCHM-01 (token budget validation), SCHM-02 (schema staleness UI), SCHM-03 (re-sync in builder) all delivered. v1.1 Resilience & Polish milestone is done.
+**Action:** v1.1 Resilience & Polish milestone complete — run `/gsd:complete-milestone` to archive and prepare for next milestone
+**Context:** All 12 phases executed and verified. v1 (Phases 1-8) shipped, v1.1 (Phases 9-12) complete. All requirements delivered: BUG-01, BUG-02, ERR-01-03, UX-01-03, SCHM-01-03. Next milestone candidates: new connectors (Linear/Jira, Telegram, MCP), branching pipeline logic, or other features from backlog.
