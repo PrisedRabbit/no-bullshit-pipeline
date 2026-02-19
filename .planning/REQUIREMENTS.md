@@ -10,9 +10,9 @@ Requirements for v1.2 release. Each maps to roadmap phases.
 ### Linear Connector
 
 - [ ] **LINEAR-01**: User can add a Linear integration by entering an API key in integration settings
-- [ ] **LINEAR-02**: User can select a Linear team and project during setup wizard
+- [x] **LINEAR-02**: User can select a Linear team and project during setup wizard
 - [ ] **LINEAR-03**: System reads and stores Linear project schema (custom fields, labels, priorities, status options, team members)
-- [ ] **LINEAR-04**: User can map Linear team members to name aliases for participant resolution
+- [x] **LINEAR-04**: User can map Linear team members to name aliases for participant resolution
 - [ ] **LINEAR-05**: User can add a Linear delivery step in pipeline builder (only shown when Linear integration exists)
 - [x] **LINEAR-06**: When an LLM step precedes a Linear step, prompt is auto-augmented with Linear schema format specs
 - [ ] **LINEAR-07**: Structured LLM output is parsed and mapped to Linear issue fields (title, description, priority, label, assignee, status)
@@ -61,9 +61,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | LINEAR-01 | Phase 13 | Pending |
-| LINEAR-02 | Phase 16 | Pending |
+| LINEAR-02 | Phase 16 | Complete |
 | LINEAR-03 | Phase 13 | Pending |
-| LINEAR-04 | Phase 16 | Pending |
+| LINEAR-04 | Phase 16 | Complete |
 | LINEAR-05 | Phase 16 | Pending |
 | LINEAR-06 | Phase 15 | Complete |
 | LINEAR-07 | Phase 14 | Pending |

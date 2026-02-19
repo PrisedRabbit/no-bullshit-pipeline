@@ -9,10 +9,10 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 ## Current Position
 
-Phase: 15 — Linear Pipeline Integration (DONE)
-Plan: 15-01 complete (1/1 plans done)
-Status: Phase 15 complete — Linear schema prompt augmentation shipped
-Last activity: 2026-02-19 — Phase 15 executed (build_linear_format_spec, build_linear_augmented_prompt, LLM look-ahead + retry augmentation)
+Phase: 16 — Linear Frontend (IN PROGRESS)
+Plan: 1/2 plans executed (16-01 complete, 16-02 wave 2 pending)
+Status: Phase 16 in progress — 16-01 complete (Linear wizard UI + member alias backend), 16-02 pending
+Last activity: 2026-02-19 — 16-01 complete (MemberAlias backend, 4-step wizard, connected cards, available integration entry)
 
 Progress: [█████░░░░░] 60% (3/5 phases)
 
@@ -41,6 +41,8 @@ All decisions archived in PROJECT.md Key Decisions table (15 v1 + 7 v1.1 decisio
 - Linear format spec outputs singular "JSON object" (not array) — consistent with one-issue-per-step model
 - Hard fail on workflow_states.is_empty() && team_id.is_empty() — both empty = unsynced profile
 - display_name preferred over name for member assignee — matches what users see in Linear UI
+- [Phase 16]: MemberAlias struct follows Notion PeopleMapping pattern for consistent alias resolution across integrations
+- [Phase 16]: 4-step Linear wizard omits Notion share-instruction step — Linear API key grants direct team access
 
 ### Pending Todos
 
@@ -53,10 +55,10 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Completed 15-01-PLAN.md — Phase 15 Linear Pipeline Integration done
+Stopped at: Completed Phase 16 Plan 01 — Linear wizard UI and member alias backend
 Resume file: None
 
 ## Next Step
 
-**Action:** Plan Phase 16 — Linear Frontend
-**Context:** Phase 15 complete. Linear backend (13), delivery (14), and pipeline integration (15) all shipped. Phase 16 adds the UI: integration wizard, pipeline builder Linear step, member alias mapping, schema re-sync. 2 plans in roadmap (16-01, 16-02). Depends on Phase 15.
+**Action:** Execute Phase 16 Plan 02 — Pipeline Builder Linear Step + Re-sync UI
+**Context:** 16-01 complete. 16-02 (wave 2) covers pipeline builder Linear step and re-sync UI (LINEAR-05, LINEAR-08).
