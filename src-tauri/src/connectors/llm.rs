@@ -65,7 +65,7 @@ fn default_model_for_provider(provider: &str) -> &str {
 /// Approximate token count using word-based heuristic.
 /// Average English word is ~1.3 tokens; we use chars/3.5 as a balanced estimate
 /// that accounts for whitespace, punctuation, and multi-byte characters.
-fn estimate_tokens(text: &str) -> usize {
+pub fn estimate_tokens(text: &str) -> usize {
     // Use word count * 1.3 as primary estimate, with char-based floor
     let word_count = text.split_whitespace().count();
     let word_estimate = (word_count as f64 * 1.3) as usize;
@@ -75,7 +75,7 @@ fn estimate_tokens(text: &str) -> usize {
 }
 
 /// Get the context window limit (in tokens) for a provider
-fn context_limit_for_provider(provider: &str) -> usize {
+pub fn context_limit_for_provider(provider: &str) -> usize {
     match provider {
         "openai" => 120_000,
         "google" => 900_000,

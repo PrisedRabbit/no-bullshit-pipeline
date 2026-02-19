@@ -243,6 +243,33 @@ fn build_notion_format_spec(
     lines.join("\n")
 }
 
+/// Validate that an augmented prompt fits within the model's context window.
+///
+/// Called after `build_augmented_prompt` and before the LLM API call to prevent
+/// wasted API costs when the Notion schema has produced an oversized prompt.
+///
+/// Returns `Err` with an actionable message if the prompt exceeds the provider's
+/// context limit. Returns `Ok(())` if the prompt fits within budget.
+fn validate_augmented_prompt_budget(
+    augmented_prompt: &str,
+    step_config: &serde_json::Value,
+) -> Result<(), String> {
+    let provider = step_config
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .unwrap_or("openai");
+    let estimated = connectors::llm::estimate_tokens(augmented_prompt);
+    let limit = connectors::llm::context_limit_for_provider(provider);
+    if estimated > limit {
+        return Err(format!(
+            "Augmented prompt ({estimated} est. tokens) exceeds {provider} context limit \
+             ({limit} tokens). Your Notion schema may be too large for this model. \
+             Try a provider with a larger context window or reduce the number of database properties."
+        ));
+    }
+    Ok(())
+}
+
 /// Execute a pipeline for a recording
 pub async fn execute_pipeline_internal(
     recording_id: &str,
@@ -433,6 +460,11 @@ pub async fn execute_pipeline_internal(
                     let aug_path = output_dir.join(format!("{}.augmented-prompt.txt", step.name));
                     let _ = fs::create_dir_all(&output_dir);
                     let _ = fs::write(&aug_path, aug_text);
+                }
+
+                // Budget check: reject over-limit augmented prompts before making the API call
+                if let Some(ref aug_text) = augmented {
+                    validate_augmented_prompt_budget(aug_text, &step.config)?;
                 }
 
                 connectors::llm::execute(
@@ -1025,7 +1057,7 @@ mod tests {
     #[test]
     fn test_parse_step_status_done() {
         let content = "---\nname: test\nstatus: done\nerror: null\n---\n\nContent";
-        let (status, error) = parse_step_status(content);
+        let (status, error, _duration) = parse_step_status(content);
         assert_eq!(status, "done");
         assert!(error.is_none());
     }
@@ -1034,7 +1066,7 @@ mod tests {
     fn test_parse_step_status_failed() {
         let content =
             "---\nname: test\nstatus: failed\nerror: \"API error: 401\"\n---\n\nFailed";
-        let (status, error) = parse_step_status(content);
+        let (status, error, _duration) = parse_step_status(content);
         assert_eq!(status, "failed");
         assert_eq!(error.unwrap(), "API error: 401");
     }
@@ -1042,7 +1074,7 @@ mod tests {
     #[test]
     fn test_parse_step_status_no_frontmatter() {
         let content = "Plain content without frontmatter";
-        let (status, error) = parse_step_status(content);
+        let (status, error, _duration) = parse_step_status(content);
         assert_eq!(status, "pending");
         assert!(error.is_none());
     }
