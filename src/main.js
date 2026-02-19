@@ -1934,4 +1934,19 @@ async function init() {
   }
 }
 
-init().catch(e => console.error('Init failed:', e));
+init().catch(e => console.error('Init failed:', e)).finally(() => {
+  // Initialize health check controls (event listeners wired once)
+  if (typeof initHealthCheck === 'function') initHealthCheck();
+
+  // Schedule DOM audit after browser is idle
+  const scheduleAudit = () => {
+    if (typeof runHealthAudit === 'function') {
+      runHealthAudit();
+    }
+  };
+  if (typeof requestIdleCallback !== 'undefined') {
+    requestIdleCallback(scheduleAudit, { timeout: 2000 });
+  } else {
+    setTimeout(scheduleAudit, 500);
+  }
+});
