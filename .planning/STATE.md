@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-18)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** Phase 5 (Pipeline Builder Redesign) — executing, 1 of 3 plans complete
+**Current focus:** Phase 5 (Pipeline Builder Redesign) — executing, 2 of 3 plans complete
 
 ## Current Position
 
 Phase: 5 of 8 (Pipeline Builder Redesign) — executing
-Plan: 1 of 3 in current phase — 05-01 complete, 05-02 and 05-03 remaining
-Status: Phase 5 wave 1 complete — pipeline-builder.js extracted with SortableJS
-Last activity: 2026-02-19 — 05-01 complete (pipeline builder extraction + SortableJS)
+Plan: 2 of 3 in current phase — 05-01 and 05-02 complete, 05-03 remaining
+Status: Phase 5 wave 2 complete — categorized step picker with presets and backend templates
+Last activity: 2026-02-19 — 05-02 complete (step picker + PROCESSING_PRESETS + action-items/summary/structure templates)
 
-Progress: [█████░░░░░] 43% (11/26 plans)
+Progress: [█████░░░░░] 46% (12/26 plans)
 
 ## Performance Metrics
 
@@ -43,6 +43,7 @@ Progress: [█████░░░░░] 43% (11/26 plans)
 | Phase 04-integrations-settings-ui P02 | 2 | 2 tasks | 3 files |
 | Phase 04 P03 | 2 | 2 tasks | 5 files |
 | Phase 05-pipeline-builder-redesign P01 | 4 | 2 tasks | 5 files |
+| Phase 05-pipeline-builder-redesign P02 | 2 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -91,6 +92,9 @@ Recent decisions affecting current work:
 - [Phase 05-01]: var allPipelineDefs in pipeline-builder.js makes pipeline count accessible to main.js updateSidebarCounts() at runtime
 - [Phase 05-01]: SortableJS destroyed and re-created in renderPipelineSteps() because innerHTML replacement creates new DOM nodes
 - [Phase 05-01]: Script load order: sortable.min.js -> main.js -> integrations-settings.js -> pipeline-builder.js for correct global availability
+- [Phase 05-02]: Picker inserted inline after addPipelineStepBtn — simpler than positioned dropdown, scrolls with content
+- [Phase 05-02]: PROCESSING_PRESETS[n].step=null signals Custom Prompt deferred to Plan 05-03
+- [Phase 05-02]: Builtin merge uses contains_key check — existing installs get new templates without overwriting user-modified built-ins
 
 ### Pending Todos
 
@@ -106,11 +110,11 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Completed 05-pipeline-builder-redesign/05-01-PLAN.md
+Stopped at: Completed 05-pipeline-builder-redesign/05-02-PLAN.md
 Resume file: None
 
 ## Next Step
 
-**Action:** execute Phase 5 Plan 02 (Pipeline Builder Redesign — Categorized Step Picker)
+**Action:** execute Phase 5 Plan 03 (Pipeline Builder Redesign — Custom Prompt Form + Assembly Preview)
 **Command:** /gsd:execute-phase 5
-**Context:** Wave 1 complete. Wave 2 (05-02): categorized step picker + built-in presets + backend templates. Wave 3 (05-03): Custom Prompt form + assembly preview + Advanced section + prompt_inline Rust backend.
+**Context:** Wave 2 complete. Wave 3 (05-03): Custom Prompt form + assembly preview + Advanced section + prompt_inline Rust backend. Custom Prompt placeholder in pipeline-builder.js (preset.step=null) ready for replacement.

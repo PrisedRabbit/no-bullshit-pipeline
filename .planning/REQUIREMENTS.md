@@ -27,9 +27,9 @@ Requirements for the Pipelines v2 milestone. Each maps to roadmap phases.
 
 ### Pipeline Builder
 
-- [ ] **BLDR-01**: Step picker shows two categories: Processing (AI) and Delivery (send somewhere)
-- [ ] **BLDR-02**: Built-in processing presets available with one click: Meeting Notes, Action Items, Summary, Structure, Custom Prompt
-- [ ] **BLDR-03**: Preset steps add with zero fields to fill (smart defaults for name, connector, input)
+- [x] **BLDR-01**: Step picker shows two categories: Processing (AI) and Delivery (send somewhere)
+- [x] **BLDR-02**: Built-in processing presets available with one click: Meeting Notes, Action Items, Summary, Structure, Custom Prompt
+- [x] **BLDR-03**: Preset steps add with zero fields to fill (smart defaults for name, connector, input)
 - [ ] **BLDR-04**: Custom prompt step has one field (textarea) with optional "Save as reusable template" checkbox
 - [x] **BLDR-05**: Step input chaining is automatic: step 1 = transcript, step N = previous step output, with toggle to override
 - [x] **BLDR-06**: Pipeline steps can be reordered via drag-and-drop
@@ -134,9 +134,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ASGN-05 | Phase 6 | Pending |
 | ASGN-06 | Phase 6 | Pending |
 | ASGN-07 | Phase 6 | Pending |
-| BLDR-01 | Phase 5 | Pending |
-| BLDR-02 | Phase 5 | Pending |
-| BLDR-03 | Phase 5 | Pending |
+| BLDR-01 | Phase 5 | Complete |
+| BLDR-02 | Phase 5 | Complete |
+| BLDR-03 | Phase 5 | Complete |
 | BLDR-04 | Phase 5 | Pending |
 | BLDR-05 | Phase 5 | Complete |
 | BLDR-06 | Phase 5 | Complete |
