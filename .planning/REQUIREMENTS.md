@@ -72,9 +72,9 @@ Requirements for the Pipelines v2 milestone. Each maps to roadmap phases.
 
 ### UI Health Check
 
-- [ ] **HLTH-01**: Automated DOM element audit runs on app startup (silent, badge in status bar)
-- [ ] **HLTH-02**: Health check verifies all expected interactive elements exist and respond to events
-- [ ] **HLTH-03**: Health report shows specific failures with suggested fixes
+- [x] **HLTH-01**: Automated DOM element audit runs on app startup (silent, badge in status bar)
+- [x] **HLTH-02**: Health check verifies all expected interactive elements exist and respond to events
+- [x] **HLTH-03**: Health report shows specific failures with suggested fixes
 - [ ] **HLTH-04**: Interactive walkthrough available on first launch and on demand from Settings
 
 ## v2 Requirements
@@ -164,9 +164,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EXEC-02 | Phase 6 | Complete |
 | EXEC-03 | Phase 6 | Complete |
 | EXEC-04 | Phase 2 | Complete (02-01) |
-| HLTH-01 | Phase 8 | Pending |
-| HLTH-02 | Phase 8 | Pending |
-| HLTH-03 | Phase 8 | Pending |
+| HLTH-01 | Phase 8 | Complete (08-01) |
+| HLTH-02 | Phase 8 | Complete (08-01) |
+| HLTH-03 | Phase 8 | Complete (08-01) |
 | HLTH-04 | Phase 8 | Pending |
 
 **Coverage:**

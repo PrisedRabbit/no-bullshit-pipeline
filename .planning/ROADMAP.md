@@ -149,7 +149,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 08-01-PLAN.md — DOM health audit engine, status badge in app bar, diagnostic report modal
+- [x] 08-01-PLAN.md — DOM health audit engine, status badge in app bar, diagnostic report modal
 - [ ] 08-02-PLAN.md — Interactive walkthrough with first-launch auto-trigger, Settings on-demand button, walkthrough_completed persistence
 
 ## Progress
@@ -166,4 +166,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 5. Pipeline Builder Redesign | 2/3 | Complete    | 2026-02-19 |
 | 6. Pre-Assignment UX and Execution | 3/3 | Complete    | 2026-02-19 |
 | 7. Pipeline Data Model and Tags Migration | 2/2 | Complete    | 2026-02-19 |
-| 8. UI Health Check | 0/2 | Not started | - |
+| 8. UI Health Check | 1/2 | In progress | - |

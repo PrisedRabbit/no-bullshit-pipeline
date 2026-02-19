@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-18)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** Phase 8 (UI Health Check) — needs planning
+**Current focus:** Phase 8 (UI Health Check) — executing plan 2 of 2
 
 ## Current Position
 
-Phase: 8 of 8 (UI Health Check) — needs planning
-Plan: 0 of 2 in current phase — plans not yet created
-Status: Phase 7 complete, Phase 8 next — needs /gsd:plan-phase 8
-Last activity: 2026-02-19 — Phase 7 execution and verification complete
+Phase: 8 of 8 (UI Health Check) — executing
+Plan: 1 of 2 in current phase — 08-01 complete
+Status: Phase 8 Plan 01 complete — 08-01-SUMMARY.md created
+Last activity: 2026-02-19 — DOM health audit engine, badge, and report modal implemented
 
-Progress: [███████░░░] 69% (18/26 plans)
+Progress: [████████░░] 73% (19/26 plans)
 
 ## Performance Metrics
 
@@ -47,6 +47,7 @@ Progress: [███████░░░] 69% (18/26 plans)
 | Phase 05-pipeline-builder-redesign P03 | 5 | 2 tasks | 5 files |
 | Phase 06-pre-assignment-ux-and-execution P01 | 2 | 2 tasks | 4 files |
 | Phase 06-pre-assignment-ux-and-execution P02 | 2 | 2 tasks | 4 files |
+| Phase 08-ui-health-check P01 | 2 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -120,6 +121,10 @@ Recent decisions affecting current work:
 - [Phase 07]: Zero-step guard inserted after validate_pipeline() and before transcript check — label pipelines must not require a transcript to execute
 - [Phase 07]: Frontend zero-step guard removed entirely — Rust backend validate_pipeline() is the single authoritative validator
 - [Phase 07]: PIPE-05 output isolation confirmed via test_pipeline_output_dir_isolation — no code changes needed, already working
+- [08-01]: health badge placed as direct .app-bar child (not inside .capture-section) — avoids CSS view-state hiding in settings/detail views
+- [08-01]: AUDIT_ELEMENTS has 35 entries covering all always-present v2 element IDs; lazy-loaded integrations tab children excluded (correct per research)
+- [08-01]: initHealthCheck() wired in init().finally() — attaches modal listeners exactly once regardless of init() success/failure
+- [08-01]: window._lastHealthResult stores last audit result for report re-opening without re-running audit
 
 ### Pending Todos
 
@@ -135,11 +140,11 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Completed 07-02-PLAN.md
+Stopped at: Phase 8 Plan 01 complete
 Resume file: None
 
 ## Next Step
 
-**Action:** plan Phase 8 (UI Health Check)
-**Command:** /gsd:plan-phase 8
-**Context:** Phase 7 complete. All backend + frontend phases (1-7) done. Phase 8 is the final phase: runtime DOM audit on startup, status bar badge, interactive walkthrough on first launch. Roadmap has 2 plan outlines (08-01, 08-02) that need full PLAN.md files.
+**Action:** execute Phase 8 Plan 02 (interactive walkthrough)
+**Command:** /gsd:execute-phase 8
+**Context:** Phase 8 Plan 01 (08-01) complete. DOM health audit engine, badge, and report modal implemented in ui-health-check.js. Plan 02 (08-02) covers interactive walkthrough with first-launch trigger. This is the final plan — after 08-02, the full Pipelines v2 milestone is complete.
