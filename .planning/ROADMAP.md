@@ -109,11 +109,11 @@ Plans:
   2. The bot token is stored in macOS Keychain with dev-mode bypass
   3. The pipeline builder shows a Telegram delivery step option only when a Telegram integration exists
   4. When a pipeline with a Telegram step runs, the step output is delivered as a message to the configured chat
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 17-01: Telegram connector backend (bot token auth, chat resolution, Keychain storage, message delivery)
-- [ ] 17-02: Telegram frontend (integration settings modal, pipeline builder step option)
+- [ ] 17-01-PLAN.md — Telegram integration module, connector module, ConnectorType wiring (TELE-01, TELE-02, TELE-04, TELE-05)
+- [ ] 17-02-PLAN.md — Telegram wizard UI, connected cards, pipeline builder delivery step (TELE-01, TELE-02, TELE-03)
 
 ## Progress
 
