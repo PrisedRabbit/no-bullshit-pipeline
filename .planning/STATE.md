@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-19)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** v1.1 Resilience & Polish — Phase 10 complete (2/2 plans done)
+**Current focus:** v1.1 Resilience & Polish — Phase 11 planned (2 plans in 2 waves)
 
 ## Current Position
 
-Phase: 10 of 12 (Structured Output Error Recovery) — COMPLETE
-Plan: 2/2 plans executed
-Status: Phase 10 done — ready for Phase 11
-Last activity: 2026-02-19 — 10-02 complete: partial-success execution, per-step status UI
+Phase: 11 of 12 (UX Polish) — IN PROGRESS
+Plan: 1/2 plans executed
+Status: Plan 11-01 complete — ready for 11-02
+Last activity: 2026-02-19 — Plan 11-01 executed: chip overflow edge cases, ARIA accessibility, scroll for large collections
 
-Progress: [████░░░░░░] 50% (v1.1)
+Progress: [██████░░░░] 60% (v1.1)
 
 ## Performance Metrics
 
@@ -27,6 +27,7 @@ Progress: [████░░░░░░] 50% (v1.1)
 
 **v1.1 Velocity:** Phase 9: 1 plan, 2 tasks, 2 commits, ~2 min
 Phase 10: 2 plans, 4 tasks, 4 commits, ~6 min total
+Phase 11: 1/2 plans, 1 task, 1 commit, ~1 min (11-01)
 
 ## Accumulated Context
 
@@ -45,6 +46,9 @@ Recent v1.1 context:
 - [Phase 10-02]: ConnectorType::is_delivery() as impl method — co-located with type, exhaustive matching prevents missed cases
 - [Phase 10-02]: HashSet<String> for failed_or_skipped — O(1) lookup by step name
 - [Phase 10-02]: Per-step detail only for partial status — done means all succeeded, no noise needed
+- [Phase 11-01]: display:none (not just innerHTML='') for chip bar — ensures no empty container space in layout
+- [Phase 11-01]: chipBar.style.display = '' to restore (not 'flex') — defers to CSS default, avoids coupling JS to CSS display value
+- [Phase 11-01]: Both inline style and CSS class get max-height/overflow-y — CSS baseline, JS dynamic creation
 
 ### Pending Todos
 
@@ -60,10 +64,10 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Completed 10-02-PLAN.md (Phase 10 complete)
+Stopped at: Plan 11-01 complete (chip bar edge cases, ARIA accessibility, scroll hardening)
 Resume file: None
 
 ## Next Step
 
-**Action:** Run `/gsd:plan-phase 11` to plan UX Polish phase
-**Context:** Phase 10 complete. Phase 11 (UX Polish) has 2 plans outlined in ROADMAP.md but not yet planned: 11-01 (pipeline chip overflow menu) and 11-02 (augmented prompt visibility + per-step timing). Phase 11 depends on Phase 9 (done). Phase 12 depends on Phase 10 (done) + Phase 11.
+**Action:** Run `/gsd:execute-phase 11` to continue with plan 11-02
+**Context:** Phase 11 in progress. Plan 11-01 complete (chip overflow hardening). Plan 11-02 remaining: augmented prompt expandable section + per-step timing (backend StepStatus extension + frontend UI). Phase 12 depends on Phase 11.

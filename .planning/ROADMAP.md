@@ -104,5 +104,5 @@ Plans:
 | 8. UI Health Check | v1 | 2/2 | Complete | 2026-02-19 |
 | 9. Bug Fixes | 1/1 | Complete    | 2026-02-19 | - |
 | 10. Structured Output Error Recovery | 2/2 | Complete    | 2026-02-19 | 2026-02-19 |
-| 11. UX Polish | v1.1 | 0/2 | Planned | - |
+| 11. UX Polish | 1/2 | In Progress|  | - |
 | 12. Schema Management | v1.1 | 0/2 | Not started | - |
