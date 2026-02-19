@@ -1,56 +1,10 @@
-use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use chrono::Utc;
-use crate::pipelines::{ConnectorType, load_pipelines, validate_pipeline};
+use crate::pipelines::{ConnectorType, load_pipelines, validate_pipeline, PipelineState, PipelineStatus, StepStatus, PipelineProgressPayload};
 use crate::storage::get_data_dir;
 use crate::transcription::{TranscriptJson, render_transcript_from_json};
 use crate::connectors;
-
-/// Pipeline execution status
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum PipelineStatus {
-    Waiting,  // Assigned but transcript not ready
-    Running,  // Currently executing
-    Done,     // All steps completed successfully
-    Partial,  // Stopped due to step failure
-}
-
-/// Pipeline execution state stored in recording metadata
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct PipelineState {
-    pub name: String,
-    pub status: PipelineStatus,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub started_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub completed_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub current_step: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-/// Step execution status for UI updates
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct StepStatus {
-    pub name: String,
-    pub status: String, // "pending", "running", "done", "failed"
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-/// Pipeline progress event payload
-#[derive(Serialize, Clone, Debug)]
-pub struct PipelineProgressPayload {
-    pub recording_id: String,
-    pub pipeline_name: String,
-    pub step_name: String,
-    pub step_index: usize,
-    pub total_steps: usize,
-    pub status: String,
-}
 
 /// Get the pipeline output directory for a recording
 fn get_pipeline_output_dir(recording_id: &str, pipeline_name: &str) -> PathBuf {

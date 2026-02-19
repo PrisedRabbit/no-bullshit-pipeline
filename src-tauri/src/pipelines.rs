@@ -36,6 +36,51 @@ pub struct Pipeline {
     pub steps: Vec<PipelineStep>,
 }
 
+/// Pipeline execution status
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum PipelineStatus {
+    Waiting,  // Assigned but transcript not ready
+    Running,  // Currently executing
+    Done,     // All steps completed successfully
+    Partial,  // Stopped due to step failure
+}
+
+/// Pipeline execution state stored in recording metadata
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PipelineState {
+    pub name: String,
+    pub status: PipelineStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_step: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Step execution status for UI updates
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct StepStatus {
+    pub name: String,
+    pub status: String, // "pending", "running", "done", "failed"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Pipeline progress event payload
+#[derive(Serialize, Clone, Debug)]
+pub struct PipelineProgressPayload {
+    pub recording_id: String,
+    pub pipeline_name: String,
+    pub step_name: String,
+    pub step_index: usize,
+    pub total_steps: usize,
+    pub status: String,
+}
+
 /// Get the path to pipelines.json
 fn get_pipelines_path() -> PathBuf {
     get_config_dir().join("pipelines.json")
@@ -62,11 +107,6 @@ pub fn validate_pipeline(pipeline: &Pipeline) -> Result<(), String> {
         || pipeline.name.contains('\0') || pipeline.name.contains(':')
     {
         return Err("Pipeline name contains invalid characters (/, \\, :, or null)".to_string());
-    }
-
-    // Pipeline must have at least one step
-    if pipeline.steps.is_empty() {
-        return Err("Pipeline must have at least one step".to_string());
     }
 
     let mut defined_steps: Vec<String> = Vec::new();
@@ -334,12 +374,11 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_steps_fails() {
+    fn test_empty_steps_passes() {
         let mut pipeline = make_valid_pipeline();
         pipeline.steps = vec![];
         let result = validate_pipeline(&pipeline);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("at least one step"));
+        assert!(result.is_ok(), "Zero-step pipelines should be valid (labels)");
     }
 
     #[test]
