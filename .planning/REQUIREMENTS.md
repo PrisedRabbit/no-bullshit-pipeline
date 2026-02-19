@@ -26,8 +26,8 @@ Requirements for v1.1 release. Each maps to roadmap phases.
 
 ### Schema Management
 
-- [ ] **SCHM-01**: System validates that prompt augmentation token budget fits within model context limits before executing AI step
-- [ ] **SCHM-02**: Integration profile shows "last synced" timestamp and warns when schema is older than 7 days
+- [x] **SCHM-01**: System validates that prompt augmentation token budget fits within model context limits before executing AI step
+- [x] **SCHM-02**: Integration profile shows "last synced" timestamp and warns when schema is older than 7 days
 - [x] **SCHM-03**: User can trigger schema re-sync from within the pipeline builder (not just settings)
 
 ## v2 Requirements
@@ -75,8 +75,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | UX-01 | Phase 11 | Complete |
 | UX-02 | Phase 11 | Complete |
 | UX-03 | Phase 11 | Complete |
-| SCHM-01 | Phase 12 | Pending |
-| SCHM-02 | Phase 12 | Pending |
+| SCHM-01 | Phase 12 | Complete |
+| SCHM-02 | Phase 12 | Complete |
 | SCHM-03 | Phase 12 | Complete |
 
 **Coverage:**

@@ -54,6 +54,10 @@ Recent v1.1 context:
 - [Phase 11-02]: Sidecar .augmented-prompt.txt file for storing augmented prompt text — avoids modifying connector frontmatter format across all connectors
 - [Phase 11-02]: parse_step_status returns 3-tuple (status, error, duration_secs) — augmented_prompt loaded separately via sidecar
 - [Phase 11-02]: Duration computed from existing created_at/completed_at timestamps in step .md frontmatter
+- [Phase 12-01]: validate_augmented_prompt_budget called after sidecar write but before LLM API — sidecar is UI display, budget check prevents API cost
+- [Phase 12-01]: Silent truncation in llm.rs retained for non-augmented path backward compatibility — new validation is explicit pre-flight for augmented path only
+- [Phase 12-01]: Inline style on staleness warning span — avoids touching styles.css for single small element
+- [Phase 12-01]: Never-synced treated as stale — most important warning case
 - [Phase 12-02]: Re-sync uses existing sync_notion_schema Tauri command — no new backend code needed
 - [Phase 12-02]: notionProfiles global updated in-place after successful re-sync so downstream UI stays current
 - [Phase 12-02]: Button only appears when notionProfiles exist — naturally scoped by profiles.length > 0 branch
@@ -73,7 +77,7 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Completed 12-02-PLAN.md (Phase 12 Plan 02 — Re-sync Schema in Pipeline Builder)
+Stopped at: Completed 12-01-PLAN.md (Phase 12 Plan 01 — Token Budget Validation + Schema Staleness UI)
 Resume file: None
 
 ## Next Step

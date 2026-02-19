@@ -87,8 +87,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 12-01-PLAN.md — Token budget validation before AI step execution and schema staleness UI in integration profile (SCHM-01, SCHM-02)
-- [ ] 12-02-PLAN.md — Re-sync schema action in pipeline builder (SCHM-03)
+- [x] 12-01-PLAN.md — Token budget validation before AI step execution and schema staleness UI in integration profile (SCHM-01, SCHM-02)
+- [x] 12-02-PLAN.md — Re-sync schema action in pipeline builder (SCHM-03)
 
 ## Progress
 
