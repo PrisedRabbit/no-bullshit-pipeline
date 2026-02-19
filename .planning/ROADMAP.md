@@ -67,10 +67,10 @@ Plans:
   2. When JSON parsing of LLM output fails, the engine retries with a structured-output correction prompt (same pattern as Notion)
   3. After successful retry, the issue is created with the corrected field values
   4. Delivery failures (network, API errors) surface as pipeline step errors visible to the user
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 14-01: Linear structured output mapping and issue creation with JSON retry
+- [ ] 14-01: Linear connector module, ConnectorType::Linear, and pipeline engine match arm with JSON retry
 
 ### Phase 15: Linear Pipeline Integration
 **Goal**: Pipelines with an LLM step followed by a Linear step automatically receive Linear schema format instructions in the prompt
