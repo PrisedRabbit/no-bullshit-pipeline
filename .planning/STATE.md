@@ -5,15 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-19)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** v1 Pipelines v2 milestone SHIPPED — planning next milestone
+**Current focus:** v1.1 Resilience & Polish — harden pipeline system, fix bugs, add error recovery
 
 ## Current Position
 
-Phase: v1 complete (8 phases, 20 plans)
-Status: Milestone v1 archived and tagged
-Last activity: 2026-02-19 — milestone completion, archival, PROJECT.md evolution
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-02-19 — Milestone v1.1 started
 
-Progress: [██████████] 100% — v1 Pipelines v2 shipped
+Progress: [░░░░░░░░░░] 0%
 
 ## Accumulated Context
 
@@ -35,10 +36,10 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: v1 milestone completed, archived, and tagged
+Stopped at: v1.1 milestone started, defining requirements
 Resume file: None
 
 ## Next Step
 
-**Action:** Run `/gsd:new-milestone` to start next milestone (questioning → research → requirements → roadmap)
-**Context:** v1 Pipelines v2 shipped with 46/46 requirements, 8 phases, 20 plans. Archives at `.planning/milestones/`. Next milestone should address audit tech debt (MutationObserver fix, dual Slack state) and define new feature scope.
+**Action:** Define requirements and create roadmap for v1.1
+**Context:** Milestone v1.1 focuses on resilience and polish — fixing audit tech debt, adding structured output error recovery, pipeline chip overflow UX, prompt augmentation visibility, token budget validation, and schema re-sync improvements.

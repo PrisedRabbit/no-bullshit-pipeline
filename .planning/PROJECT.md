@@ -55,7 +55,19 @@ Zero post-recording work: select pipeline → record → stop → everything hap
 
 ### Active
 
-(None — next milestone requirements TBD via `/gsd:new-milestone`)
+(See REQUIREMENTS.md for v1.1 scoped requirements)
+
+## Current Milestone: v1.1 Resilience & Polish
+
+**Goal:** Harden the v1 pipeline system — fix known bugs, add error recovery for structured outputs, improve UX polish for pipeline chips and prompt augmentation visibility.
+
+**Target features:**
+- Fix audit tech debt (MutationObserver selector mismatch, dual Slack state consolidation)
+- Structured output error recovery (retry logic, fallback display when AI returns invalid JSON)
+- Pipeline chip overflow UX (top N chips + overflow menu for large pipeline collections)
+- Prompt augmentation visibility (show user what context was auto-injected into AI prompts)
+- Token budget validation for prompt augmentation against real schema sizes
+- Schema re-sync improvements (detect stale schemas, prompt user to re-sync)
 
 ### Out of Scope
 
@@ -122,4 +134,4 @@ Zero post-recording work: select pipeline → record → stop → everything hap
 | Prompt augmentation hard-fail on missing profile | Prevents expensive LLM call with guaranteed non-JSON output. | ✓ Good — v1 Phase 3 |
 
 ---
-*Last updated: 2026-02-19 after v1 Pipelines v2 milestone*
+*Last updated: 2026-02-19 after v1.1 Resilience & Polish milestone start*
