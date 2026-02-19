@@ -40,6 +40,7 @@ let detailPipelineHandler = null; // Module-level ref to avoid stacking change l
 let permissions = { mic: false, system_audio: false };
 let appSettings = null;
 let currentAssignedPipeline = null;
+let pipelineProgressUnlisten = null;
 
 // ===== DOM ELEMENTS =====
 const statusIndicator = document.getElementById("status-indicator");
@@ -313,6 +314,11 @@ async function stopRecording() {
       renderPipelineChips(); // Ensure chips are updated after detail view re-renders
     }
 
+    // Auto-transcribe + auto-execute (EXEC-01) — fire and forget
+    if (stoppedPipeline && appSettings?.transcription?.enabled) {
+      autoTranscribeAndExecute(currentId, stoppedPipeline);
+    }
+
   } catch (error) {
     // Always reset UI state, even on error
     isRecording = false;
@@ -329,6 +335,46 @@ async function stopRecording() {
   } finally {
     isRecordingBusy = false;
   }
+}
+
+async function autoTranscribeAndExecute(recordingId, pipelineName) {
+  // Step 1: Transcribe (blocking — must complete before pipeline)
+  try {
+    if (window.__NBP_setTranscribingId) window.__NBP_setTranscribingId(recordingId);
+    await invoke('transcribe_recording', { recordingId });
+  } catch (err) {
+    console.error('Auto-transcription failed:', err);
+    // Refresh detail view to show current state
+    await loadRecordings();
+    if (selectedRecordingId === recordingId) showDetailView(recordingId);
+    return; // Do not proceed to pipeline execution if transcription failed
+  }
+
+  // Step 2: Execute pipeline (non-blocking from user perspective — status shown in detail view)
+  try {
+    await invoke('execute_pipeline', { recordingId, pipelineName });
+  } catch (err) {
+    console.error('Auto-pipeline execution failed:', err);
+  }
+
+  // Refresh recordings list and detail view
+  await loadRecordings();
+  if (selectedRecordingId === recordingId) showDetailView(recordingId);
+}
+
+async function subscribeToProgress(recordingId) {
+  // Clean up previous listener (Research Pitfall 3)
+  if (pipelineProgressUnlisten) {
+    pipelineProgressUnlisten();
+    pipelineProgressUnlisten = null;
+  }
+
+  pipelineProgressUnlisten = await window.__TAURI__.event.listen('pipeline-progress', (event) => {
+    const payload = event.payload;
+    if (payload.recording_id !== recordingId) return;
+    // Re-render pipeline status section on any progress event
+    renderPipelineStatus(recordingId);
+  });
 }
 
 // ===== PERMISSIONS =====
@@ -531,6 +577,7 @@ window.showDetailView = async (id) => {
 
   // Handle visibility
   ViewManager.showDetail();
+  subscribeToProgress(id);
 
   if (detailControlsEl) detailControlsEl.style.display = 'flex';
 
@@ -684,6 +731,10 @@ function hideDetailView() {
   updateMainButton(); // Switch back to record mode
   ViewManager.showRecordings();
   if (detailControlsEl) detailControlsEl.style.display = 'none';
+  if (pipelineProgressUnlisten) {
+    pipelineProgressUnlisten();
+    pipelineProgressUnlisten = null;
+  }
 }
 
 // ===== EVENT LISTENERS =====
