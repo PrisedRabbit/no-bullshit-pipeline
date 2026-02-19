@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-18)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** Phase 8 (UI Health Check) — executing plan 2 of 2
+**Current focus:** Phase 8 (UI Health Check) — COMPLETE
 
 ## Current Position
 
-Phase: 8 of 8 (UI Health Check) — executing
-Plan: 1 of 2 in current phase — 08-01 complete
-Status: Phase 8 Plan 01 complete — 08-01-SUMMARY.md created
-Last activity: 2026-02-19 — DOM health audit engine, badge, and report modal implemented
+Phase: 8 of 8 (UI Health Check) — complete
+Plan: 2 of 2 in current phase — 08-02 complete
+Status: Phase 8 complete — all plans done, full Pipelines v2 milestone complete
+Last activity: 2026-02-19 — interactive walkthrough with first-launch auto-trigger and on-demand Settings button
 
-Progress: [████████░░] 73% (19/26 plans)
+Progress: [██████████] 100% (26/26 plans)
 
 ## Performance Metrics
 
@@ -48,6 +48,7 @@ Progress: [████████░░] 73% (19/26 plans)
 | Phase 06-pre-assignment-ux-and-execution P01 | 2 | 2 tasks | 4 files |
 | Phase 06-pre-assignment-ux-and-execution P02 | 2 | 2 tasks | 4 files |
 | Phase 08-ui-health-check P01 | 2 | 2 tasks | 4 files |
+| Phase 08 P02 | 2 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -125,6 +126,8 @@ Recent decisions affecting current work:
 - [08-01]: AUDIT_ELEMENTS has 35 entries covering all always-present v2 element IDs; lazy-loaded integrations tab children excluded (correct per research)
 - [08-01]: initHealthCheck() wired in init().finally() — attaches modal listeners exactly once regardless of init() success/failure
 - [08-01]: window._lastHealthResult stores last audit result for report re-opening without re-running audit
+- [Phase 08]: walkthrough_completed uses #[serde(default)] — existing settings.json files missing this field deserialize safely without resetting all user settings
+- [Phase 08]: CSS uses --border and --bg-card variables (defined in :root) rather than --border-color/--surface-color — those variables are undefined in root scope
 
 ### Pending Todos
 
@@ -140,11 +143,10 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Phase 8 Plan 01 complete
+Stopped at: Phase 8 Plan 02 complete — full Pipelines v2 milestone complete
 Resume file: None
 
 ## Next Step
 
-**Action:** execute Phase 8 Plan 02 (interactive walkthrough)
-**Command:** /gsd:execute-phase 8
-**Context:** Phase 8 Plan 01 (08-01) complete. DOM health audit engine, badge, and report modal implemented in ui-health-check.js. Plan 02 (08-02) covers interactive walkthrough with first-launch trigger. This is the final plan — after 08-02, the full Pipelines v2 milestone is complete.
+**Action:** All 8 phases complete — Pipelines v2 milestone achieved
+**Context:** Phase 8 Plan 02 (08-02) complete. Interactive walkthrough with 7-step spotlight overlay implemented. walkthrough_completed persisted via AppSettings. All 26 plans across all 8 phases are complete.

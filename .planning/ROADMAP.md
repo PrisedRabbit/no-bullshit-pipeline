@@ -19,7 +19,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: Pipeline Builder Redesign** - Categorized preset picker, drag-and-drop reordering, and assembly preview replacing the developer-oriented builder (completed 2026-02-19)
 - [x] **Phase 6: Pre-Assignment UX and Execution** - Pipeline chip bar, one-click recording, run status visibility, and multiple pipeline support (completed 2026-02-19)
 - [x] **Phase 7: Pipeline Data Model and Tags Migration** - Unified pipeline-as-label model with lazy tags migration (completed 2026-02-19)
-- [ ] **Phase 8: UI Health Check** - Runtime DOM audit on startup with interactive walkthrough on first launch
+- [x] **Phase 8: UI Health Check** - Runtime DOM audit on startup with interactive walkthrough on first launch (completed 2026-02-19)
 
 ## Phase Details
 
@@ -166,4 +166,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 5. Pipeline Builder Redesign | 2/3 | Complete    | 2026-02-19 |
 | 6. Pre-Assignment UX and Execution | 3/3 | Complete    | 2026-02-19 |
 | 7. Pipeline Data Model and Tags Migration | 2/2 | Complete    | 2026-02-19 |
-| 8. UI Health Check | 1/2 | In progress | - |
+| 8. UI Health Check | 2/2 | Complete   | 2026-02-19 |
