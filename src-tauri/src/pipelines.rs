@@ -17,6 +17,18 @@ pub enum ConnectorType {
     Notion,
 }
 
+impl ConnectorType {
+    /// Delivery connectors send output to external services.
+    /// Their failure does not block other independent steps — the pipeline continues
+    /// executing subsequent steps whose inputs are not derived from this step.
+    ///
+    /// Processing connectors (Llm, Mcp) produce output consumed by downstream steps.
+    /// Their failure halts all downstream steps because those steps depend on the output.
+    pub fn is_delivery(&self) -> bool {
+        matches!(self, ConnectorType::Notion | ConnectorType::Slack | ConnectorType::Webhook | ConnectorType::Save)
+    }
+}
+
 /// A single step in a pipeline
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PipelineStep {
@@ -65,7 +77,7 @@ pub struct PipelineState {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct StepStatus {
     pub name: String,
-    pub status: String, // "pending", "running", "done", "failed"
+    pub status: String, // "pending", "running", "done", "failed", "skipped"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }

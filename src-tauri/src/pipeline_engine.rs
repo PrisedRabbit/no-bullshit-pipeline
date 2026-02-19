@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use chrono::Utc;
@@ -277,8 +278,61 @@ pub async fn execute_pipeline_internal(
     let output_dir = get_pipeline_output_dir(recording_id, pipeline_name);
     let total_steps = pipeline.steps.len();
 
+    // Track which steps have failed or been skipped (by step name).
+    // Used to determine whether subsequent steps should be skipped based on their input.
+    let mut failed_or_skipped: HashSet<String> = HashSet::new();
+    // Track whether any step failed so we can set Partial status at the end.
+    let mut has_failure = false;
+    // Track the first error message for backward-compatible pipeline state error field.
+    let mut first_error: Option<String> = None;
+
     // Execute steps sequentially
     for (i, step) in pipeline.steps.iter().enumerate() {
+        // Check if this step should be skipped because its input came from a failed/skipped step.
+        // "transcript" input is always available — never skip based on it.
+        let should_skip = step.input != "transcript" && failed_or_skipped.contains(&step.input);
+
+        if should_skip {
+            // Write a skipped step .md file so get_step_outputs returns correct status
+            let _ = fs::create_dir_all(&output_dir);
+            let output_path = output_dir.join(format!("{}.md", step.name));
+            let now = chrono::Utc::now().to_rfc3339();
+            let skip_note = format!("Skipped because step '{}' failed", step.input);
+            let skip_note_escaped = skip_note.replace('"', "\\\"");
+            let connector_name = format!("{:?}", step.connector).to_lowercase();
+            let file_content = format!(
+                "---\nname: {}\ndescription: \"{}\"\nconnector: {}\ninput: {}\nstatus: skipped\ncreated_at: {}\ncompleted_at: {}\nerror: \"{}\"\n---\n\n## Skipped\n{}\n",
+                step.name,
+                step.description.as_deref().unwrap_or(""),
+                connector_name,
+                step.input,
+                now, now,
+                skip_note_escaped,
+                skip_note,
+            );
+            let _ = fs::write(&output_path, &file_content);
+
+            // Emit skipped progress event
+            if let Some(app) = app_handle {
+                use tauri::Emitter;
+                let _ = app.emit(
+                    "pipeline-progress",
+                    PipelineProgressPayload {
+                        recording_id: recording_id.to_string(),
+                        pipeline_name: pipeline_name.to_string(),
+                        step_name: step.name.clone(),
+                        step_index: i,
+                        total_steps,
+                        status: "skipped".to_string(),
+                    },
+                );
+            }
+
+            // This step is skipped, so its output is also unavailable for downstream steps
+            failed_or_skipped.insert(step.name.clone());
+            continue;
+        }
+
         // Update current step
         update_pipeline_state(
             recording_id,
@@ -312,14 +366,43 @@ pub async fn execute_pipeline_internal(
                 step.name,
                 input_path.display()
             );
-            update_pipeline_state(
-                recording_id,
-                pipeline_name,
-                PipelineStatus::Partial,
-                Some(i),
-                Some(&error),
-            )?;
-            return Err(error);
+            // Missing input is treated as a step failure
+            if first_error.is_none() {
+                first_error = Some(error.clone());
+            }
+            has_failure = true;
+            failed_or_skipped.insert(step.name.clone());
+
+            // Emit failed event
+            if let Some(app) = app_handle {
+                use tauri::Emitter;
+                let _ = app.emit(
+                    "pipeline-progress",
+                    PipelineProgressPayload {
+                        recording_id: recording_id.to_string(),
+                        pipeline_name: pipeline_name.to_string(),
+                        step_name: step.name.clone(),
+                        step_index: i,
+                        total_steps,
+                        status: "failed".to_string(),
+                    },
+                );
+            }
+
+            // Processing step failure (or input-missing) — skip all remaining steps
+            if !step.connector.is_delivery() {
+                // Mark all remaining steps as skipped (they depend transitively on this step)
+                for remaining in pipeline.steps.iter().skip(i + 1) {
+                    failed_or_skipped.insert(remaining.name.clone());
+                }
+                break;
+            }
+            // Delivery step with missing input — also treat as blocking since we can't
+            // determine independence. Mark remaining and break.
+            for remaining in pipeline.steps.iter().skip(i + 1) {
+                failed_or_skipped.insert(remaining.name.clone());
+            }
+            break;
         }
 
         let step_result = match step.connector {
@@ -540,7 +623,14 @@ pub async fn execute_pipeline_internal(
                 }
             }
             Err(ref error) => {
-                // Step failed - set pipeline to partial and stop
+                // Record the first error for backward-compatible pipeline state
+                if first_error.is_none() {
+                    first_error = Some(error.clone());
+                }
+                has_failure = true;
+                failed_or_skipped.insert(step.name.clone());
+
+                // Emit failed event
                 if let Some(app) = app_handle {
                     use tauri::Emitter;
                     let _ = app.emit(
@@ -556,37 +646,71 @@ pub async fn execute_pipeline_internal(
                     );
                 }
 
-                update_pipeline_state(
-                    recording_id,
-                    pipeline_name,
-                    PipelineStatus::Partial,
-                    Some(i),
-                    Some(&error),
-                )?;
-
-                // Clean up temporary rendered transcript file
-                let rendered_path = get_data_dir().join(recording_id).join("transcript_rendered.txt");
-                let _ = fs::remove_file(&rendered_path);
-
-                return Ok(PipelineStatus::Partial);
+                if !step.connector.is_delivery() {
+                    // Processing step failure — all downstream steps depend on this output.
+                    // Mark all remaining steps as skipped and stop executing.
+                    for remaining in pipeline.steps.iter().skip(i + 1) {
+                        failed_or_skipped.insert(remaining.name.clone());
+                    }
+                    break;
+                }
+                // Delivery step failure — continue to the next step.
+                // Downstream steps whose input is NOT this step will execute normally.
+                // Downstream steps whose input IS this step will be skipped (checked at loop top).
             }
         }
     }
 
-    // All steps completed successfully
+    // Write skipped step files for any steps in failed_or_skipped that don't yet have .md files.
+    // (Processing-halt scenario: remaining steps are added to the set but never visited in the loop.)
+    let _ = fs::create_dir_all(&output_dir);
+    for step in &pipeline.steps {
+        if failed_or_skipped.contains(&step.name) {
+            let output_path = output_dir.join(format!("{}.md", step.name));
+            if !output_path.exists() {
+                let now = chrono::Utc::now().to_rfc3339();
+                let skip_reason = if step.input != "transcript" && failed_or_skipped.contains(&step.input) {
+                    format!("Skipped because step '{}' failed", step.input)
+                } else {
+                    "Skipped because a preceding processing step failed".to_string()
+                };
+                let skip_reason_escaped = skip_reason.replace('"', "\\\"");
+                let connector_name = format!("{:?}", step.connector).to_lowercase();
+                let file_content = format!(
+                    "---\nname: {}\ndescription: \"{}\"\nconnector: {}\ninput: {}\nstatus: skipped\ncreated_at: {}\ncompleted_at: {}\nerror: \"{}\"\n---\n\n## Skipped\n{}\n",
+                    step.name,
+                    step.description.as_deref().unwrap_or(""),
+                    connector_name,
+                    step.input,
+                    now, now,
+                    skip_reason_escaped,
+                    skip_reason,
+                );
+                let _ = fs::write(&output_path, &file_content);
+            }
+        }
+    }
+
+    // Determine final pipeline status
+    let final_status = if has_failure {
+        PipelineStatus::Partial
+    } else {
+        PipelineStatus::Done
+    };
+
     update_pipeline_state(
         recording_id,
         pipeline_name,
-        PipelineStatus::Done,
+        final_status.clone(),
         None,
-        None,
+        first_error.as_deref(),
     )?;
 
     // Clean up temporary rendered transcript file
     let rendered_path = get_data_dir().join(recording_id).join("transcript_rendered.txt");
     let _ = fs::remove_file(&rendered_path);
 
-    Ok(PipelineStatus::Done)
+    Ok(final_status)
 }
 
 /// Acquire an exclusive file lock using platform-appropriate mechanism.
