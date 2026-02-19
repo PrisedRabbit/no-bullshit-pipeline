@@ -28,7 +28,7 @@
 - [x] **Phase 9: Bug Fixes** — Fix integrations tab render and Slack state consistency (completed 2026-02-19)
 - [x] **Phase 10: Structured Output Error Recovery** — Retry, user-visible failure, and partial success for structured delivery steps (completed 2026-02-19)
 - [x] **Phase 11: UX Polish** — Pipeline chip overflow menu, augmented prompt visibility, per-step timing (completed 2026-02-19)
-- [ ] **Phase 12: Schema Management** — Token budget validation, schema staleness warnings, in-builder re-sync
+- [x] **Phase 12: Schema Management** — Token budget validation, schema staleness warnings, in-builder re-sync (completed 2026-02-19)
 
 ## Phase Details
 
@@ -105,4 +105,4 @@ Plans:
 | 9. Bug Fixes | 1/1 | Complete    | 2026-02-19 | - |
 | 10. Structured Output Error Recovery | 2/2 | Complete    | 2026-02-19 | 2026-02-19 |
 | 11. UX Polish | 2/2 | Complete   | 2026-02-19 | - |
-| 12. Schema Management | v1.1 | 0/2 | Not started | - |
+| 12. Schema Management | 2/2 | Complete   | 2026-02-19 | - |
