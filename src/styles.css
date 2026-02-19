@@ -3036,3 +3036,24 @@ body.is-recording-active .record-btn {
 .chip-overflow-popover .pipeline-chip:hover {
   background: var(--accent-soft);
 }
+
+/* Detail view pipeline assignment */
+.detail-pipeline-assignment {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.detail-pipeline-assignment label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.compact-select {
+  font-size: 0.8rem;
+  padding: 3px 8px;
+  border-radius: 6px;
+  max-width: 200px;
+}

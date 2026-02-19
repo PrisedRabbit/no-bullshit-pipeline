@@ -35,6 +35,7 @@ let isRecordingBusy = false; // Guard against double-click during async start/st
 
 let allRecordings = [];
 let selectedRecordingId = null;
+let detailPipelineHandler = null; // Module-level ref to avoid stacking change listeners
 
 let permissions = { mic: false, system_audio: false };
 let appSettings = null;
@@ -573,6 +574,56 @@ window.showDetailView = async (id) => {
         clearInterval(pollInterval);
       }
     }, 1000);
+  }
+
+  // Detail view pipeline assignment (ASGN-04)
+  const detailPipelineAssignment = document.getElementById('detail-pipeline-assignment');
+  const detailPipelineSelect = document.getElementById('detail-pipeline-select');
+  if (detailPipelineAssignment && detailPipelineSelect) {
+    if (!isRecording && !isProcessing) {
+      // Populate pipeline options
+      detailPipelineSelect.innerHTML = '<option value="">None</option>';
+      if (typeof allPipelineDefs !== 'undefined') {
+        for (const p of allPipelineDefs) {
+          const opt = document.createElement('option');
+          opt.value = p.name;
+          opt.textContent = p.name;
+          detailPipelineSelect.appendChild(opt);
+        }
+      }
+
+      // Load current pipeline assignment
+      try {
+        const states = await invoke('get_all_pipeline_states', { recordingId: id });
+        if (states && states.length > 0) {
+          detailPipelineSelect.value = states[0].name || '';
+        } else {
+          detailPipelineSelect.value = '';
+        }
+      } catch (e) {
+        detailPipelineSelect.value = '';
+      }
+
+      detailPipelineAssignment.style.display = 'flex';
+
+      // Remove previous change listener before attaching a new one
+      if (detailPipelineHandler) {
+        detailPipelineSelect.removeEventListener('change', detailPipelineHandler);
+      }
+      detailPipelineHandler = async () => {
+        const selectedPipeline = detailPipelineSelect.value;
+        if (selectedPipeline) {
+          try {
+            await invoke('assign_pipeline', { recordingId: id, pipelineName: selectedPipeline });
+          } catch (err) {
+            console.error('Failed to assign pipeline from detail view:', err);
+          }
+        }
+      };
+      detailPipelineSelect.addEventListener('change', detailPipelineHandler);
+    } else {
+      detailPipelineAssignment.style.display = 'none';
+    }
   }
 
   // Hide transcript/structured sections if currently recording or processing
@@ -1399,6 +1450,9 @@ async function startRecordingWithPipeline(pipelineName) {
     isRecording = true;
     currentAssignedPipeline = pipelineName;
     await invoke('assign_pipeline', { recordingId: metadata.id, pipelineName });
+    // Save last-used pipeline so chip bar highlights it on next launch
+    appSettings.last_used_pipeline = pipelineName;
+    await invoke('save_settings', { settings: appSettings });
     setRecordingUI(true);
     await loadRecordings();
     startTimer();
