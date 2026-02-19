@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-18)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** Phase 5 (Pipeline Builder Redesign) — executing, 2 of 3 plans complete
+**Current focus:** Phase 5 (Pipeline Builder Redesign) — complete, all 3 plans done
 
 ## Current Position
 
-Phase: 5 of 8 (Pipeline Builder Redesign) — executing
-Plan: 2 of 3 in current phase — 05-01 and 05-02 complete, 05-03 remaining
-Status: Phase 5 wave 2 complete — categorized step picker with presets and backend templates
-Last activity: 2026-02-19 — 05-02 complete (step picker + PROCESSING_PRESETS + action-items/summary/structure templates)
+Phase: 5 of 8 (Pipeline Builder Redesign) — complete
+Plan: 3 of 3 in current phase — 05-01, 05-02, and 05-03 all complete
+Status: Phase 5 complete — Custom Prompt form, delivery preview distinction, Advanced section, prompt_inline Rust backend
+Last activity: 2026-02-19 — 05-03 complete (Custom Prompt form + renderPipelinePreview + Advanced section + prompt_inline in Rust)
 
-Progress: [█████░░░░░] 46% (12/26 plans)
+Progress: [█████░░░░░] 50% (13/26 plans)
 
 ## Performance Metrics
 
@@ -44,6 +44,7 @@ Progress: [█████░░░░░] 46% (12/26 plans)
 | Phase 04 P03 | 2 | 2 tasks | 5 files |
 | Phase 05-pipeline-builder-redesign P01 | 4 | 2 tasks | 5 files |
 | Phase 05-pipeline-builder-redesign P02 | 2 | 2 tasks | 3 files |
+| Phase 05-pipeline-builder-redesign P03 | 5 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -95,6 +96,10 @@ Recent decisions affecting current work:
 - [Phase 05-02]: Picker inserted inline after addPipelineStepBtn — simpler than positioned dropdown, scrolls with content
 - [Phase 05-02]: PROCESSING_PRESETS[n].step=null signals Custom Prompt deferred to Plan 05-03
 - [Phase 05-02]: Builtin merge uses contains_key check — existing installs get new templates without overwriting user-modified built-ins
+- [Phase 05-03]: prompt_template and prompt_inline are both Option<String> in LlmConfig — either accepted, validation requires at least one
+- [Phase 05-03]: build_augmented_prompt() reads input file inside each branch independently — self-contained, no stale references
+- [Phase 05-03]: deliveryConnectors hardcoded in renderPipelinePreview() — mirrors Rust ConnectorType enum values
+- [Phase 05-03]: <details> Advanced section in step editor — querySelectorAll('[data-field]') finds elements inside details, no handler changes needed
 
 ### Pending Todos
 
@@ -110,11 +115,11 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Completed 05-pipeline-builder-redesign/05-02-PLAN.md
+Stopped at: Completed 05-pipeline-builder-redesign/05-03-PLAN.md
 Resume file: None
 
 ## Next Step
 
-**Action:** execute Phase 5 Plan 03 (Pipeline Builder Redesign — Custom Prompt Form + Assembly Preview)
-**Command:** /gsd:execute-phase 5
-**Context:** Wave 2 complete. Wave 3 (05-03): Custom Prompt form + assembly preview + Advanced section + prompt_inline Rust backend. Custom Prompt placeholder in pipeline-builder.js (preset.step=null) ready for replacement.
+**Action:** execute Phase 6 (Recording UX + Auto-pipeline trigger)
+**Command:** /gsd:execute-phase 6
+**Context:** Phase 5 complete. All BLDR requirements (01-08) satisfied. prompt_inline pipeline steps fully supported end-to-end. Next phase focuses on recording UX and automatic pipeline trigger after transcription.
