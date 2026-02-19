@@ -543,6 +543,18 @@
                 </div>
               </div>
 
+              <!-- Help -->
+              <div class="settings-section">
+                <h3>Help</h3>
+                <div class="settings-item">
+                  <div class="settings-info">
+                    <label>UI Walkthrough</label>
+                    <p>Interactive tour of all v2 features</p>
+                  </div>
+                  <button id="start-walkthrough-btn" class="mini-action-btn">Start Tour</button>
+                </div>
+              </div>
+
             </div><!-- end audio tab -->
 
             <div class="settings-grid settings-tab-content" data-tab="templates">
@@ -781,6 +793,23 @@
         <div class="modal-actions">
           <button id="health-report-close-btn" class="modal-btn secondary">Close</button>
           <button id="health-report-rerun-btn" class="modal-btn primary">Re-run Audit</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Walkthrough Overlay -->
+    <div id="walkthrough-overlay" class="walkthrough-overlay" style="display:none">
+      <div id="walkthrough-spotlight" class="walkthrough-spotlight" style="display:none"></div>
+      <div id="walkthrough-card" class="walkthrough-card">
+        <div id="walkthrough-step" class="walkthrough-step-counter"></div>
+        <h3 id="walkthrough-title"></h3>
+        <p id="walkthrough-desc"></p>
+        <div class="walkthrough-actions">
+          <button id="walkthrough-skip" class="walkthrough-btn walkthrough-btn-skip">Skip Tour</button>
+          <div class="walkthrough-nav">
+            <button id="walkthrough-prev" class="walkthrough-btn walkthrough-btn-nav">Prev</button>
+            <button id="walkthrough-next" class="walkthrough-btn walkthrough-btn-primary">Next</button>
+          </div>
         </div>
       </div>
     </div>

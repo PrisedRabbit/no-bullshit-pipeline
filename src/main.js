@@ -1942,6 +1942,14 @@ init().catch(e => console.error('Init failed:', e)).finally(() => {
   const scheduleAudit = () => {
     if (typeof runHealthAudit === 'function') {
       runHealthAudit();
+      // Trigger walkthrough on first launch (after audit so badge is visible)
+      // Only if onboarding is already completed (permissions granted)
+      if (typeof appSettings !== 'undefined' &&
+          appSettings.onboarding_completed &&
+          !appSettings.walkthrough_completed &&
+          typeof startWalkthrough === 'function') {
+        startWalkthrough();
+      }
     }
   };
   if (typeof requestIdleCallback !== 'undefined') {

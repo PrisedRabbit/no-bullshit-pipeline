@@ -3160,3 +3160,84 @@ body.is-recording-active .record-btn {
   color: var(--accent);
   margin-top: 4px;
 }
+
+/* Walkthrough Overlay */
+.walkthrough-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  pointer-events: none;
+}
+.walkthrough-spotlight {
+  position: fixed;
+  border-radius: 8px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
+  z-index: 1000;
+  pointer-events: none;
+  transition: top 0.3s, left 0.3s, width 0.3s, height 0.3s;
+}
+.walkthrough-card {
+  position: fixed;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  max-width: 320px;
+  z-index: 1001;
+  pointer-events: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+.walkthrough-step-counter {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.walkthrough-card h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+.walkthrough-card p {
+  margin: 0 0 16px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.walkthrough-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.walkthrough-nav {
+  display: flex;
+  gap: 8px;
+}
+.walkthrough-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: none;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.walkthrough-btn-skip {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.walkthrough-btn-skip:hover {
+  color: var(--text-primary);
+}
+.walkthrough-btn-nav {
+  background: var(--bg-input);
+  color: var(--text-primary);
+}
+.walkthrough-btn-nav:hover {
+  background: var(--border);
+}
+.walkthrough-btn-primary {
+  background: var(--accent);
+  color: var(--bg-primary);
+}
+.walkthrough-btn-primary:hover {
+  opacity: 0.9;
+}
