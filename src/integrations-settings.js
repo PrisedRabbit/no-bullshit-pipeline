@@ -884,13 +884,9 @@ function initIntegrationsSettings() {
     }
   });
 
-  const settingsContainer = document.querySelector('.settings-tabs-container');
-  if (settingsContainer) {
-    // Observe the integrations tab for class changes
-    const intTab = document.querySelector('.settings-tab-content[data-tab="integrations"]');
-    if (intTab) {
-      observer.observe(intTab, { attributes: true, attributeFilter: ['class'] });
-    }
+  const intTab = document.querySelector('.settings-tab-content[data-tab="integrations"]');
+  if (intTab) {
+    observer.observe(intTab, { attributes: true, attributeFilter: ['class'] });
   }
 }
 
