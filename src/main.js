@@ -1485,8 +1485,11 @@ function renderPipelineChips() {
 
   if (typeof allPipelineDefs === 'undefined' || allPipelineDefs.length === 0) {
     chipBar.innerHTML = '';
+    chipBar.style.display = 'none';
     return;
   }
+
+  chipBar.style.display = '';
 
   const MAX_CHIPS = 5;
   const visible = allPipelineDefs.slice(0, MAX_CHIPS);
@@ -1504,7 +1507,7 @@ function renderPipelineChips() {
   }
 
   if (overflow.length > 0) {
-    html += `<button class="chip-overflow-btn" id="chip-overflow-btn">+${overflow.length}</button>`;
+    html += `<button class="chip-overflow-btn" id="chip-overflow-btn" aria-label="Show more pipelines" aria-haspopup="true">+${overflow.length}</button>`;
   }
 
   chipBar.innerHTML = html;
@@ -1531,6 +1534,9 @@ function showOverflowPopover(pipelines) {
 
   const popover = document.createElement('div');
   popover.className = 'chip-overflow-popover';
+  popover.setAttribute('role', 'menu');
+  popover.style.maxHeight = '240px';
+  popover.style.overflowY = 'auto';
 
   for (const p of pipelines) {
     let cls = 'pipeline-chip';
@@ -1543,6 +1549,7 @@ function showOverflowPopover(pipelines) {
     btn.className = cls;
     btn.dataset.pipelineName = p.name;
     btn.textContent = p.name;
+    btn.setAttribute('role', 'menuitem');
     btn.addEventListener('click', () => {
       popover.remove();
       handleChipClick(p.name);

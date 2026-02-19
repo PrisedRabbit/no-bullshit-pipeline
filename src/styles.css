@@ -3023,6 +3023,8 @@ body.is-recording-active .record-btn {
   flex-direction: column;
   gap: 2px;
   min-width: 140px;
+  max-height: 240px;
+  overflow-y: auto;
 }
 
 .chip-overflow-popover .pipeline-chip {
