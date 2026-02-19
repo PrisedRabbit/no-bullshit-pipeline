@@ -26,7 +26,7 @@
 **Milestone Goal:** Harden the v1 pipeline system — fix known bugs, add error recovery for structured outputs, improve UX polish for pipeline chips and prompt augmentation visibility, and add schema management safeguards.
 
 - [x] **Phase 9: Bug Fixes** — Fix integrations tab render and Slack state consistency (completed 2026-02-19)
-- [ ] **Phase 10: Structured Output Error Recovery** — Retry, user-visible failure, and partial success for structured delivery steps
+- [x] **Phase 10: Structured Output Error Recovery** — Retry, user-visible failure, and partial success for structured delivery steps (completed 2026-02-19)
 - [ ] **Phase 11: UX Polish** — Pipeline chip overflow menu, augmented prompt visibility, per-step timing
 - [ ] **Phase 12: Schema Management** — Token budget validation, schema staleness warnings, in-builder re-sync
 
@@ -103,6 +103,6 @@ Plans:
 | 7. Pipeline Data Model and Tags Migration | v1 | 2/2 | Complete | 2026-02-19 |
 | 8. UI Health Check | v1 | 2/2 | Complete | 2026-02-19 |
 | 9. Bug Fixes | 1/1 | Complete    | 2026-02-19 | - |
-| 10. Structured Output Error Recovery | v1.1 | 1/2 | In Progress | 2026-02-19 |
+| 10. Structured Output Error Recovery | 2/2 | Complete   | 2026-02-19 | 2026-02-19 |
 | 11. UX Polish | v1.1 | 0/2 | Not started | - |
 | 12. Schema Management | v1.1 | 0/2 | Not started | - |
