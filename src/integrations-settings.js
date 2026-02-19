@@ -123,6 +123,7 @@ function renderConnectedIntegrations() {
         </div>
         <div class="integration-card-actions">
           <button class="mini-action-btn test-linear-btn" data-id="${escapeHtml(profile.id)}">Test</button>
+          <button class="mini-action-btn resync-linear-btn" data-id="${escapeHtml(profile.id)}">Re-sync</button>
           <button class="mini-action-btn danger remove-linear-btn" data-id="${escapeHtml(profile.id)}">Remove</button>
         </div>
       </div>
@@ -237,6 +238,37 @@ function renderConnectedIntegrations() {
         await loadAllIntegrations();
       } catch (err) {
         alert('Failed to remove: ' + err);
+      }
+    });
+  });
+
+  el.querySelectorAll('.resync-linear-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const profile = linearProfiles.find(p => p.id === id);
+      if (!profile || !profile.team_id) {
+        alert('No team synced for this integration. Open the wizard to set up.');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Syncing...';
+      try {
+        const updatedProfile = await window.__TAURI__.core.invoke('sync_linear_schema', {
+          integrationId: id,
+          teamId: profile.team_id,
+          teamName: profile.team_name,
+        });
+        // Update global
+        const idx = linearProfiles.findIndex(p => p.id === id);
+        if (idx >= 0) linearProfiles[idx] = updatedProfile;
+        // Re-render to show updated sync timestamp
+        renderConnectedIntegrations();
+      } catch (err) {
+        alert('Re-sync failed: ' + err);
+        btn.disabled = false;
+        btn.textContent = 'Re-sync';
       }
     });
   });
