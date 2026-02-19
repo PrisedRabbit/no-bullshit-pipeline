@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-18)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** Phase 7 (Pipeline Data Model and Tags Migration) — complete
+**Current focus:** Phase 8 (UI Health Check) — needs planning
 
 ## Current Position
 
-Phase: 7 of 8 (Pipeline Data Model and Tags Migration) — complete
-Plan: 2 of 2 in current phase — plan 02 complete
-Status: Phase 7 complete — 2/2 plans complete
-Last activity: 2026-02-19 — Phase 7 Plan 02 execution complete
+Phase: 8 of 8 (UI Health Check) — needs planning
+Plan: 0 of 2 in current phase — plans not yet created
+Status: Phase 7 complete, Phase 8 next — needs /gsd:plan-phase 8
+Last activity: 2026-02-19 — Phase 7 execution and verification complete
 
 Progress: [███████░░░] 69% (18/26 plans)
 
@@ -140,6 +140,6 @@ Resume file: None
 
 ## Next Step
 
-**Action:** execute Phase 8
-**Command:** /gsd:execute-phase 8
-**Context:** Phase 7 Wave 1 (07-01) complete — types consolidated in pipelines.rs, RecordingMetadata has typed pipelines field, lazy tag migration implemented. Wave 2 (07-02): Zero-step early return in pipeline_engine.execute_pipeline_internal(), remove frontend zero-step guard in pipeline-builder.js.
+**Action:** plan Phase 8 (UI Health Check)
+**Command:** /gsd:plan-phase 8
+**Context:** Phase 7 complete. All backend + frontend phases (1-7) done. Phase 8 is the final phase: runtime DOM audit on startup, status bar badge, interactive walkthrough on first launch. Roadmap has 2 plan outlines (08-01, 08-02) that need full PLAN.md files.
