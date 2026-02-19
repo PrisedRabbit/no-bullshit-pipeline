@@ -320,6 +320,173 @@ pub async fn execute(
     }
 }
 
+/// Execute a corrective LLM retry call for a step that returned invalid JSON.
+///
+/// Builds a corrective prompt that includes the failed output and instructs the
+/// LLM to return only a valid JSON array. Uses the same provider/model from
+/// `config` as the original LLM call.
+///
+/// The output is written to a retry-specific .md file:
+/// `{step_name}-retry.md` in `output_dir`. The pipeline engine reads this file
+/// to feed into the Notion connector for a second attempt.
+///
+/// # Parameters
+/// - `failed_output`: The raw LLM output that failed JSON parsing (first 2000 chars included in prompt)
+/// - `original_prompt`: The augmented prompt from the original LLM call (last 500 chars used as context)
+/// - `config`: The LLM step config (`provider`, `model`, etc.)
+/// - `output_dir`: Directory to write the retry output .md file
+/// - `step_name`: Name of the original LLM step (retry file uses `{step_name}-retry`)
+/// - `step_input`: Input reference name (for frontmatter)
+/// - `step_description`: Optional description
+pub async fn execute_retry(
+    failed_output: &str,
+    original_prompt: &str,
+    config: &serde_json::Value,
+    output_dir: &Path,
+    step_name: &str,
+    step_input: &str,
+    step_description: Option<&str>,
+) -> Result<PathBuf, String> {
+    let llm_config = LlmConfig::from_value(config)?;
+    let created_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+
+    // Truncate failed output to first 2000 chars for the corrective prompt
+    let failed_preview = if failed_output.len() > 2000 {
+        &failed_output[..2000]
+    } else {
+        failed_output
+    };
+
+    // Use last 500 chars of the original prompt as the format spec context
+    let prompt_context = if original_prompt.len() > 500 {
+        &original_prompt[original_prompt.len() - 500..]
+    } else {
+        original_prompt
+    };
+
+    let corrective_prompt = format!(
+        "The previous AI response was not valid JSON. Here is what was returned:\n\n\
+         ---BEGIN FAILED OUTPUT---\n\
+         {}\n\
+         ---END FAILED OUTPUT---\n\n\
+         Fix this output to be a valid JSON array. Rules:\n\
+         1. Return ONLY a JSON array: [{{...}}, ...]\n\
+         2. No markdown, no code fences, no prose before or after\n\
+         3. No trailing commas\n\
+         4. All strings must be properly quoted\n\
+         5. Preserve the original data as closely as possible\n\n\
+         Original instruction (for context):\n\
+         {}",
+        failed_preview,
+        prompt_context,
+    );
+
+    // Get API key from settings
+    let settings = load_settings();
+
+    // Execute with the same provider/model as the original call
+    let result = match llm_config.provider.as_str() {
+        "openai" => {
+            let api_key = settings
+                .transcription
+                .api_keys
+                .openai
+                .ok_or("OpenAI API key not configured. Set it in Settings.")?;
+            cloud_ai::process_with_gpt4o(&api_key, &corrective_prompt, "").await
+        }
+        "google" => {
+            let api_key = settings
+                .transcription
+                .api_keys
+                .google
+                .ok_or("Google API key not configured. Set it in Settings.")?;
+            cloud_ai::process_with_gemini(&api_key, &corrective_prompt, "").await
+        }
+        "anthropic" => {
+            let api_key = settings
+                .transcription
+                .api_keys
+                .anthropic
+                .ok_or("Anthropic API key not configured. Set it in Settings.")?;
+            cloud_ai::process_with_claude(&api_key, &corrective_prompt, "").await
+        }
+        other => Err(format!("Unknown LLM provider: '{}'", other)),
+    };
+
+    // Ensure output directory exists
+    fs::create_dir_all(output_dir)
+        .map_err(|e| format!("Failed to create output dir: {}", e))?;
+
+    // Retry output uses a distinct file name to avoid overwriting the original
+    let retry_step_name = format!("{}-retry", step_name);
+    let output_path = output_dir.join(format!("{}.md", retry_step_name));
+
+    match result {
+        Ok(response) => {
+            let completed_at =
+                Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+
+            let frontmatter = StepFrontmatter {
+                name: retry_step_name.clone(),
+                description: "Retry attempt for JSON correction".to_string(),
+                connector: "llm".to_string(),
+                input: step_input.to_string(),
+                status: "done".to_string(),
+                created_at,
+                completed_at: Some(completed_at),
+                error: None,
+                provider: llm_config.provider,
+                model: llm_config.model,
+            };
+
+            let file_content = format!("{}\n\n{}", frontmatter.to_yaml(), response);
+
+            // Atomic write
+            let temp_path = output_dir.join(format!(".{}.md.tmp", retry_step_name));
+            fs::write(&temp_path, &file_content)
+                .map_err(|e| format!("Failed to write retry output: {}", e))?;
+            fs::rename(&temp_path, &output_path)
+                .map_err(|e| format!("Failed to finalize retry output: {}", e))?;
+
+            Ok(output_path)
+        }
+        Err(error) => {
+            let completed_at =
+                Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+
+            let frontmatter = StepFrontmatter {
+                name: retry_step_name.clone(),
+                description: step_description.unwrap_or("").to_string(),
+                connector: "llm".to_string(),
+                input: step_input.to_string(),
+                status: "failed".to_string(),
+                created_at,
+                completed_at: Some(completed_at),
+                error: Some(error.clone()),
+                provider: llm_config.provider,
+                model: llm_config.model,
+            };
+
+            let file_content = format!("{}\n\nRetry failed: {}", frontmatter.to_yaml(), error);
+
+            let temp_path = output_dir.join(format!(".{}.md.tmp", retry_step_name));
+            if let Err(write_err) = fs::write(&temp_path, &file_content) {
+                eprintln!(
+                    "Warning: Failed to write LLM retry error state for step '{}': {}",
+                    retry_step_name, write_err
+                );
+            } else if let Err(rename_err) = fs::rename(&temp_path, &output_path) {
+                eprintln!(
+                    "Warning: Failed to finalize LLM retry error state for step '{}': {}",
+                    retry_step_name, rename_err
+                );
+            }
+
+            Err(error)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

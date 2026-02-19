@@ -392,7 +392,12 @@ pub async fn execute_pipeline_internal(
                 .await
             }
             ConnectorType::Notion => {
-                connectors::notion::execute(
+                // Use execute_structured to detect JSON parse failures for retry.
+                // JSON parse failures trigger exactly one corrective-prompt retry
+                // using the same LLM provider/model. Other errors skip retry.
+                use connectors::notion::NotionErrorKind;
+
+                let notion_result = connectors::notion::execute_structured(
                     &input_path,
                     &step.config,
                     &output_dir,
@@ -400,7 +405,116 @@ pub async fn execute_pipeline_internal(
                     &step.input,
                     step.description.as_deref(),
                 )
-                .await
+                .await;
+
+                match notion_result {
+                    Ok(path) => Ok(path),
+                    Err(ref notion_err) if matches!(notion_err.kind, NotionErrorKind::JsonParse { .. }) => {
+                        // Extract raw_output from the JSON parse error
+                        let raw_output = match &notion_err.kind {
+                            NotionErrorKind::JsonParse { raw_output, .. } => raw_output.clone(),
+                            _ => unreachable!(),
+                        };
+
+                        eprintln!(
+                            "[pipeline] Notion JSON parse failure on step '{}', retrying with corrective prompt",
+                            step.name
+                        );
+
+                        // Find the LLM step that fed into this Notion step so we can
+                        // read its config for provider/model and its output for context.
+                        //
+                        // The N+1 look-ahead guarantees the immediately-preceding step
+                        // is the LLM step that produced the JSON (when the pipeline
+                        // is structured as LLM -> Notion).
+                        // We look backward from the current Notion step index.
+                        let llm_step_for_retry = if i > 0 {
+                            pipeline.steps.get(i - 1).filter(|s| s.connector == ConnectorType::Llm)
+                        } else {
+                            None
+                        };
+
+                        let retry_result = if let Some(llm_step) = llm_step_for_retry {
+                            // Get the augmented prompt for context (rebuild it for the retry call)
+                            let notion_integration_id = step.config
+                                .get("integration_id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            let original_prompt = build_augmented_prompt(
+                                &llm_step.config,
+                                &resolve_input_path(recording_id, pipeline_name, &llm_step.input),
+                                notion_integration_id,
+                            ).unwrap_or_default();
+
+                            connectors::llm::execute_retry(
+                                &raw_output,
+                                &original_prompt,
+                                &llm_step.config,
+                                &output_dir,
+                                &llm_step.name,
+                                &llm_step.input,
+                                llm_step.description.as_deref(),
+                            )
+                            .await
+                        } else {
+                            // No preceding LLM step found — cannot retry
+                            Err(format!(
+                                "Notion JSON parse failure on step '{}': no preceding LLM step found for retry",
+                                step.name
+                            ))
+                        };
+
+                        match retry_result {
+                            Ok(retry_output_path) => {
+                                // Retry LLM call succeeded — attempt Notion step again with retry output
+                                connectors::notion::execute_with_raw_preservation(
+                                    &retry_output_path,
+                                    &step.config,
+                                    &output_dir,
+                                    &step.name,
+                                    &step.input,
+                                    step.description.as_deref(),
+                                    Some(&raw_output),
+                                )
+                                .await
+                            }
+                            Err(retry_llm_error) => {
+                                // Retry LLM call failed — write failure output with raw output preserved
+                                let error_message = format!(
+                                    "Notion step '{}' failed with JSON parse error, and retry LLM call also failed: {}",
+                                    step.name, retry_llm_error
+                                );
+
+                                let _ = fs::create_dir_all(&output_dir);
+                                let output_path = output_dir.join(format!("{}.md", step.name));
+                                let integration_id = step.config
+                                    .get("integration_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("unknown");
+                                let now = chrono::Utc::now().to_rfc3339();
+                                let error_escaped = error_message.replace('"', "\\\"").replace('\n', " ");
+                                let file_content = format!(
+                                    "---\nname: {}\ndescription: \"{}\"\nconnector: notion\ninput: {}\nstatus: failed\ncreated_at: {}\ncompleted_at: {}\nintegration_id: {}\npages_created: 0\nerror: \"{}\"\n---\n\n## Error\n{}\n\n## Raw AI Output\n{}\n",
+                                    step.name,
+                                    step.description.as_deref().unwrap_or("Create Notion pages"),
+                                    step.input,
+                                    now, now,
+                                    integration_id,
+                                    error_escaped,
+                                    error_message,
+                                    raw_output,
+                                );
+                                let _ = fs::write(&output_path, &file_content);
+
+                                Err(error_message)
+                            }
+                        }
+                    }
+                    Err(other_err) => {
+                        // Non-JSON error (API failure, config error, etc.) — no retry
+                        Err(other_err.to_string())
+                    }
+                }
             }
             ConnectorType::Mcp => {
                 Err("MCP connector not yet implemented".to_string())
