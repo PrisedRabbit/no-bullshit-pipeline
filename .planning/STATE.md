@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 13 — Linear Backend
-Plan: —
-Status: Roadmap created, ready to plan Phase 13
-Last activity: 2026-02-19 — v1.2 roadmap created (5 phases, 15 requirements mapped)
+Plan: 13-01 planned (1 plan, 1 wave, 2 tasks)
+Status: Phase 13 planned, ready to execute
+Last activity: 2026-02-19 — Phase 13 planned (1 plan, verification passed)
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -40,10 +40,10 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: v1.2 roadmap created
+Stopped at: Phase 13 planned
 Resume file: None
 
 ## Next Step
 
-**Action:** Plan Phase 13 — Linear Backend
-**Context:** Phase 13 covers LINEAR-01 (API key entry), LINEAR-03 (schema fetch/storage), LINEAR-09 (Keychain storage). Follows the Notion connector pattern from phases 1-3. See src-tauri/src/connectors/ for existing patterns (notion/connector.rs is the reference implementation for schema-aware connectors).
+**Action:** Execute Phase 13 — Linear Backend
+**Context:** 1 plan (13-01) in wave 1, autonomous. Creates `integrations/linear.rs` with 6 Tauri commands (add, test, remove, list_teams, sync_schema, list_profiles), Keychain credential storage, GraphQL client, and profile persistence. No new crate dependencies — uses existing reqwest. Follow Notion connector pattern in `integrations/notion.rs`.

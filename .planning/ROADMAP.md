@@ -131,7 +131,7 @@ Plans:
 | 10. Structured Output Error Recovery | v1.1 | 2/2 | Complete | 2026-02-19 |
 | 11. UX Polish | v1.1 | 2/2 | Complete | 2026-02-19 |
 | 12. Schema Management | v1.1 | 2/2 | Complete | 2026-02-19 |
-| 13. Linear Backend | v1.2 | 0/1 | Not started | - |
+| 13. Linear Backend | v1.2 | 0/1 | Planned | - |
 | 14. Linear Delivery | v1.2 | 0/1 | Not started | - |
 | 15. Linear Pipeline Integration | v1.2 | 0/1 | Not started | - |
 | 16. Linear Frontend | v1.2 | 0/2 | Not started | - |
