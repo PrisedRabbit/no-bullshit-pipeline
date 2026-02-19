@@ -2,7 +2,7 @@
 
 ## What This Is
 
-NBP (No Bullshit Pipeline) is a Tauri desktop app (Rust + Vanilla JS) that captures Mac audio (mic + system), transcribes it, and runs multi-step pipelines for processing and delivery. Pipelines v2 is a complete redesign of how users think about, build, assign, and run pipelines — merging the tag and pipeline concepts, adding pre-assignment UX, a preset-based builder, an integrations architecture, schema-aware connectors, and a UI health check system.
+NBP (No Bullshit Pipeline) is a Tauri desktop app (Rust + Vanilla JS) that captures Mac audio (mic + system), transcribes it, and runs multi-step pipelines for processing and delivery. Pipelines v2 shipped a complete redesign: unified pipeline-as-label model (replacing tags), pre-assignment UX with pipeline chips, a preset-based builder with Processing/Delivery categories, a three-layer integrations architecture with schema-aware Notion connector, automatic prompt augmentation, and a built-in UI health check system.
 
 ## Core Value
 
@@ -11,8 +11,6 @@ Zero post-recording work: select pipeline → record → stop → everything hap
 ## Requirements
 
 ### Validated
-
-<!-- Existing capabilities confirmed in codebase -->
 
 - ✓ Audio capture (mic + system via Core Audio Process Taps) — existing
 - ✓ Real-time mixing with EBU R128 normalization — existing
@@ -26,80 +24,78 @@ Zero post-recording work: select pipeline → record → stop → everything hap
 - ✓ Webhook connector (POST/PUT/PATCH) — existing
 - ✓ Slack connector (channels, DMs, OAuth) — existing
 - ✓ Prompt templates (built-in + custom, variable substitution) — existing
-- ✓ Pipeline builder UI (settings tab, step management) — existing
-- ✓ Pipeline assignment to recordings — existing
-- ✓ Pipeline progress tracking with events — existing
 - ✓ Waveform visualization — existing
 - ✓ Mic selection — existing
 - ✓ Auto-discard short recordings — existing
-- ✓ Recording metadata with tags — existing
+- ✓ Tags replaced by pipelines (zero-step pipeline = label) — v1
+- ✓ Pipeline chips in app bar for pre-assignment before recording — v1
+- ✓ One-click pipeline chip starts recording with pipeline pre-assigned — v1
+- ✓ Default pipeline setting for new recordings — v1
+- ✓ Multiple pipelines per recording (each writes to own directory) — v1
+- ✓ Pipeline builder redesign: preset picker instead of forms — v1
+- ✓ Step categories: Processing and Delivery (not "connectors") — v1
+- ✓ Built-in processing presets (Meeting Notes, Action Items, Summary, Structure, Custom) — v1
+- ✓ Smart defaults: zero fields for preset steps — v1
+- ✓ Input chaining: auto-link to previous step output, toggle for transcript — v1
+- ✓ Prompt templates inline + reusable, with built-in presets — v1
+- ✓ Provider/Model: global default, per-step override in Advanced — v1
+- ✓ Integrations settings page (three-layer architecture) — v1
+- ✓ Save paths as named integrations — v1
+- ✓ Delivery step picker shows only connected integrations — v1
+- ✓ Notion connector with structured property mapping — v1
+- ✓ Integration profiles (schema, people mappings, defaults) — v1
+- ✓ Prompt augmentation: auto-inject format specs from downstream schema — v1
+- ✓ Structured output parser and validation for schema-aware connectors — v1
+- ✓ UI health check: automated element audit on app start — v1
+- ✓ UI health check: interactive walkthrough on first launch — v1
+- ✓ Lazy tag-to-pipeline-label migration — v1
+- ✓ Pipeline run status visibility (Waiting/Running/Done/Failed) — v1
+- ✓ Auto-transcribe + auto-execute pipeline on recording stop — v1
+- ✓ SortableJS drag-and-drop step reordering — v1
 
 ### Active
 
-<!-- Pipelines v2 scope — building toward these -->
-
-- [ ] Tags replaced by pipelines (zero-step pipeline = label)
-- [ ] Pipeline chips in app bar for pre-assignment before recording
-- [ ] One-click pipeline chip starts recording with pipeline pre-assigned
-- [ ] Default pipeline setting for new recordings
-- [ ] Multiple pipelines per recording (each writes to own directory)
-- [ ] Pipeline builder redesign: preset picker instead of forms
-- [ ] Step categories: Processing and Delivery (not "connectors")
-- [ ] Built-in processing presets (Meeting Notes, Action Items, Summary, Structure, Custom)
-- [ ] Smart defaults: zero fields for preset steps
-- [ ] Input chaining: auto-link to previous step output, toggle for transcript
-- [ ] Prompt templates inline + reusable, with built-in presets
-- [ ] Provider/Model: global default, per-step override in Advanced
-- [ ] Integrations settings page (three-layer architecture)
-- [ ] Save paths as named integrations
-- [ ] Delivery step picker shows only connected integrations
-- [x] Notion connector with structured property mapping — Phase 2
-- [x] Integration profiles (schema, people mappings, defaults) — Phase 1
-- [ ] Prompt augmentation: auto-inject format specs from downstream schema
-- [ ] Structured output parser for schema-aware connectors
-- [ ] UI health check: automated element audit on app start
-- [ ] UI health check: interactive walkthrough on first launch
+(None — next milestone requirements TBD via `/gsd:new-milestone`)
 
 ### Out of Scope
 
-<!-- Explicit boundaries for this milestone -->
-
 - Linear/Jira connectors — Notion first, others follow same pattern later
-- Telegram connector — marked "soon" in designs, not v2 scope
-- MCP connector — placeholder exists but not in v2
-- OAuth for Notion — API key (internal integration) for v1, OAuth later
-- Automatic schema re-sync on each pipeline run — manual button for v2
+- Telegram connector — marked "soon" in designs, not shipped
+- MCP connector — placeholder exists but no specification
+- OAuth for Notion — API key (internal integration) sufficient for single-user
+- Automatic schema re-sync on each pipeline run — manual button shipped
 - Real-time collaborative pipeline editing — single-user app
 - Pipeline marketplace/sharing — personal use focus
+- Branching/conditional pipeline logic — 90% of use cases are linear chains
+- CSS/UI framework adoption — vanilla JS approach maintained
 
 ## Context
 
-**Existing codebase state:**
-- Pipeline engine (`pipeline_engine.rs`) executes steps sequentially with progress events
-- 4 connectors implemented: LLM, Save, Webhook, Slack (each in `src-tauri/src/connectors/`)
-- Prompt templates stored in `~/.nbp/config/prompt-templates.json`
-- Tags are `Vec<String>` in `metadata.json` — will be replaced by pipeline references
-- Pipeline builder in settings tab of `src/main.js` — developer-oriented, needs redesign
-- Slack already has OAuth + Keychain token storage
-- Config in `~/.nbp/config/`, recordings in `~/nbp-data/`
+**Current codebase state (v1 shipped):**
+- 5 connectors: LLM, Save, Webhook, Slack, Notion (in `src-tauri/src/connectors/`)
+- Pipeline engine (`pipeline_engine.rs`) with N+1 look-ahead prompt augmentation
+- Integrations architecture with profiles in `~/.nbp/integrations/`
+- 6 built-in prompt templates (meeting-notes, action-items, summary, structure, brainstorm, journal)
+- Pipeline builder extracted to `src/pipeline-builder.js` with SortableJS
+- Integrations settings wizard in `src/integrations-settings.js`
+- UI health check engine in `src/ui-health-check.js`
+- ~10,800 LOC across key v2 files
+- Config in `~/.nbp/`, recordings in `~/nbp-data/`
+
+**Known issues (from v1 audit):**
+- MutationObserver selector mismatch in integrations-settings.js:887 (`.settings-tabs-container` should be `.settings-tabs`) — integrations tab first-load broken, works after any user action
+- Dual Slack state (main.js vs integrations-settings.js) — cosmetic staleness until page reload
+- Prompt augmentation token budget (<500 tokens) unvalidated against large Notion databases
 
 **Design inputs:**
 - Brainstorming session 2026-02-03: Pipeline data model, file structure, connectors
 - Brainstorming session 2026-02-18: UX redesign — mental model, assembly, pre-assignment, schema-aware connectors, UI health check
-- Both sessions produced detailed designs with specific UI mockups and architecture decisions
-
-**Open questions resolved with defaults:**
-1. Pipeline chips in app bar → show top N + overflow (N=5)
-2. Notion auth → API key (internal integration) for simplicity
-3. Schema re-sync → manual button in integration settings
-4. Prompt augmentation visibility → show "Auto-formatted for Notion" indicator, expandable
-5. Error recovery for structured output → retry once with stricter prompt, then show raw output with error message
 
 ## Constraints
 
 - **Tech Stack**: Tauri (Rust backend + Vanilla JS frontend, no framework, no bundler)
 - **Package Manager**: Bun only (no npm/npx/yarn)
-- **Storage**: Recordings in `~/nbp-data/`, config in `~/.nbp/config/`
+- **Storage**: Recordings in `~/nbp-data/`, config in `~/.nbp/`
 - **Security**: API keys and tokens in macOS Keychain
 - **Platform**: macOS 13.0+ only
 - **Privacy**: Local-first, no telemetry, no network calls unless user configures cloud APIs
@@ -109,19 +105,21 @@ Zero post-recording work: select pipeline → record → stop → everything hap
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Tags replaced by pipelines | One concept instead of two. Pipeline with 0 steps = label. Simpler mental model. | — Pending |
-| Pre-assignment via chips in app bar | Most valuable moment is BEFORE recording. Eliminates post-recording work. | — Pending |
-| Preset picker, not forms | One click for known step types. Zero fields for presets. User-friendly. | — Pending |
-| Processing + Delivery categories | Maps to user mental model, not implementation details. | — Pending |
-| Global default provider/model | 95% of users use one provider. Per-step override hidden in Advanced. | — Pending |
-| Auto input chaining | 90% of pipelines are linear chains. Previous step output by default. | — Pending |
-| Save paths as integrations | Pre-configured named locations, consistent with other integrations. | — Pending |
-| Schema-aware setup wizard for Notion | Reads DB schema → stores profile → augments AI prompts automatically. | Phase 1 backend (schema read, people mapping), Phase 4 UI |
-| API key for Notion v1 | Simpler than OAuth. Internal integration is sufficient for single-user app. | Phase 1 — Keychain storage |
-| Notion connector: profile-driven property mapping | Iterate profile.properties (not JSON keys) to build typed PageProperty map. Avoids Notion 400s for unknown fields. | Phase 2 — connectors/notion.rs |
-| Notion connector: explicit User construction | notion-client User may not impl Default; list all 4 fields explicitly (id, name, avator_url, user_type). | Phase 2 — connectors/notion.rs |
-| NOTN-03/04/05 reclassified Phase 2→4 | These are setup wizard UI requirements, not connector concerns. Backend built in Phase 1, UI in Phase 4. | Phase 2 verification |
-| UI health check built-in | Verifies all interactive elements work. Lightweight, not a test framework. | — Pending |
+| Tags replaced by pipelines | One concept instead of two. Pipeline with 0 steps = label. Simpler mental model. | ✓ Good — v1 Phase 7 |
+| Pre-assignment via chips in app bar | Most valuable moment is BEFORE recording. Eliminates post-recording work. | ✓ Good — v1 Phase 6 |
+| Preset picker, not forms | One click for known step types. Zero fields for presets. User-friendly. | ✓ Good — v1 Phase 5 |
+| Processing + Delivery categories | Maps to user mental model, not implementation details. | ✓ Good — v1 Phase 5 |
+| Global default provider/model | 95% of users use one provider. Per-step override hidden in Advanced. | ✓ Good — v1 Phase 5 |
+| Auto input chaining | 90% of pipelines are linear chains. Previous step output by default. | ✓ Good — v1 Phase 5 |
+| Save paths as integrations | Pre-configured named locations, consistent with other integrations. | ✓ Good — v1 Phase 4 |
+| Schema-aware setup wizard for Notion | Reads DB schema → stores profile → augments AI prompts automatically. | ✓ Good — v1 Phases 1+4 |
+| API key for Notion v1 | Simpler than OAuth. Internal integration is sufficient for single-user app. | ✓ Good — v1 Phase 1 |
+| Notion connector: profile-driven property mapping | Iterate profile.properties (not JSON keys) to build typed PageProperty map. | ✓ Good — v1 Phase 2 |
+| SortableJS as local vendor file | Native HTML5 DnD unreliable in macOS WKWebView. | ✓ Good — v1 Phase 5 |
+| Integration profiles as separate JSON files | Not inside settings.json. Per-integration file isolation. | ✓ Good — v1 Phase 1 |
+| Dev-mode credential bypass | .dev-credentials.json avoids Keychain dialogs during development. | ✓ Good — v1 Phase 1 |
+| UI health check as lightweight internal module | Not Selenium/Playwright. querySelectorAll + state checks. <2 seconds. | ✓ Good — v1 Phase 8 |
+| Prompt augmentation hard-fail on missing profile | Prevents expensive LLM call with guaranteed non-JSON output. | ✓ Good — v1 Phase 3 |
 
 ---
-*Last updated: 2026-02-18 after Phase 2*
+*Last updated: 2026-02-19 after v1 Pipelines v2 milestone*

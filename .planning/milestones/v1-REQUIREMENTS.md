@@ -1,3 +1,12 @@
+# Requirements Archive: v1 Pipelines v2
+
+**Archived:** 2026-02-19
+**Status:** SHIPPED
+
+For current requirements, see `.planning/REQUIREMENTS.md`.
+
+---
+
 # Requirements: NBP Pipelines v2
 
 **Defined:** 2026-02-18
