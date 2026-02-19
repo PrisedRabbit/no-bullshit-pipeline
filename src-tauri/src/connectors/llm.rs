@@ -8,7 +8,8 @@ use crate::cloud_ai;
 /// LLM connector config parsed from step config JSON
 #[derive(Debug)]
 struct LlmConfig {
-    prompt_template: String,
+    prompt_template: Option<String>,
+    prompt_inline: Option<String>,
     provider: String,
     model: String,
 }
@@ -18,8 +19,18 @@ impl LlmConfig {
         let prompt_template = config
             .get("prompt_template")
             .and_then(|v| v.as_str())
-            .ok_or("LLM connector config missing 'prompt_template'")?
-            .to_string();
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.to_string());
+
+        let prompt_inline = config
+            .get("prompt_inline")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.to_string());
+
+        if prompt_template.is_none() && prompt_inline.is_none() {
+            return Err("LLM connector config missing 'prompt_template' or 'prompt_inline'".to_string());
+        }
 
         let provider = config
             .get("provider")
@@ -35,6 +46,7 @@ impl LlmConfig {
 
         Ok(LlmConfig {
             prompt_template,
+            prompt_inline,
             provider,
             model,
         })
@@ -155,7 +167,7 @@ pub async fn execute(
 
         (prompt_to_send, truncated)
     } else {
-        // Standard path: read input file, strip frontmatter, load template, substitute variables.
+        // Standard path: read input file, strip frontmatter, load template or use inline prompt.
         // Read input content
         let raw_input = fs::read_to_string(input_path)
             .map_err(|e| format!("Failed to read input file: {}", e))?;
@@ -163,11 +175,18 @@ pub async fn execute(
         // Strip frontmatter from input if present
         let input_content = super::strip_frontmatter(&raw_input);
 
-        // Load prompt template
-        let template = get_prompt_template_internal(&llm_config.prompt_template)?;
+        // Load prompt text from template or use inline prompt directly
+        let prompt_text = if let Some(ref template_name) = llm_config.prompt_template {
+            let template = get_prompt_template_internal(template_name)?;
+            template.prompt.clone()
+        } else if let Some(ref inline) = llm_config.prompt_inline {
+            inline.clone()
+        } else {
+            return Err("LLM step missing prompt_template or prompt_inline".to_string());
+        };
 
         // Substitute variables
-        let full_prompt = substitute_variables(&template.prompt, input_content);
+        let full_prompt = substitute_variables(&prompt_text, input_content);
 
         // Estimate token count and check against provider limits
         let approx_tokens = estimate_tokens(&full_prompt);
@@ -313,7 +332,7 @@ mod tests {
             "model": "gpt-4o"
         });
         let llm_config = LlmConfig::from_value(&config).unwrap();
-        assert_eq!(llm_config.prompt_template, "meeting-notes");
+        assert_eq!(llm_config.prompt_template, Some("meeting-notes".to_string()));
         assert_eq!(llm_config.provider, "openai");
         assert_eq!(llm_config.model, "gpt-4o");
     }

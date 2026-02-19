@@ -124,9 +124,17 @@ pub fn validate_pipeline(pipeline: &Pipeline) -> Result<(), String> {
 fn validate_step_config(step: &PipelineStep) -> Result<(), String> {
     match step.connector {
         ConnectorType::Llm => {
-            if step.config.get("prompt_template").and_then(|v| v.as_str()).is_none() {
+            let has_template = step.config.get("prompt_template")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.trim().is_empty())
+                .is_some();
+            let has_inline = step.config.get("prompt_inline")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.trim().is_empty())
+                .is_some();
+            if !has_template && !has_inline {
                 return Err(format!(
-                    "Step '{}': LLM connector requires 'prompt_template' in config",
+                    "Step '{}': LLM connector requires 'prompt_template' or 'prompt_inline' in config",
                     step.name
                 ));
             }
@@ -494,6 +502,22 @@ mod tests {
                 connector: ConnectorType::Notion,
                 input: "transcript".to_string(),
                 config: serde_json::json!({"integration_id": "abc-123"}),
+                description: None,
+            }],
+        };
+        assert!(validate_pipeline(&pipeline).is_ok());
+    }
+
+    #[test]
+    fn test_llm_step_with_prompt_inline_passes() {
+        let pipeline = Pipeline {
+            name: "test".to_string(),
+            description: "test".to_string(),
+            steps: vec![PipelineStep {
+                name: "custom".to_string(),
+                connector: ConnectorType::Llm,
+                input: "transcript".to_string(),
+                config: serde_json::json!({ "prompt_inline": "Summarize this: {transcript}" }),
                 description: None,
             }],
         };

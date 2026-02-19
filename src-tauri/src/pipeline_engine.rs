@@ -132,18 +132,29 @@ fn build_augmented_prompt(
     input_path: &std::path::Path,
     notion_integration_id: &str,
 ) -> Result<String, String> {
-    // Load prompt template name from LLM step config
-    let prompt_template_name = step_config
+    // Load base prompt from template name or inline prompt
+    let base_prompt = if let Some(template_name) = step_config
         .get("prompt_template")
         .and_then(|v| v.as_str())
-        .ok_or("LLM step missing prompt_template in config")?;
-
-    // Load template and build base prompt (same logic as connectors/llm.rs)
-    let template = crate::prompt_templates::get_prompt_template_internal(prompt_template_name)?;
-    let raw_input = std::fs::read_to_string(input_path)
-        .map_err(|e| format!("Failed to read input file for augmentation: {}", e))?;
-    let input_content = crate::connectors::strip_frontmatter(&raw_input);
-    let base_prompt = crate::prompt_templates::substitute_variables(&template.prompt, input_content);
+        .filter(|s| !s.trim().is_empty())
+    {
+        let template = crate::prompt_templates::get_prompt_template_internal(template_name)?;
+        let raw_input = std::fs::read_to_string(input_path)
+            .map_err(|e| format!("Failed to read input file for augmentation: {}", e))?;
+        let input_content = crate::connectors::strip_frontmatter(&raw_input);
+        crate::prompt_templates::substitute_variables(&template.prompt, input_content)
+    } else if let Some(inline_prompt) = step_config
+        .get("prompt_inline")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+    {
+        let raw_input = std::fs::read_to_string(input_path)
+            .map_err(|e| format!("Failed to read input file for augmentation: {}", e))?;
+        let input_content = crate::connectors::strip_frontmatter(&raw_input);
+        crate::prompt_templates::substitute_variables(inline_prompt, input_content)
+    } else {
+        return Err("LLM step missing prompt_template or prompt_inline in config".to_string());
+    };
 
     // Load Notion integration profile — hard fail if missing
     let profile = crate::integrations::notion::load_notion_profile(notion_integration_id)
