@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-19)
 
 **Core value:** Zero post-recording work — select pipeline, record, stop, everything happens automatically.
-**Current focus:** v1.1 Resilience & Polish — Phase 9 complete, Phase 10 next
+**Current focus:** v1.1 Resilience & Polish — Phase 10 planned, ready for execution
 
 ## Current Position
 
-Phase: 9 of 12 (Bug Fixes) — COMPLETE
-Plan: 09-01 complete (1/1 plans done)
-Status: Complete — ready for Phase 10
-Last activity: 2026-02-19 — Phase 9 executed (BUG-01 and BUG-02 fixed, 2 tasks, 2 commits)
+Phase: 10 of 12 (Structured Output Error Recovery) — PLANNED
+Plan: 0/2 plans executed
+Status: Planned — ready for execution
+Last activity: 2026-02-19 — Phase 10 planned (2 plans in 2 waves, verified by plan checker)
 
 Progress: [██░░░░░░░░] 15% (v1.1)
 
@@ -53,10 +53,10 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Completed 09-01-PLAN.md
+Stopped at: Planned Phase 10
 Resume file: None
 
 ## Next Step
 
-**Action:** Run `/gsd:plan-phase 10` to plan Structured Output Error Recovery phase
-**Context:** Phase 9 complete — both bugs fixed. Phase 10 plans are TBD in ROADMAP.md and need detailed planning before execution. Phase 10 depends on Phase 9 (now complete). Phase 10 has 2 planned plans: (1) JSON retry logic with stricter prompt, (2) failure display and partial-success pipeline execution.
+**Action:** Run `/gsd:execute-phase 10` to execute Structured Output Error Recovery phase
+**Context:** Phase 10 fully planned with 2 plans in 2 waves. Wave 1 (10-01): JSON retry logic with error categorization and raw output preservation (ERR-01, ERR-02). Wave 2 (10-02, depends on 10-01): Partial-success pipeline execution and per-step status UI (ERR-03). Plan checker verified all plans pass.
