@@ -4,6 +4,7 @@ use crate::storage::{get_data_dir, read_metadata};
 use crate::cloud_ai;
 use crate::transcript_migration::{TranscriptMetadata, TranscriptSource};
 use tauri::Emitter;
+use tauri_plugin_shell::ShellExt;
 
 const BASE_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
 
@@ -18,7 +19,11 @@ pub struct ModelInfo {
     pub path: String,
 }
 
-// TODO: speaker diarization (SP1/SP2 labels, segments, speaker_count)
+#[derive(Deserialize, Debug)]
+struct FluidAudioOutput {
+    model: String,
+    text: String,
+}
 
 /// JSON transcript stored as transcript.json (source of truth)
 #[derive(Serialize, Deserialize, Debug)]
@@ -31,6 +36,13 @@ pub(crate) struct TranscriptJson {
     language: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     text: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+struct TranscriptionProgress {
+    recording_id: String,
+    stage: String,
+    percent: u32,
 }
 
 pub fn get_model_url(size: &WhisperModelSize) -> String {
@@ -160,6 +172,7 @@ pub async fn delete_whisper_model(size: WhisperModelSize) -> Result<(), String> 
 
 #[tauri::command]
 pub async fn transcribe_recording(
+    app_handle: tauri::AppHandle,
     recording_id: String
 ) -> Result<String, String> {
     let settings = load_settings();
@@ -183,12 +196,103 @@ pub async fn transcribe_recording(
     // Shared metadata fields
     let source = match provider {
         TranscriptionProvider::LocalWhisper | TranscriptionProvider::Unknown => TranscriptSource::Local,
+        TranscriptionProvider::FluidAudio => TranscriptSource::Fluidaudio,
         TranscriptionProvider::OpenAI => TranscriptSource::Openai,
         TranscriptionProvider::Google => TranscriptSource::Google,
         TranscriptionProvider::Anthropic => TranscriptSource::Anthropic,
     };
 
     let transcript_json = match provider {
+        TranscriptionProvider::FluidAudio => {
+            let wav_path = recording_dir.join("temp_transcription.wav");
+            convert_ogg_to_wav(&audio_path, &wav_path)?;
+
+            let _ = app_handle.emit("transcription_progress", TranscriptionProgress {
+                recording_id: recording_id.clone(),
+                stage: "Starting".to_string(),
+                percent: 0,
+            });
+
+            let (mut rx, _child) = app_handle.shell().sidecar("fluidaudio-sidecar")
+                .map_err(|e| format!("Failed to create sidecar command: {}", e))?
+                .arg(wav_path.to_str().ok_or("Invalid WAV path")?)
+                .spawn()
+                .map_err(|e| format!("Failed to spawn FluidAudio sidecar: {}", e))?;
+
+            let mut stdout_buf = Vec::new();
+            let mut stderr_buf = String::new();
+            let mut exit_code: Option<i32> = None;
+
+            let timeout_duration = std::time::Duration::from_secs(600);
+            let start = std::time::Instant::now();
+
+            while let Some(event) = rx.recv().await {
+                if start.elapsed() > timeout_duration {
+                    return Err("FluidAudio sidecar timed out after 10 minutes".to_string());
+                }
+
+                use tauri_plugin_shell::process::CommandEvent;
+                match event {
+                    CommandEvent::Stdout(data) => {
+                        stdout_buf.extend_from_slice(&data);
+                    }
+                    CommandEvent::Stderr(data) => {
+                        let line = String::from_utf8_lossy(&data);
+                        stderr_buf.push_str(&line);
+
+                        for l in line.lines() {
+                            if let Some(rest) = l.strip_prefix("PROGRESS:") {
+                                let parts: Vec<&str> = rest.splitn(2, ':').collect();
+                                if parts.len() == 2 {
+                                    if let Ok(pct) = parts[1].parse::<u32>() {
+                                        let _ = app_handle.emit("transcription_progress", TranscriptionProgress {
+                                            recording_id: recording_id.clone(),
+                                            stage: parts[0].to_string(),
+                                            percent: pct,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    CommandEvent::Terminated(payload) => {
+                        exit_code = payload.code;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+
+            let _ = std::fs::remove_file(&wav_path);
+
+            for line in stderr_buf.lines() {
+                if !line.starts_with("PROGRESS:") && !line.is_empty() {
+                    eprintln!("{}", line);
+                }
+            }
+
+            if exit_code != Some(0) {
+                return Err(format!("FluidAudio sidecar failed: {}", stderr_buf));
+            }
+
+            let stdout = String::from_utf8_lossy(&stdout_buf);
+            let fa_output: FluidAudioOutput = serde_json::from_str(&stdout)
+                .map_err(|e| format!("Failed to parse FluidAudio output: {}", e))?;
+
+            let duration_sec = read_metadata(&recording_id)
+                .ok()
+                .and_then(|m| m.audio.mix.as_ref().map(|a| a.duration_sec))
+                .unwrap_or(0.0);
+
+            TranscriptJson {
+                source,
+                model: fa_output.model,
+                created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                duration_sec,
+                language: Some("auto".to_string()),
+                text: Some(fa_output.text),
+            }
+        },
         TranscriptionProvider::LocalWhisper => {
             let model_size = settings.transcription.whisper_model.ok_or("No whisper model selected")?;
             let url = get_model_url(&model_size);
@@ -353,7 +457,7 @@ pub async fn summarize_recording(
                 &transcript
             ).await?
         },
-        TranscriptionProvider::LocalWhisper | TranscriptionProvider::Unknown => {
+        TranscriptionProvider::LocalWhisper | TranscriptionProvider::FluidAudio | TranscriptionProvider::Unknown => {
             return Err("Local transcription providers cannot generate summaries. Please configure a cloud AI provider (OpenAI, Google, or Anthropic).".to_string());
         },
     };
@@ -406,7 +510,7 @@ pub async fn process_with_template(
                 .ok_or("Anthropic API key not configured")?;
             cloud_ai::process_with_claude(&api_key, &template.prompt, &transcript).await?
         },
-        TranscriptionProvider::LocalWhisper | TranscriptionProvider::Unknown => {
+        TranscriptionProvider::LocalWhisper | TranscriptionProvider::FluidAudio | TranscriptionProvider::Unknown => {
             return Err("Local transcription providers cannot process templates. Please configure a cloud AI provider.".to_string());
         },
     };

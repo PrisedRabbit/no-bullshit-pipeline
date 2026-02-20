@@ -4,7 +4,7 @@ Total Audio Capture → Structured Data. **Privacy-first. No bullshit.**
 
 ## What Is This?
 
-NBP is a high-performance, local-first tool that captures **everything** happening on your Mac's audio system — from your own voice to system sounds, Zoom calls, FaceTime meetings, and Slack huddles. It then transforms this raw audio into clean, structured data without ever sending your sensitive information to the cloud (unless you explicitly choose to use an API).
+NBP is a high-performance, local-first tool that captures **everything** happening on your Mac's audio system — from your own voice to system sounds, Zoom calls, FaceTime meetings, and Slack huddles. It transforms raw audio into clean, structured data — transcripts, summaries, and pipeline outputs — without ever sending your sensitive information to the cloud (unless you explicitly choose to use an API).
 
 **Core Principles:**
 
@@ -18,8 +18,10 @@ NBP is a high-performance, local-first tool that captures **everything** happeni
 
 - **Capture**: Record Mic + System Audio simultaneously (Meetings, Podcasts, Brainstorms).
 - **Process**: Auto-mix and normalize tracks to professional standards.
-- **Synthesize**: (Coming soon) Turn audio into transcripts and structured summaries via local Whisper or your preferred AI APIs (OpenAI, Gemini, Claude).
-- **Organize**: Tag-based filtering and instant access to raw assets.
+- **Transcribe**: On-device Whisper (Metal GPU) or OpenAI Whisper API — your choice.
+- **Summarize**: Generate structured summaries via OpenAI, Google Gemini, or Anthropic Claude.
+- **Automate**: Chain steps into pipelines — transcribe → summarize → send to Slack → save to disk.
+- **Organize**: Tag-based filtering, projects, and instant access to raw assets.
 
 ## Quick Start
 
@@ -36,7 +38,7 @@ NBP is a high-performance, local-first tool that captures **everything** happeni
 bun install
 
 # Run development mode
-bun tauri dev
+bun dev
 
 # Build the release binary
 bun build:release
@@ -44,39 +46,83 @@ bun build:release
 
 The app will open automatically. Recordings are saved to `~/nbp-data/`.
 
-## Features (v0.1.0)
+## Features
 
-- ✅ **Total Audio Loopback**: Record system audio (Zoom/FaceTime) alongside your mic.
-- ✅ **Sexy Neon UI**: A high-contrast, premium interface designed for focus.
-- ✅ **Dynamic Header**: Intelligent UI that transforms based on your current task.
-- ✅ **Smart Tagging**: Rank-based tag suggestions for lightning-fast organization.
-- ✅ **Safety First**: Custom neon confirmation modals for destructive actions.
-- ✅ **Deep Metadata**: Every recording carries its own DNA (title, tags, timing).
-- ✅ **Finder Integration**: One click to see your raw files.
+### Audio
+
+- **Total Audio Loopback**: System audio capture via Core Audio Process Taps (Zoom, FaceTime, browser, etc.) alongside your microphone via cpal.
+- **Real-time Mixing**: Shared ring buffers with adaptive gain control and soft clipping.
+- **EBU R128 Normalization**: Per-track loudness normalization (-23 LUFS, -1 dBTP true-peak limiter).
+- **OGG Vorbis Encoding**: VBR quality ~128kbps, 48kHz stereo via vorbis_rs.
+- **In-app Playback**: Listen to recordings directly in the app.
+- **Waveform Visualization**: Real-time visual feedback during recording.
+- **Mic Selection**: Choose from available input devices.
+- **Auto-discard**: Skip recordings shorter than a configurable threshold (default 3s).
+- **Mix-only Mode**: Save only the combined mix by default, keeping storage lean.
+
+### Transcription
+
+- **Local Whisper**: On-device inference via whisper-rs with Metal GPU acceleration. Downloadable models from Tiny (74 MB) to Large (2.95 GB).
+- **OpenAI Whisper API**: Cloud-based transcription as an alternative.
+- **AI Summarization**: Generate summaries via OpenAI GPT-4o, Google Gemini, or Anthropic Claude.
+- **Prompt Templates**: Reusable prompt templates (built-in: meeting-notes, brainstorm, journal) with variable substitution.
+- **Export**: Save transcripts as Markdown with YAML frontmatter.
+
+### Pipelines
+
+- **Multi-step Automation**: Define named pipelines with sequential steps.
+- **Connectors**: LLM (OpenAI/Google/Anthropic), Save (to disk), Webhook (HTTP POST/PUT/PATCH), Slack.
+- **Progress Tracking**: Per-step status (Waiting/Running/Done/Partial) with real-time progress events.
+- **Pipeline Output**: Step results stored as Markdown with YAML frontmatter per recording.
+
+### Slack Integration
+
+- **Bot Token Auth**: Add/test Slack bot tokens, stored securely in macOS Keychain.
+- **Channel Delivery**: Send pipeline outputs to Slack channels or DMs.
+
+### UI
+
+- **Neon Themes**: High-contrast interface with multiple themes (neon-purple, deep-blue, light).
+- **Dynamic Header**: Context-aware UI that transforms based on your current task.
+- **Smart Tagging**: Rank-based tag suggestions for lightning-fast organization.
+- **Confirmation Modals**: Safety prompts for destructive actions.
+- **Finder Integration**: One click to reveal raw files.
 
 ## Storage Structure
 
-All your data is stored in `~/nbp-data/` with a clean, transparent hierarchy:
+Recordings are stored in `~/nbp-data/` (configurable), config in `~/.nbp/`:
 
 ```
 ~/nbp-data/
 ├── {uuid}/
-│   ├── raw_mic.ogg          # Normalized microphone track
-│   ├── raw_system.ogg       # Normalized system/call track
-│   ├── audio_mix.ogg        # The combined "master" mix
-│   ├── metadata.json        # Title, tags, timestamps
-│   ├── transcript.md        # (v0.2) The text content
-│   └── structured.json      # (v0.2) The AI-extracted intelligence
+│   ├── metadata.json                  # Title, tags, timestamps, pipeline states
+│   ├── audio_mix.ogg                  # Combined master mix (always present)
+│   ├── raw_mic.ogg                    # Mic track (only if mix-only mode is off)
+│   ├── raw_system.ogg                 # System track (only if mix-only mode is off)
+│   ├── transcript.json                # Source-of-truth transcript
+│   ├── summary.md                     # AI-generated summary
+│   └── pipelines/
+│       └── {pipeline_name}/
+│           └── {step_name}.md         # Step output with YAML frontmatter
+
+~/.nbp/
+├── settings.json                      # App settings
+├── pipelines.json                     # Pipeline definitions
+├── prompt-templates.json              # Reusable prompt templates
+├── projects.json                      # Tag-based projects
+└── models/
+    └── ggml-*.bin                     # Downloaded Whisper models
 ```
 
 ## Privacy & Security
 
-- **Air-Gapped Ready**: You can use the core recording features without an internet connection.
+- **Air-Gapped Ready**: Core recording and local transcription work without internet.
 - **No Telemetry**: We don't track what you record, how long you record, or who you are.
+- **Secure Storage**: API keys and Slack tokens stored in macOS Keychain. Settings file is `chmod 600`.
 - **Encryption**: Bring your own encryption or let macOS handle it via FileVault.
-- **Your Keys, Your Choice**: Use local Whisper for 100% on-device AI, or plug in your cloud keys for advanced modularity.
+- **Your Keys, Your Choice**: Use local Whisper for 100% on-device AI, or plug in your cloud keys.
 
-## Unsigned run on mac
+## Unsigned run on macOS
 
 Run `xattr -cr /Applications/nbp.app` to remove the Gatekeeper signature.
 

@@ -4,7 +4,9 @@
   "app": {
     "windows": [
       {
-        "title": "nbpskk"
+        "title": "nbpskk",
+        "width": 1260,
+        "height": 840
       }
     ]
   }

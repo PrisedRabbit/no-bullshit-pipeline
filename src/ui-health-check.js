@@ -71,7 +71,6 @@ function runHealthAudit() {
     issues
   };
   window._lastHealthResult = result;
-  renderHealthBadge(result);
   return result;
 }
 
@@ -185,7 +184,6 @@ const WALKTHROUGH_STEPS = [
   { selector: '#sidebar-templates-btn', title: 'Templates',         desc: 'Open Settings > Templates to create reusable AI prompt templates.' },
   { selector: '#settings-btn',          title: 'Settings',          desc: 'Configure audio, integrations (Notion, Slack), pipelines, and appearance.' },
   { selector: '#recordings-list',       title: 'Recordings',        desc: 'All your recordings appear here. Click any recording to open its detail view with transcript and pipeline status.' },
-  { selector: '#health-badge',          title: 'Health Badge',      desc: 'This badge confirms all UI elements loaded correctly. Green means healthy. Red means something is missing — click it for details.' },
 ];
 
 let walkthroughStep = 0;
@@ -231,8 +229,11 @@ function showWalkthroughStep(stepIndex) {
       // Position card below spotlight, or above if near bottom of viewport
       const spotlightBottom = rect.bottom + pad + 12;
       const cardHeight = 180; // estimated
+      const cardWidth = 280; // estimated
       card.style.position = 'fixed';
-      card.style.left = Math.max(8, rect.left - pad) + 'px';
+      // Clamp left so card doesn't overflow right edge
+      const idealLeft = Math.max(8, rect.left - pad);
+      card.style.left = Math.min(idealLeft, window.innerWidth - cardWidth - 8) + 'px';
       if (spotlightBottom + cardHeight > window.innerHeight) {
         card.style.top = (rect.top - pad - cardHeight - 12) + 'px';
       } else {

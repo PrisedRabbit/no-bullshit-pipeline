@@ -55,6 +55,8 @@ pub struct NotionIntegrationProfile {
     #[serde(default)]
     pub workspace_users: Vec<WorkspaceUser>,
     pub synced_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
 }
 
 /// Minimal database info returned from list_notion_databases.
@@ -196,14 +198,18 @@ fn make_client(integration_id: &str) -> Result<Client, String> {
 /// Returns the new integration ID on success.
 /// The API key is never stored in the profile JSON — only in the dev bypass or Keychain.
 #[tauri::command]
-pub async fn add_notion_integration(name: String, api_key: String) -> Result<String, String> {
+pub async fn add_notion_integration(api_key: String) -> Result<String, String> {
     // Validate by calling the bot user endpoint — if this fails, the key is invalid
     let client = make_client_from_token(api_key.clone())?;
-    client
+    let bot_user = client
         .users
         .retrieve_your_tokens_bot_user()
         .await
         .map_err(|e| format!("Invalid Notion API key: {:?}", e))?;
+
+    // Auto-derive name and icon from bot user
+    let name = bot_user.name.unwrap_or_else(|| "Notion".to_string());
+    let icon_url = bot_user.avator_url;
 
     // Generate a stable UUID for this integration
     let id = uuid::Uuid::new_v4().to_string();
@@ -221,6 +227,7 @@ pub async fn add_notion_integration(name: String, api_key: String) -> Result<Str
         people_mappings: Vec::new(),
         workspace_users: Vec::new(),
         synced_at: String::new(),
+        icon_url,
     };
 
     // Persist the profile to disk
@@ -345,10 +352,10 @@ pub async fn sync_notion_schema(
         }
     }
 
-    // Load the existing profile to preserve people_mappings and name
-    let (existing_people_mappings, existing_name) = match load_notion_profile(&integration_id) {
-        Ok(existing) => (existing.people_mappings, existing.name),
-        Err(_) => (Vec::new(), database_name.clone()),
+    // Load the existing profile to preserve people_mappings, name, and icon
+    let (existing_people_mappings, existing_name, existing_icon) = match load_notion_profile(&integration_id) {
+        Ok(existing) => (existing.people_mappings, existing.name, existing.icon_url),
+        Err(_) => (Vec::new(), database_name.clone(), None),
     };
 
     // Build the updated profile
@@ -361,6 +368,7 @@ pub async fn sync_notion_schema(
         people_mappings: existing_people_mappings,
         workspace_users,
         synced_at: chrono::Utc::now().to_rfc3339(),
+        icon_url: existing_icon,
     };
 
     // Persist the updated profile

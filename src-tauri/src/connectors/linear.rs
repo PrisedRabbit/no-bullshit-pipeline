@@ -532,20 +532,6 @@ async fn execute_inner(
 // Execute entry points
 // ──────────────────────────────────────────────────────────────────────────────
 
-pub async fn execute(
-    input_path: &Path,
-    config: &serde_json::Value,
-    output_dir: &Path,
-    step_name: &str,
-    input_step: &str,
-    description: Option<&str>,
-) -> Result<PathBuf, String> {
-    execute_inner(input_path, config, output_dir, step_name, input_step, description)
-        .await
-        .map(|(path, _, _)| path)
-        .map_err(String::from)
-}
-
 pub async fn execute_structured(
     input_path: &Path,
     config: &serde_json::Value,

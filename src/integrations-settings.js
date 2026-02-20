@@ -19,8 +19,84 @@ async function loadAllIntegrations() {
     loadSavePathIntegrations(),
     loadWebhookProfiles(),
   ]);
+  renderProcessingProviders();
   renderConnectedIntegrations();
   renderAvailableIntegrations();
+}
+
+// ===== RENDER PROCESSING PROVIDERS =====
+function renderProcessingProviders() {
+  const el = document.getElementById('processing-providers-list');
+  if (!el) return;
+
+  const apiKeys = (appSettings && appSettings.transcription && appSettings.transcription.api_keys) || {};
+
+  const providers = [
+    { id: 'openai', name: 'OpenAI', desc: 'GPT-4o, Whisper-1 transcription', placeholder: 'sk-...' },
+    { id: 'google', name: 'Google AI', desc: 'Gemini long-context processing', placeholder: 'AIza...' },
+    { id: 'anthropic', name: 'Anthropic', desc: 'Claude structured extraction', placeholder: 'sk-ant-...' },
+  ];
+
+  el.innerHTML = providers.map(p => {
+    const key = apiKeys[p.id] || '';
+    const hasKey = !!key;
+    const displayValue = hasKey ? maskApiKey(key) : '';
+    const dotClass = hasKey ? 'key-set' : 'key-missing';
+
+    return `
+      <div class="provider-card" data-provider="${escapeHtml(p.id)}">
+        <div class="provider-card-icon ${escapeHtml(p.id)}">${escapeHtml(p.name[0])}</div>
+        <div class="provider-card-info">
+          <div class="provider-card-name">
+            ${escapeHtml(p.name)}
+            <span class="provider-key-status-dot ${dotClass}"></span>
+          </div>
+          <div class="provider-card-detail">${escapeHtml(p.desc)}</div>
+        </div>
+        <div class="provider-card-input">
+          <input
+            id="settings-api-key-${escapeHtml(p.id)}"
+            type="password"
+            placeholder="${escapeHtml(p.placeholder)}"
+            class="settings-input-text"
+            value="${escapeHtml(displayValue)}"
+            data-original-key="${escapeHtml(key)}"
+            style="width: 200px;"
+          />
+          <button class="mini-action-btn provider-save-btn" data-provider="${escapeHtml(p.id)}">Save</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Wire Save buttons
+  el.querySelectorAll('.provider-save-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const providerId = btn.dataset.provider;
+      const input = document.getElementById(`settings-api-key-${providerId}`);
+      if (!input) return;
+
+      const value = input.value.trim();
+      if (isKeyMasked(value)) return; // No change — masked value
+
+      if (!appSettings.transcription) appSettings.transcription = {};
+      if (!appSettings.transcription.api_keys) appSettings.transcription.api_keys = {};
+      appSettings.transcription.api_keys[providerId] = value || null;
+
+      btn.disabled = true;
+      btn.textContent = '...';
+      try {
+        await window.__TAURI__.core.invoke('save_settings', { settings: appSettings });
+        renderProcessingProviders();
+        if (typeof updateTranscriptionKeyStatusDot === 'function') updateTranscriptionKeyStatusDot();
+      } catch (err) {
+        alert('Failed to save: ' + err);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save';
+      }
+    });
+  });
 }
 
 async function loadNotionProfiles() {
@@ -93,7 +169,9 @@ function renderConnectedIntegrations() {
     }
     cards.push(`
       <div class="integration-card" data-type="notion" data-id="${escapeHtml(profile.id)}">
-        <div class="integration-card-icon notion">N</div>
+        ${profile.icon_url
+          ? `<img class="integration-card-icon notion" src="${escapeHtml(profile.icon_url)}" alt="N" style="object-fit: cover;" />`
+          : `<div class="integration-card-icon notion">N</div>`}
         <div class="integration-card-info">
           <div class="integration-card-name">${safeName}</div>
           <div class="integration-card-detail">${cardDetail}</div>
@@ -147,7 +225,9 @@ function renderConnectedIntegrations() {
     const safeWorkspace = escapeHtml(data.workspace_name || 'Unknown workspace');
     cards.push(`
       <div class="integration-card" data-type="slack" data-id="${escapeHtml(id)}">
-        <div class="integration-card-icon slack">S</div>
+        ${data.icon_url
+          ? `<img class="integration-card-icon slack" src="${escapeHtml(data.icon_url)}" alt="S" style="object-fit: cover;" />`
+          : `<div class="integration-card-icon slack">S</div>`}
         <div class="integration-card-info">
           <div class="integration-card-name">${safeName}</div>
           <div class="integration-card-detail">${safeWorkspace}</div>
@@ -556,10 +636,8 @@ function renderAvailableIntegrations() {
   if (addSlackIntBtn) {
     addSlackIntBtn.addEventListener('click', () => {
       const modal = document.getElementById('add-slack-modal');
-      const nameInput = document.getElementById('slack-name-input');
       const tokenInput = document.getElementById('slack-token-input');
       if (modal) {
-        if (nameInput) nameInput.value = '';
         if (tokenInput) tokenInput.value = '';
         modal.style.display = 'flex';
       }
@@ -786,10 +864,6 @@ function renderStep0(body, nextBtn) {
     <p class="wizard-step-description">Create an internal integration at notion.so/my-integrations, then paste the API key below.</p>
     <div class="wizard-input-group">
       <div>
-        <label for="wizard-notion-name">Integration Name</label>
-        <input id="wizard-notion-name" type="text" placeholder="Notion" value="Notion" autocomplete="off" />
-      </div>
-      <div>
         <label for="wizard-notion-apikey">API Key</label>
         <input id="wizard-notion-apikey" type="password" placeholder="ntn_..." autocomplete="off" spellcheck="false"
           style="font-family: 'SF Mono', monospace; font-size: 0.85rem;" />
@@ -801,7 +875,6 @@ function renderStep0(body, nextBtn) {
   // Remove previous next handler and attach fresh one
   const freshNext = replaceNextBtn();
   freshNext.addEventListener('click', async () => {
-    const name = (document.getElementById('wizard-notion-name').value || 'Notion').trim();
     const apiKey = (document.getElementById('wizard-notion-apikey').value || '').trim();
     if (!apiKey) {
       notionWizardState.error = 'Please enter an API key.';
@@ -811,7 +884,7 @@ function renderStep0(body, nextBtn) {
     freshNext.disabled = true;
     freshNext.textContent = '...';
     try {
-      const result = await window.__TAURI__.core.invoke('add_notion_integration', { name, apiKey });
+      const result = await window.__TAURI__.core.invoke('add_notion_integration', { apiKey });
       notionWizardState.integrationId = result.id || result;
       notionWizardState.error = null;
       notionWizardState.step = 1;
@@ -1582,13 +1655,13 @@ function renderLinearStep3(body, nextBtn) {
 // observing the integrations tab becoming active.
 function initIntegrationsSettings() {
   const observer = new MutationObserver(() => {
-    const intTab = document.querySelector('.settings-tab-content[data-tab="integrations"]');
+    const intTab = document.querySelector('.settings-tab-content[data-tab="connections"]');
     if (intTab && intTab.classList.contains('active')) {
       loadAllIntegrations();
     }
   });
 
-  const intTab = document.querySelector('.settings-tab-content[data-tab="integrations"]');
+  const intTab = document.querySelector('.settings-tab-content[data-tab="connections"]');
   if (intTab) {
     observer.observe(intTab, { attributes: true, attributeFilter: ['class'] });
   }

@@ -8,10 +8,10 @@ use crate::storage::{get_data_dir, read_metadata};
 #[serde(rename_all = "lowercase")]
 pub enum TranscriptSource {
     Local,        // Local Whisper
+    Fluidaudio,   // FluidAudio (local ASR + diarization)
     Openai,       // OpenAI Whisper-1 API
     Google,       // Google Gemini
     Anthropic,    // Anthropic Claude
-    /// Catch-all for removed sources (e.g. fluidaudio)
     #[serde(other)]
     Unknown,
 }

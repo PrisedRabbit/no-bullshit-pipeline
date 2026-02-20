@@ -1,19 +1,18 @@
 {
   "name": "nbp",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
-    "dev": "cargo tauri dev --config src-tauri/tauri.dev.conf.json",
-    "build": "cargo tauri build",
+    "dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
+    "build": "tauri build",
     "tauri": "tauri",
     "build:release": "./build.sh",
     "update-packages": "rustup update && cargo update && bun update",
     "upgrade-packages": "cd src-tauri && cargo upgrade && cd .. && bun update"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.10.0",
-    "playwright": "^1.58.1"
+    "@tauri-apps/cli": "^2.10.0"
   },
   "dependencies": {
     "ui-ux-pro-mcp": "^1.5.0"

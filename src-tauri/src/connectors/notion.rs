@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::fmt;
 use std::fs;
 use std::collections::BTreeMap;
-use chrono::Utc;
+use chrono::{NaiveDate, Utc};
 use notion_client::endpoints::Client;
 use notion_client::endpoints::pages::create::request::CreateAPageRequest;
 use notion_client::objects::page::{PageProperty, SelectPropertyValue, DatePropertyValue, DateOrDateTime};
@@ -283,6 +283,7 @@ fn resolve_people_aliases(
             // so we explicitly set all known fields.
             // Note: "avator_url" is the crate's typo (not "avatar_url").
             Some(User {
+                object: "user".to_string(),
                 id: mapping.notion_user_id.clone(),
                 name: Some(mapping.display_name.clone()),
                 avator_url: None,
@@ -425,9 +426,13 @@ fn build_notion_properties(
                 // Use DateOrDateTime::DateTime for strings containing 'T' (ISO 8601 datetime),
                 // otherwise DateOrDateTime::Date for date-only strings.
                 let date_value = if date_str.contains('T') {
-                    DateOrDateTime::DateTime(date_str)
+                    let dt = date_str.parse::<chrono::DateTime<Utc>>()
+                        .map_err(|e| NotionError { kind: NotionErrorKind::Other(format!("Invalid datetime '{}': {}", date_str, e)) })?;
+                    DateOrDateTime::DateTime(dt)
                 } else {
-                    DateOrDateTime::Date(date_str)
+                    let d = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+                        .map_err(|e| NotionError { kind: NotionErrorKind::Other(format!("Invalid date '{}': {}", date_str, e)) })?;
+                    DateOrDateTime::Date(d)
                 };
                 PageProperty::Date {
                     id: None,
@@ -722,20 +727,6 @@ async fn execute_inner(
 ///
 /// Matches the standard connector signature used by pipeline_engine.rs.
 /// For structured error handling (JSON retry logic), use `execute_structured()`.
-pub async fn execute(
-    input_path: &Path,
-    config: &serde_json::Value,
-    output_dir: &Path,
-    step_name: &str,
-    input_step: &str,
-    description: Option<&str>,
-) -> Result<PathBuf, String> {
-    execute_inner(input_path, config, output_dir, step_name, input_step, description)
-        .await
-        .map(|(path, _, _)| path)
-        .map_err(String::from)
-}
-
 /// Execute Notion connector with structured error return.
 ///
 /// Returns `NotionError` instead of `String` so the pipeline engine can

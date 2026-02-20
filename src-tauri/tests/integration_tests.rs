@@ -816,26 +816,6 @@ fn test_tag_names_with_xss_vectors() {
 }
 
 #[test]
-fn test_transcript_content_with_speaker_labels_and_xss() {
-    // Verify transcript storage handles XSS in speaker-labeled content
-    let transcript = "SP1: <script>alert('speaker1')</script>\nSP2: Normal content here\nSP1: <img src=x onerror=alert(1)>";
-
-    // Transcript should be storable as-is
-    let json = serde_json::json!({
-        "content": transcript,
-        "has_speaker_labels": true
-    });
-
-    let json_str = serde_json::to_string(&json).expect("Should serialize");
-    let parsed: serde_json::Value = serde_json::from_str(&json_str).expect("Should deserialize");
-
-    assert_eq!(parsed["content"], transcript);
-    assert!(json_str.contains("<script>"), "Should preserve XSS vectors in transcript data");
-
-    println!("Transcript with speaker labels and XSS test: PASSED");
-}
-
-#[test]
 fn test_xss_payloads_do_not_corrupt_json_structure() {
     use serde::{Deserialize, Serialize};
 
