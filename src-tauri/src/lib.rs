@@ -68,6 +68,20 @@ fn get_audio_level() -> f32 {
     mic_level.max(system_level)
 }
 
+#[derive(serde::Serialize)]
+struct AudioLevels {
+    mic: f32,
+    system: f32,
+}
+
+#[tauri::command]
+fn get_audio_levels() -> AudioLevels {
+    AudioLevels {
+        mic: mic_audio::get_current_audio_level(),
+        system: system_audio::get_system_audio_level(),
+    }
+}
+
 pub fn run() {
     // Load settings for managed state
     let settings = std::sync::Arc::new(std::sync::Mutex::new(config::load_settings()));
@@ -75,7 +89,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-
+        .plugin(tauri_plugin_shell::init())
         .manage(AudioState::new())
         .manage(permissions::PermissionsStateCache(std::sync::Arc::new(std::sync::Mutex::new(
             permissions::PermissionsState::default()
@@ -102,6 +116,16 @@ pub fn run() {
                 .quit()
                 .build()?;
 
+            let edit_submenu = SubmenuBuilder::new(app, "Edit")
+                .undo()
+                .redo()
+                .separator()
+                .cut()
+                .copy()
+                .paste()
+                .select_all()
+                .build()?;
+
             let window_submenu = SubmenuBuilder::new(app, "Window")
                 .minimize()
                 .close_window()
@@ -109,6 +133,7 @@ pub fn run() {
 
             let menu = MenuBuilder::new(app)
                 .item(&app_submenu)
+                .item(&edit_submenu)
                 .item(&window_submenu)
                 .build()?;
 
@@ -157,6 +182,7 @@ pub fn run() {
             waveform::get_waveform_data,
             devices::get_input_devices,
             get_audio_level,
+            get_audio_levels,
             // Pipeline system
             pipelines::list_pipelines,
             pipelines::get_pipeline,
@@ -179,6 +205,7 @@ pub fn run() {
             integrations::remove_slack_integration,
             integrations::test_slack_integration,
             integrations::list_slack_channels,
+            integrations::list_slack_members,
             // Notion integrations
             integrations::notion::add_notion_integration,
             integrations::notion::list_notion_databases,
