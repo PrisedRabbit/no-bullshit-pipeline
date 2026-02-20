@@ -3407,6 +3407,28 @@ body.is-recording-active .record-btn {
   border: 1px solid var(--border);
 }
 
+.pipeline-run-btn {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 100px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.pipeline-run-btn:hover {
+  background: var(--accent);
+  color: #fff;
+}
+.pipeline-run-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .pipeline-status-badge.status-running {
   background: var(--accent-soft);
   color: var(--accent);

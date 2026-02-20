@@ -7,11 +7,11 @@ use crate::integrations::IntegrationsConfig;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum TranscriptionProvider {
+    FluidAudio,
     LocalWhisper,
     OpenAI,
     Google,
     Anthropic,
-    /// Catch-all for removed providers (e.g. FluidAudio); deserializes to this, defaults to LocalWhisper
     #[serde(other)]
     Unknown,
 }
@@ -51,8 +51,8 @@ pub struct TranscriptionConfig {
 impl Default for TranscriptionConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
-            provider: TranscriptionProvider::LocalWhisper,
+            enabled: true,
+            provider: TranscriptionProvider::FluidAudio,
             whisper_model: Some(WhisperModelSize::Base),
             api_keys: ApiKeys::default(),
             api_key: None,

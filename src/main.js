@@ -108,8 +108,8 @@ function stopTimer() {
 
 // ===== RECORDING WAVEFORM (SPECTRUM STYLE) =====
 let waveformInterval = null;
-const NUM_BARS = 5;
-let displayLevel = 0; // What we show (with slow decay)
+let displayMicLevel = 0;    // Mic level with decay
+let displaySystemLevel = 0; // System level with decay
 
 function getWaveformCanvas() {
   return document.getElementById("recording-waveform-canvas");
@@ -120,22 +120,20 @@ function startWaveformAnimation() {
   const ctx = canvas ? canvas.getContext("2d") : null;
   if (!canvas || !ctx) return;
 
-  displayLevel = 0;
+  displayMicLevel = 0;
+  displaySystemLevel = 0;
 
   waveformInterval = setInterval(async () => {
     try {
-      const level = await invoke("get_audio_level");
-      // Amplify input (RMS is naturally low)
-      const amplified = Math.min(1.0, level * 6);
+      const levels = await invoke("get_audio_levels");
+
+      // Amplify both (RMS is naturally low)
+      const ampMic = Math.min(1.0, levels.mic * 6);
+      const ampSys = Math.min(1.0, levels.system * 6);
 
       // Instant attack, medium decay
-      if (amplified > displayLevel) {
-        // Jump up instantly
-        displayLevel = amplified;
-      } else {
-        // Fall at medium speed (~0.5 sec from full)
-        displayLevel = Math.max(0, displayLevel - 0.06);
-      }
+      displayMicLevel = ampMic > displayMicLevel ? ampMic : Math.max(0, displayMicLevel - 0.06);
+      displaySystemLevel = ampSys > displaySystemLevel ? ampSys : Math.max(0, displaySystemLevel - 0.06);
 
       drawSpectrum();
     } catch (e) {
@@ -149,7 +147,8 @@ function stopWaveformAnimation() {
     clearInterval(waveformInterval);
     waveformInterval = null;
   }
-  displayLevel = 0;
+  displayMicLevel = 0;
+  displaySystemLevel = 0;
   const canvas = getWaveformCanvas();
   const ctx = canvas ? canvas.getContext("2d") : null;
   if (ctx && canvas) {
@@ -162,28 +161,38 @@ function drawSpectrum() {
   const ctx = canvas ? canvas.getContext("2d") : null;
   if (!ctx || !canvas) return;
 
+  const style = getComputedStyle(document.documentElement);
+  // Mic = accent color (purple/blue depending on theme)
+  const micColor = style.getPropertyValue("--accent").trim() || "#a855f7";
+  // System = success color (green in all themes)
+  const sysColor = style.getPropertyValue("--success").trim() || "#10b981";
+
   const width = canvas.width;
   const height = canvas.height;
-  const barWidth = Math.floor(width / NUM_BARS) - 2;
-  const gap = 2;
-
-  // Get computed accent color
-  const accentColor = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#a855f7";
 
   ctx.clearRect(0, 0, width, height);
 
-  // Spectrum-like distribution: center bars taller, edges shorter
-  const barMultipliers = [0.6, 0.9, 1.0, 0.9, 0.6];
+  // Symmetric: bars grow from the center line outward
+  // Mic (accent) grows UP, System (success) grows DOWN
+  const NUM_BARS = 5;
+  const barW = Math.floor(width / NUM_BARS) - 2;
+  const barGap = 2;
+  const halfH = height / 2; // center line
+  const maxBarH = halfH * 0.85;
+  const multipliers = [0.6, 0.9, 1.0, 0.9, 0.6];
 
   for (let i = 0; i < NUM_BARS; i++) {
-    const multiplier = barMultipliers[i];
-    const barLevel = displayLevel * multiplier;
-    const barHeight = Math.max(3, barLevel * height * 0.9);
-    const x = i * (barWidth + gap) + gap;
-    const y = (height - barHeight) / 2;
+    const x = i * (barW + barGap) + barGap;
 
-    ctx.fillStyle = accentColor;
-    ctx.fillRect(x, y, barWidth, barHeight);
+    // Mic — grows upward from center
+    const micH = Math.max(2, displayMicLevel * multipliers[i] * maxBarH);
+    ctx.fillStyle = micColor;
+    ctx.fillRect(x, halfH - micH, barW, micH);
+
+    // System — grows downward from center
+    const sysH = Math.max(2, displaySystemLevel * multipliers[i] * maxBarH);
+    ctx.fillStyle = sysColor;
+    ctx.fillRect(x, halfH, barW, sysH);
   }
 }
 
@@ -400,9 +409,13 @@ async function renderPipelineStatus(recordingId) {
     let html = '';
     for (const state of states) {
       const displayText = PIPELINE_STATUS_DISPLAY[state.status] || state.status;
+      const runBtn = state.status === 'waiting'
+        ? `<button class="pipeline-run-btn" data-pipeline="${escapeHtml(state.name)}">Run</button>`
+        : '';
       html += `<div class="pipeline-status-row">
   <span class="pipeline-status-name">${escapeHtml(state.name)}</span>
   <span class="pipeline-status-badge status-${escapeHtml(state.status)}">${escapeHtml(displayText)}</span>
+  ${runBtn}
 </div>`;
 
       // Show per-step status detail for partial and done pipelines
@@ -471,6 +484,22 @@ async function renderPipelineStatus(recordingId) {
     }
 
     content.innerHTML = html;
+
+    // Wire "Run" buttons for waiting pipelines
+    content.querySelectorAll('.pipeline-run-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const pipelineName = btn.dataset.pipeline;
+        btn.disabled = true;
+        btn.textContent = 'Running...';
+        try {
+          await invoke('execute_pipeline', { recordingId, pipelineName });
+        } catch (err) {
+          console.error(`Pipeline execution failed for "${pipelineName}":`, err);
+        }
+        await loadRecordings();
+        if (selectedRecordingId === recordingId) showDetailView(recordingId);
+      });
+    });
   } catch (e) {
     console.error('Failed to load pipeline states:', e);
     section.style.display = 'none';
@@ -624,6 +653,12 @@ function renderRecordingsList() {
     const safeTitle = escapeHtml(rec.title || "Untitled");
     const safeId = escapeHtml(rec.id);
 
+    // Pipeline tags
+    const pipelineTags = (rec.pipelines || []).map(p => {
+      const statusClass = p.status === 'Done' ? 'tag-done' : p.status === 'Partial' ? 'tag-partial' : p.status === 'Running' ? 'tag-running' : 'tag-waiting';
+      return `<span class="pipeline-tag ${statusClass}">${escapeHtml(p.name)}</span>`;
+    }).join('');
+
     return `
     <div class="recording-item ${isCurrentlyRecording ? 'recording-active' : ''}" data-id="${safeId}" onclick="showDetailView(this.dataset.id)">
         <div class="recording-item-header">
@@ -634,6 +669,7 @@ function renderRecordingsList() {
             <span>${metaText}</span>
           </div>
         </div>
+        ${pipelineTags ? `<div class="recording-pipeline-tags">${pipelineTags}</div>` : ''}
       </div>
     `;
   }).join("");
@@ -964,6 +1000,18 @@ if (window.__TAURI__) {
         if (scroller) scroller.scrollTop = scroller.scrollHeight;
       }
     });
+
+    // Listen for transcription progress (FluidAudio stages)
+    window.__TAURI__.event.listen('transcription_progress', (event) => {
+      const { recording_id, stage, percent } = event.payload;
+      if (recording_id === transcribingRecordingId) {
+        const btn = document.getElementById('process-btn');
+        if (btn && btn.disabled) {
+          const text = percent > 0 ? `${stage} ${percent}%` : stage;
+          btn.innerHTML = `<span style="font-weight: 600; font-size: 12px;">${escapeHtml(text)}</span>`;
+        }
+      }
+    });
   } catch (e) {
     console.error("Failed to setup transcription listener:", e);
   }
@@ -1134,9 +1182,6 @@ const transcriptionProviderSelect = document.getElementById("settings-transcript
 const providerLocalSection = document.getElementById("provider-local-section");
 const providerApiSection = document.getElementById("provider-api-section");
 const whisperModelSelect = document.getElementById("settings-whisper-model");
-const apiKeyInputOpenAI = document.getElementById("settings-api-key-openai");
-const apiKeyInputGoogle = document.getElementById("settings-api-key-google");
-const apiKeyInputAnthropic = document.getElementById("settings-api-key-anthropic");
 const downloadModelBtn = document.getElementById("download-model-btn");
 const recordingNotificationCheckbox = document.getElementById("settings-recording-notification");
 const saveMixOnlyCheckbox = document.getElementById("settings-save-mix-only");
@@ -1171,20 +1216,8 @@ async function loadSettings() {
         whisperModelSelect.value = appSettings.transcription.whisper_model || "Base";
       }
 
-      // Load API keys (masked for display)
-      const apiKeys = appSettings.transcription.api_keys || {};
-      if (apiKeyInputOpenAI) {
-        apiKeyInputOpenAI.value = maskApiKey(apiKeys.openai);
-        apiKeyInputOpenAI.dataset.originalKey = apiKeys.openai || "";
-      }
-      if (apiKeyInputGoogle) {
-        apiKeyInputGoogle.value = maskApiKey(apiKeys.google);
-        apiKeyInputGoogle.dataset.originalKey = apiKeys.google || "";
-      }
-      if (apiKeyInputAnthropic) {
-        apiKeyInputAnthropic.value = maskApiKey(apiKeys.anthropic);
-        apiKeyInputAnthropic.dataset.originalKey = apiKeys.anthropic || "";
-      }
+      // Render Processing provider cards (API keys shown there)
+      if (typeof renderProcessingProviders === 'function') renderProcessingProviders();
 
       updateProviderVisibility();
     }
@@ -1216,20 +1249,14 @@ async function saveSettings() {
     appSettings.transcription.provider = transcriptionProviderSelect.value;
     appSettings.transcription.whisper_model = whisperModelSelect.value;
 
-    // Handle API keys - only update if user changed them (not masked)
+    // Handle API keys - fresh DOM lookups (cards are dynamically rendered)
     if (!appSettings.transcription.api_keys) appSettings.transcription.api_keys = {};
 
-    // OpenAI key
-    if (apiKeyInputOpenAI && !isKeyMasked(apiKeyInputOpenAI.value)) {
-      appSettings.transcription.api_keys.openai = apiKeyInputOpenAI.value || null;
-    }
-    // Google key
-    if (apiKeyInputGoogle && !isKeyMasked(apiKeyInputGoogle.value)) {
-      appSettings.transcription.api_keys.google = apiKeyInputGoogle.value || null;
-    }
-    // Anthropic key
-    if (apiKeyInputAnthropic && !isKeyMasked(apiKeyInputAnthropic.value)) {
-      appSettings.transcription.api_keys.anthropic = apiKeyInputAnthropic.value || null;
+    for (const providerId of ['openai', 'google', 'anthropic']) {
+      const input = document.getElementById(`settings-api-key-${providerId}`);
+      if (input && !isKeyMasked(input.value)) {
+        appSettings.transcription.api_keys[providerId] = input.value || null;
+      }
     }
 
     // Recording notification
@@ -1265,6 +1292,39 @@ function updateTranscriptionVisibility() {
 
 let availableModels = [];
 
+// Map transcription provider value → Processing provider key
+const PROVIDER_KEY_MAP = {
+  OpenAI: 'openai',
+  Google: 'google',
+  Anthropic: 'anthropic',
+};
+
+const PROVIDER_LABEL_MAP = {
+  OpenAI: 'OpenAI',
+  Google: 'Google AI',
+  Anthropic: 'Anthropic',
+};
+
+function updateTranscriptionKeyStatusDot() {
+  const provider = transcriptionProviderSelect ? transcriptionProviderSelect.value : '';
+  const keyId = PROVIDER_KEY_MAP[provider];
+  if (!keyId) return;
+
+  const apiKeys = (appSettings && appSettings.transcription && appSettings.transcription.api_keys) || {};
+  const hasKey = !!apiKeys[keyId];
+
+  const dot = document.getElementById('cloud-provider-status-dot');
+  if (dot) {
+    dot.className = 'provider-key-status-dot ' + (hasKey ? 'key-set' : 'key-missing');
+  }
+
+  const label = document.getElementById('cloud-provider-note-label');
+  const detail = document.getElementById('cloud-provider-note-detail');
+  const providerName = PROVIDER_LABEL_MAP[provider] || provider;
+  if (label) label.textContent = hasKey ? `${providerName} key configured` : `${providerName} key required`;
+  if (detail) detail.textContent = hasKey ? `Using key from Processing above` : `Add your ${providerName} key in Processing above`;
+}
+
 async function updateProviderVisibility() {
   if (!providerLocalSection || !providerApiSection) return;
   const provider = transcriptionProviderSelect.value;
@@ -1275,9 +1335,15 @@ async function updateProviderVisibility() {
 
     // Fetch model info when showing this section
     await loadWhisperModelsAndState();
+  } else if (provider === "FluidAudio") {
+    // FluidAudio needs no config — hide both sections
+    providerLocalSection.style.display = 'none';
+    providerApiSection.style.display = 'none';
   } else {
+    // Cloud provider — show note with status dot
     providerLocalSection.style.display = 'none';
     providerApiSection.style.display = 'flex';
+    updateTranscriptionKeyStatusDot();
   }
 }
 
@@ -1817,7 +1883,6 @@ let slackIntegrations = {};
 
 const addSlackBtn = document.getElementById('add-slack-btn');
 const addSlackModal = document.getElementById('add-slack-modal');
-const slackNameInput = document.getElementById('slack-name-input');
 const slackTokenInput = document.getElementById('slack-token-input');
 const slackSaveBtn = document.getElementById('slack-save-btn');
 const slackCancelBtn = document.getElementById('slack-cancel-btn');
@@ -1829,51 +1894,66 @@ async function loadSlackIntegrations() {
   }
 }
 
-// add-slack-btn handler removed — integrations-settings.js now handles opening the modal
-// via the "Available" section Slack card click handler.
+// Save original modal HTML for restore after success
+const slackModalOriginalHTML = addSlackModal ? addSlackModal.querySelector('.modal-card')?.innerHTML : '';
 
-if (slackCancelBtn) {
-  slackCancelBtn.addEventListener('click', () => {
-    addSlackModal.style.display = 'none';
-  });
-}
+function wireSlackModalButtons() {
+  const cancelBtn = document.getElementById('slack-cancel-btn');
+  const saveBtn = document.getElementById('slack-save-btn');
 
-if (slackSaveBtn) {
-  slackSaveBtn.addEventListener('click', async () => {
-    const name = slackNameInput.value.trim();
-    const token = slackTokenInput.value.trim();
-    
-    if (!name) {
-      alert('Please enter a name');
-      return;
-    }
-    if (!token) {
-      alert('Please enter a bot token');
-      return;
-    }
-    if (!token.startsWith('xoxb-')) {
-      alert('Invalid token format. Bot tokens start with xoxb-');
-      return;
-    }
-    
-    // Generate ID from name
-    const id = name.toLowerCase().replace(/[^a-z0-9]/g, '-');
-    
-    slackSaveBtn.disabled = true;
-    slackSaveBtn.textContent = 'Saving...';
-    
-    try {
-      await invoke('add_slack_integration', { id, name, token });
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', () => {
       addSlackModal.style.display = 'none';
-      await loadSlackIntegrations();
-    } catch (err) {
-      alert(`Failed to add Slack workspace: ${err}`);
-    } finally {
-      slackSaveBtn.disabled = false;
-      slackSaveBtn.textContent = 'Save';
-    }
-  });
+    });
+  }
+
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async () => {
+      const tokenInput = document.getElementById('slack-token-input');
+      const token = tokenInput?.value.trim();
+      if (!token) {
+        alert('Please enter a bot token');
+        return;
+      }
+      if (!token.startsWith('xoxb-')) {
+        alert('Invalid token format. Bot tokens start with xoxb-');
+        return;
+      }
+
+      const id = crypto.randomUUID();
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Connecting...';
+
+      try {
+        const workspaceName = await invoke('add_slack_integration', { id, token });
+        const modalCard = addSlackModal.querySelector('.modal-card');
+        if (modalCard) {
+          modalCard.innerHTML = `
+            <div style="text-align: center; padding: 32px 16px;">
+              <div style="font-size: 2.5rem; margin-bottom: 12px;">&#10003;</div>
+              <h3 style="margin: 0 0 8px;">${escapeHtml(workspaceName)} connected</h3>
+              <p style="color: var(--text-secondary); margin: 0 0 24px;">Slack workspace added successfully</p>
+              <button class="modal-btn primary" id="slack-success-done">Done</button>
+            </div>
+          `;
+          document.getElementById('slack-success-done').addEventListener('click', () => {
+            addSlackModal.style.display = 'none';
+            modalCard.innerHTML = slackModalOriginalHTML;
+            wireSlackModalButtons();
+          });
+        }
+        await loadSlackIntegrations();
+        if (typeof renderConnectedIntegrations === 'function') renderConnectedIntegrations();
+      } catch (err) {
+        alert(`Failed to add Slack workspace: ${err}`);
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+      }
+    });
+  }
 }
+
+wireSlackModalButtons();
 
 // ===== LOAD TEMPLATES =====
 async function loadTemplates() {
