@@ -264,6 +264,11 @@ function closePicker() {
 
 function addPresetStep(preset) {
   const step = JSON.parse(JSON.stringify(preset.step));
+  // Auto-wire: delivery steps chain from the last step's output, not raw transcript
+  if (step.connector !== 'llm' && pipelineEditorSteps.length > 0) {
+    const lastStep = pipelineEditorSteps[pipelineEditorSteps.length - 1];
+    if (lastStep.name) step.input = lastStep.name;
+  }
   pipelineEditorSteps.push(step);
   fixStepInputs();
   renderPipelineSteps();
