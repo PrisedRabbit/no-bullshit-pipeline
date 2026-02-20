@@ -418,8 +418,8 @@ async function renderPipelineStatus(recordingId) {
   ${runBtn}
 </div>`;
 
-      // Show per-step status detail for partial and done pipelines
-      if (state.status === 'partial' || state.status === 'done') {
+      // Show per-step status detail for running, partial and done pipelines
+      if (state.status === 'running' || state.status === 'partial' || state.status === 'done') {
         try {
           const steps = await invoke('get_step_outputs', { recordingId, pipelineName: state.name });
           if (steps && steps.length > 0) {
