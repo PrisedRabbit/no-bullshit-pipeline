@@ -55,10 +55,10 @@ impl LlmConfig {
 
 fn default_model_for_provider(provider: &str) -> &str {
     match provider {
-        "openai" => "gpt-4o",
+        "openai" => "gpt-5.2",
         "google" => "gemini-1.5-flash",
         "anthropic" => "claude-sonnet-4-20250514",
-        _ => "gpt-4o",
+        _ => "gpt-5.2",
     }
 }
 

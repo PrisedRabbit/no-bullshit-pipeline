@@ -693,7 +693,7 @@ function showStepEditor(index) {
           <option value="google" ${step.config?.provider === 'google' ? 'selected' : ''}>Google</option>
           <option value="anthropic" ${step.config?.provider === 'anthropic' ? 'selected' : ''}>Anthropic</option>
         </select></div>
-        <div class="step-editor-row"><label>Model</label><input data-field="model" value="${escapeHtml(step.config?.model || '')}" placeholder="e.g. gpt-4o" /></div>
+        <div class="step-editor-row"><label>Model</label><input data-field="model" value="${escapeHtml(step.config?.model || '')}" placeholder="e.g. gpt-5.2" /></div>
       </details>
     `;
   } else if (step.connector === 'save') {
