@@ -472,11 +472,22 @@ async function renderPipelineStatus(recordingId) {
   ${deleteBtn}
 </div>`;
 
-      // Show per-step status detail for running, partial and done pipelines
+      // Show pipeline flow visualization + per-step detail
+      const pipelineDef = typeof allPipelineDefs !== 'undefined' && allPipelineDefs.find(d => d.name === state.name);
+      const canRenderFlow = pipelineDef && typeof renderPipelineFlowHTML !== 'undefined';
+
       if (state.status === 'running' || state.status === 'partial' || state.status === 'done') {
         try {
           const steps = await invoke('get_step_outputs', { recordingId, pipelineName: state.name, runIndex: state.run_index || 0 });
           if (steps && steps.length > 0) {
+            // Build step status map for flow visualization
+            const stepStatuses = {};
+            for (const step of steps) stepStatuses[step.name] = step.status;
+
+            if (canRenderFlow) {
+              html += `<div class="pipeline-run-flow">${renderPipelineFlowHTML(pipelineDef.steps, { compact: false, statuses: stepStatuses })}</div>`;
+            }
+
             html += '<div class="pipeline-steps-detail">';
             for (const step of steps) {
               let rowClass = 'pipeline-step-row';
@@ -498,7 +509,7 @@ async function renderPipelineStatus(recordingId) {
                 iconHtml = '<span class="step-status-icon">&#9675;</span>';
                 extraHtml = '<span class="step-skipped-label">(skipped)</span>';
               } else {
-                // pending or running — should not appear in final state but handle gracefully
+                // pending or running
                 rowClass += ' step-pending';
                 iconHtml = '<span class="step-status-icon">&#9675;</span>';
               }
@@ -545,6 +556,9 @@ async function renderPipelineStatus(recordingId) {
         } catch (e) {
           console.error('Failed to load step outputs:', e);
         }
+      } else if (canRenderFlow && pipelineDef.steps && pipelineDef.steps.length > 0) {
+        // Waiting pipeline: show flow with no statuses
+        html += `<div class="pipeline-run-flow">${renderPipelineFlowHTML(pipelineDef.steps, { compact: false, statuses: {} })}</div>`;
       }
     }
 
@@ -880,49 +894,10 @@ window.showDetailView = async (id) => {
     if (!isRecording && !isProcessing && typeof allPipelineDefs !== 'undefined' && allPipelineDefs.length > 0) {
       let cardsHtml = '';
       for (const p of allPipelineDefs) {
-        let iconsHtml = '';
-        if (p.steps && p.steps.length > 0) {
-          for (const step of p.steps) {
-            let meta = (typeof CONNECTOR_META !== 'undefined' && CONNECTOR_META[step.connector]) || { abbr: '?', textColor: 'var(--text-primary)', bgColor: 'var(--bg-input)' };
-            let iconContent = meta.svg || meta.abbr || '?';
-            let bg = meta.bgColor;
-            let fg = meta.textColor;
-            let useImg = null; // integration icon URL if available
-            // LLM: use provider logo SVGs
-            if (step.connector === 'llm') {
-              const provider = step.config?.provider || 'openai';
-              const provMeta = (typeof PROVIDER_META !== 'undefined' && PROVIDER_META[provider]) || null;
-              if (provMeta) { bg = provMeta.bgColor; fg = provMeta.textColor; }
-              const logoMap = { openai: 'assets/openai.svg', google: 'assets/gemini.svg', anthropic: 'assets/anthropic.svg' };
-              if (logoMap[provider]) {
-                useImg = logoMap[provider];
-              } else if (provider === 'local') {
-                iconContent = '<span style="font-size:8px;font-weight:700;">LOCAL</span>';
-              } else if (provMeta) {
-                iconContent = provMeta.abbr;
-              }
-            }
-            // Delivery connectors: look up integration icon
-            const intId = step.config?.integration_id;
-            if (intId) {
-              if (step.connector === 'slack' && typeof slackIntegrations !== 'undefined' && slackIntegrations[intId]?.icon_url) {
-                useImg = slackIntegrations[intId].icon_url;
-              } else if (step.connector === 'notion' && typeof notionProfiles !== 'undefined') {
-                const np = notionProfiles.find(p => p.id === intId);
-                if (np?.icon_url) useImg = np.icon_url;
-              }
-            }
-            if (useImg) {
-              iconsHtml += `<span class="pipeline-card-icon" style="background:${bg};padding:0;overflow:hidden;"><img src="${escapeHtml(useImg)}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;" /></span>`;
-            } else {
-              iconsHtml += `<span class="pipeline-card-icon" style="background:${bg};color:${fg};">${iconContent}</span>`;
-            }
-          }
-        }
-        cardsHtml += `<div class="pipeline-card" data-pipeline="${escapeHtml(p.name)}">
-  <div class="pipeline-card-icons">${iconsHtml}</div>
-  <div class="pipeline-card-name">${escapeHtml(p.name)}</div>
-</div>`;
+        const flowHtml = typeof renderPipelineFlowHTML !== 'undefined'
+          ? renderPipelineFlowHTML(p.steps || [], { compact: true })
+          : '';
+        cardsHtml += `<div class="pipeline-card" data-pipeline="${escapeHtml(p.name)}">${flowHtml}<div class="pipeline-card-name">${escapeHtml(p.name)}</div></div>`;
       }
       pipelineCardsEl.innerHTML = cardsHtml;
       detailPipelineAssignment.style.display = '';

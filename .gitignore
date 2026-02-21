@@ -51,3 +51,10 @@ input
 # Swift sidecar build artifacts
 fluidaudio-sidecar/.build/
 fluidaudio-sidecar/.swiftpm/
+
+# Python cache
+__pycache__/
+*.pyc
+.hltm/logs
+.hltm/human.md
+.hltm-loop

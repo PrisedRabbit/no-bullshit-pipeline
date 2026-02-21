@@ -20,7 +20,7 @@ const PROVIDER_META = {
   openai:    { img: 'assets/openai.svg',    filter: 'invert(1)',                                                          bgColor: 'rgba(16,163,127,0.15)' },
   google:    { img: 'assets/gemini.svg',    filter: 'invert(48%) sepia(90%) saturate(400%) hue-rotate(190deg)',           bgColor: 'rgba(66,133,244,0.15)' },
   anthropic: { img: 'assets/anthropic.svg', filter: 'invert(55%) sepia(80%) saturate(500%) hue-rotate(10deg)',            bgColor: 'rgba(217,119,6,0.15)'  },
-  local:     { img: null,                   filter: '',                                                                    bgColor: 'rgba(139,92,246,0.15)' },
+  local:     { img: 'assets/local-llm.svg', filter: 'invert(68%) sepia(60%) saturate(400%) hue-rotate(220deg)',           bgColor: 'rgba(139,92,246,0.15)' },
 };
 
 const CLOUD_MODELS = {
@@ -46,6 +46,44 @@ const CONNECTOR_META = {
   linear:  { svg: LINEAR_SVG,  textColor: '#fff',            bgColor: '#5E6AD2' },
   mcp:     { abbr: 'MCP',  textColor: '#f59e0b',         bgColor: 'rgba(245,158,11,0.15)' },
 };
+
+// Shared pipeline flow renderer — used in both builder preview and recording detail/status views.
+// opts.compact (bool): icon-only chips (for cards); false = icon+label chips (for status/builder preview)
+// opts.statuses (object): { stepName: 'done'|'failed'|'running'|'skipped' }
+function renderPipelineFlowHTML(steps, opts = {}) {
+  const { compact = false, statuses = {} } = opts;
+  const MIC_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`;
+  const arrow = `<div class="pflow-arrow">›</div>`;
+
+  let html = `<div class="pflow-chip pflow-chip--source" title="Transcript"><div class="pflow-chip-icon" style="background:var(--accent-soft);color:var(--accent);">${MIC_SVG}</div>${compact ? '' : '<span class="pflow-chip-label">Transcript</span>'}</div>`;
+
+  for (const step of (steps || [])) {
+    html += arrow;
+    let meta = CONNECTOR_META[step.connector] || { abbr: step.connector.substring(0, 2).toUpperCase(), textColor: 'var(--text-primary)', bgColor: 'var(--bg-input)' };
+    let iconContent = '';
+    let bg = meta.bgColor;
+    let fg = meta.textColor;
+
+    if (step.connector === 'llm') {
+      const provider = step.config?.provider || 'openai';
+      const provMeta = PROVIDER_META[provider] || PROVIDER_META.openai;
+      bg = provMeta.bgColor;
+      iconContent = `<img src="${provMeta.img}" style="filter:${provMeta.filter};" alt="${provider}" />`;
+    } else if (meta.svg) {
+      iconContent = meta.svg;
+    } else {
+      iconContent = `<span style="font-size:7px;font-weight:800;color:${fg};">${meta.abbr}</span>`;
+    }
+
+    const st = statuses[step.name];
+    const stClass = st ? ` pflow-chip--${st}` : '';
+    const safeName = escapeHtml(step.name || '');
+
+    html += `<div class="pflow-chip${stClass}" title="${safeName}"><div class="pflow-chip-icon" style="background:${bg};color:${fg};">${iconContent}</div>${compact ? '' : `<span class="pflow-chip-label">${safeName}</span>`}</div>`;
+  }
+
+  return `<div class="pflow${compact ? ' pflow--compact' : ''}">${html}</div>`;
+}
 
 const pipelineDefsListEl = document.getElementById('pipeline-defs-list');
 const addPipelineDefBtn = document.getElementById('add-pipeline-def-btn');
@@ -460,11 +498,14 @@ function renderPipelineDefsList() {
     const safeName = escapeHtml(p.name);
     const safeDesc = escapeHtml(p.description || '');
     const updated = p.updated_at ? new Date(p.updated_at).toLocaleDateString() : '';
+    const flowHtml = renderPipelineFlowHTML(p.steps || [], { compact: true });
+    const meta = [safeDesc, updated].filter(Boolean).join(' &middot; ');
     return `
     <div class="pipeline-def-item" data-name="${safeName}">
       <div class="pipeline-def-info">
         <div class="pipeline-def-name">${safeName}</div>
-        <div class="pipeline-def-desc">${safeDesc} &middot; ${p.steps.length} step${p.steps.length !== 1 ? 's' : ''}${updated ? ' &middot; ' + updated : ''}</div>
+        <div class="pipeline-def-flow">${flowHtml}</div>
+        ${meta ? `<div class="pipeline-def-desc">${meta}</div>` : ''}
       </div>
     </div>
   `;
@@ -520,22 +561,14 @@ function closeStepEditorPanel() {
 function renderPipelineSteps() {
   if (!pipelineStepsListEl) return;
 
-  // Source tile (always first)
-  let html = `
-    <div class="step-tile step-tile--source">
-      <div class="step-tile-icon-wrap" style="background:var(--accent-soft);color:var(--accent);">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-          <line x1="12" y1="19" x2="12" y2="23"/>
-          <line x1="8" y1="23" x2="16" y2="23"/>
-        </svg>
-      </div>
-      <div class="step-tile-name">Transcript</div>
-    </div>
-  `;
+  const MIC_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`;
 
-  // Step tiles
+  // Source chip (always first, non-interactive)
+  let html = `<div class="pflow-chip pflow-chip--source" title="Transcript">
+    <div class="pflow-chip-icon" style="background:var(--accent-soft);color:var(--accent);">${MIC_SVG}</div>
+    <span class="pflow-chip-label">Transcript</span>
+  </div>`;
+
   for (let i = 0; i < pipelineEditorSteps.length; i++) {
     const step = pipelineEditorSteps[i];
     let meta = CONNECTOR_META[step.connector] || {
@@ -543,18 +576,16 @@ function renderPipelineSteps() {
       textColor: 'var(--text-primary)',
       bgColor: 'var(--bg-input)'
     };
-    // LLM: use provider-specific colors + show model
-    let iconContent = meta.svg || meta.abbr || '';
-    let tileSubtitle = '';
+    let iconContent = '';
+    let bg = meta.bgColor;
+    let fg = meta.textColor;
+    let subText = escapeHtml(step.connector);
+
     if (step.connector === 'llm') {
       const provider = step.config?.provider || 'openai';
       const provMeta = PROVIDER_META[provider] || PROVIDER_META.openai;
-      meta = { ...meta, bgColor: provMeta.bgColor };
-      if (provider === 'local') {
-        iconContent = `<span style="font-size:11px;font-weight:700;">LOCAL</span>`;
-      } else {
-        iconContent = `<img src="${provMeta.img}" style="width:20px;height:20px;filter:${provMeta.filter};" alt="${provider}" />`;
-      }
+      bg = provMeta.bgColor;
+      iconContent = `<img src="${provMeta.img}" style="filter:${provMeta.filter};" alt="${provider}" />`;
       const model = step.config?.model || '';
       if (model) {
         let short;
@@ -564,47 +595,49 @@ function renderPipelineSteps() {
         } else {
           short = trimModelName(model, provider);
         }
-        tileSubtitle = `<div class="step-tile-model">${escapeHtml(short)}</div>`;
+        subText = escapeHtml(short);
+      } else {
+        subText = escapeHtml(provider);
       }
+    } else if (meta.svg) {
+      iconContent = meta.svg;
+    } else {
+      iconContent = `<span style="font-size:7px;font-weight:800;color:${fg};">${meta.abbr}</span>`;
     }
+
     const safeName = escapeHtml(step.name || 'Unnamed');
     const isEditing = editingStepIndex === i;
 
-    html += `
-      <div class="step-tile step-tile--step${isEditing ? ' is-editing' : ''}" data-index="${i}">
-        <span class="step-tile-num">${i + 1}</span>
-        <button class="step-tile-remove" data-index="${i}" title="Remove step">×</button>
-        <div class="step-tile-icon-wrap" style="background:${meta.bgColor};color:${meta.textColor};">
-          ${iconContent}
-        </div>
-        <div class="step-tile-name" title="${safeName}">${safeName}</div>
-        <div class="step-tile-connector">${escapeHtml(step.connector)}</div>
-        ${tileSubtitle}
-        <div class="step-tile-input-from">from: ${escapeHtml(step.input || 'transcript')}</div>
+    html += `<div class="pflow-chip${isEditing ? ' pflow-chip--editing' : ''}" data-index="${i}" title="${safeName}">
+      <span class="pflow-chip-num">${i + 1}</span>
+      <div class="pflow-chip-icon" style="background:${bg};color:${fg};">${iconContent}</div>
+      <div class="pflow-chip-label-group">
+        <span class="pflow-chip-label">${safeName}</span>
+        <span class="pflow-chip-sub">${subText}</span>
       </div>
-    `;
+      <button class="pflow-chip-remove" data-index="${i}" title="Remove step" aria-label="Remove step">×</button>
+    </div>`;
   }
 
-  // Add step tile
-  html += `
-    <div class="step-tile step-tile--add" id="add-step-tile" title="Add step">
-      <div class="step-tile-plus">+</div>
-      <div class="step-tile-name">Add Step</div>
-    </div>
-  `;
+  // Add step chip (dashed ghost)
+  html += `<div class="pflow-chip pflow-chip--add" id="add-step-tile" title="Add step">
+    <div class="pflow-chip-icon">+</div>
+    <span class="pflow-chip-label">Add Step</span>
+  </div>`;
 
-  pipelineStepsListEl.innerHTML = html;
+  pipelineStepsListEl.innerHTML = `<div class="pflow pflow--builder">${html}</div>`;
+  const pfFlowEl = pipelineStepsListEl.querySelector('.pflow--builder');
 
-  // Wire: click step tile to edit (ignore remove/move buttons)
-  pipelineStepsListEl.querySelectorAll('.step-tile[data-index]').forEach(tile => {
-    tile.addEventListener('click', (e) => {
-      if (e.target.closest('.step-tile-remove')) return;
-      showStepEditor(parseInt(tile.dataset.index));
+  // Wire: click step chip to open editor
+  pfFlowEl.querySelectorAll('.pflow-chip[data-index]').forEach(chip => {
+    chip.addEventListener('click', (e) => {
+      if (e.target.closest('.pflow-chip-remove')) return;
+      showStepEditor(parseInt(chip.dataset.index));
     });
   });
 
   // Wire: remove buttons
-  pipelineStepsListEl.querySelectorAll('.step-tile-remove').forEach(btn => {
+  pfFlowEl.querySelectorAll('.pflow-chip-remove').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const idx = parseInt(btn.dataset.index);
@@ -624,10 +657,10 @@ function renderPipelineSteps() {
     });
   });
 
-  // Wire: add step tile
-  const addTile = document.getElementById('add-step-tile');
-  if (addTile) {
-    addTile.addEventListener('click', (e) => {
+  // Wire: add step chip
+  const addChip = document.getElementById('add-step-tile');
+  if (addChip) {
+    addChip.addEventListener('click', (e) => {
       e.stopPropagation();
       togglePicker();
     });
@@ -638,26 +671,27 @@ function renderPipelineSteps() {
     sortableInstance.destroy();
     sortableInstance = null;
   }
-  if (typeof Sortable !== 'undefined') {
-    sortableInstance = Sortable.create(pipelineStepsListEl, {
-      draggable: '.step-tile--step',
-      filter: '.step-tile--source, .step-tile--add',
-      ghostClass: 'step-tile-ghost',
-      chosenClass: 'step-tile-chosen',
-      dragClass: 'step-tile-dragging',
+  if (typeof Sortable !== 'undefined' && pfFlowEl) {
+    sortableInstance = Sortable.create(pfFlowEl, {
+      draggable: '.pflow-chip[data-index]',
+      filter: '.pflow-chip--source, .pflow-chip--add',
+      ghostClass: 'sortable-ghost',
+      chosenClass: 'sortable-chosen',
+      dragClass: 'sortable-drag',
       animation: 150,
       onEnd(evt) {
-        // DOM: [source(0), step1(1), step2(2), ..., stepN(N), add(N+1)]
-        const oldStepIdx = evt.oldIndex - 1;
-        const newStepIdx = evt.newIndex - 1;
-        if (oldStepIdx === newStepIdx || oldStepIdx < 0 || newStepIdx < 0) return;
-        const clampedNew = Math.min(Math.max(newStepIdx, 0), pipelineEditorSteps.length - 1);
-        const [moved] = pipelineEditorSteps.splice(oldStepIdx, 1);
-        pipelineEditorSteps.splice(clampedNew, 0, moved);
-        if (editingStepIndex === oldStepIdx) editingStepIndex = clampedNew;
+        const movedChip = evt.item;
+        const movedIdx = parseInt(movedChip.dataset.index);
+        // Determine new semantic index from DOM order of [data-index] chips
+        const allStepChips = [...pfFlowEl.querySelectorAll('.pflow-chip[data-index]')];
+        const newIdx = allStepChips.indexOf(movedChip);
+        if (movedIdx === newIdx || newIdx < 0) { renderPipelineSteps(); return; }
+        const [moved] = pipelineEditorSteps.splice(movedIdx, 1);
+        pipelineEditorSteps.splice(newIdx, 0, moved);
+        if (editingStepIndex === movedIdx) editingStepIndex = newIdx;
         else if (editingStepIndex !== null) {
-          if (oldStepIdx < editingStepIndex && clampedNew >= editingStepIndex) editingStepIndex--;
-          else if (oldStepIdx > editingStepIndex && clampedNew <= editingStepIndex) editingStepIndex++;
+          if (movedIdx < editingStepIndex && newIdx >= editingStepIndex) editingStepIndex--;
+          else if (movedIdx > editingStepIndex && newIdx <= editingStepIndex) editingStepIndex++;
         }
         fixStepInputs();
         renderPipelineSteps();
@@ -849,18 +883,13 @@ function showStepEditor(index) {
     }
   }
 
-  // Update editing index and re-render tiles to show active state
+  // Update editing index and re-render chips to show active state
   editingStepIndex = index;
   renderPipelineSteps();
 
-  // Position popup below the active tile
-  const activeTile = pipelineStepsListEl.querySelector('.step-tile.is-editing');
-  const tileOffset = activeTile ? (activeTile.offsetLeft - pipelineStepsListEl.scrollLeft) : 0;
-
-  // Build editor into the panel below tiles
+  // Build editor into the panel below chips
   const editorEl = document.createElement('div');
   editorEl.className = 'step-editor';
-  editorEl.style.marginLeft = Math.max(0, tileOffset) + 'px';
   editorEl.innerHTML = `
     <div class="step-editor-header">
       <span class="step-editor-title">Step ${index + 1} — ${escapeHtml(step.name || 'Unnamed')}</span>
