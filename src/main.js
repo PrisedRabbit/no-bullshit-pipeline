@@ -336,7 +336,7 @@ async function startRecording() {
     stopWaveformAnimation();
     setRecordingUI(false);
     console.error("Failed to start recording:", error);
-    alert("Failed to start: " + error);
+    showToast("Failed to start: " + error, 'error');
   } finally {
     isRecordingBusy = false;
   }
@@ -1108,6 +1108,25 @@ if (confirmModalCancel) confirmModalCancel.addEventListener('click', () => _clos
 if (confirmModalOk) confirmModalOk.addEventListener('click', () => _closeConfirm(true));
 if (confirmModal) confirmModal.addEventListener('click', (e) => { if (e.target === confirmModal) _closeConfirm(false); });
 
+// ===== TOAST NOTIFICATIONS =====
+function showToast(message, type = 'info') {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add('show'));
+  setTimeout(() => {
+    toast.classList.remove('show');
+    toast.addEventListener('transitionend', () => toast.remove());
+  }, 3000);
+}
+
 // ===== DELETE RECORDING =====
 const deleteBtnHeader = document.getElementById('delete-btn-header');
 if (deleteBtnHeader) {
@@ -1122,9 +1141,9 @@ if (deleteBtnHeader) {
     } catch (e) {
       console.error('Delete failed:', e);
       if (e && typeof e === 'string' && e.includes('finalized')) {
-        alert('Recording is still being finalized. Please wait a moment and try again.');
+        showToast('Recording is still being finalized. Please wait a moment and try again.', 'info');
       } else {
-        alert('Delete failed: ' + e);
+        showToast('Delete failed: ' + e, 'error');
       }
     }
   });
@@ -1247,7 +1266,7 @@ if (prBtn) {
 
     } catch (error) {
       console.error('Transcription failed:', error);
-      alert(`Transcription failed: ${error}`);
+      showToast(`Transcription failed: ${error}`, 'error');
 
       if (detailTranscriptEl) {
         detailTranscriptEl.textContent = 'Transcription failed.';
@@ -1269,7 +1288,7 @@ if (saveTranscriptBtn) {
       await invoke('export_transcript_md', { recordingId: selectedRecordingId });
     } catch (error) {
       console.error('Save transcript failed:', error);
-      alert(`Save failed: ${error}`);
+      showToast(`Save failed: ${error}`, 'error');
     } finally {
       saveTranscriptBtn.disabled = false;
     }
@@ -1320,7 +1339,7 @@ if (summarizeBtn) {
       summarizeBtn.disabled = false;
     } catch (error) {
       console.error('Summarization failed:', error);
-      alert(`Summarization failed: ${error}`);
+      showToast(`Summarization failed: ${error}`, 'error');
       summarizeBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Summarize</span>';
       summarizeBtn.disabled = false;
     }
@@ -1350,7 +1369,7 @@ if (extractBtn) {
       extractBtn.disabled = !templateSelect.value;
     } catch (error) {
       console.error('Extraction failed:', error);
-      alert(`Extraction failed: ${error}`);
+      showToast(`Extraction failed: ${error}`, 'error');
       extractBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Extract</span>';
       extractBtn.disabled = !templateSelect.value;
     }
@@ -1899,7 +1918,7 @@ async function startRecordingWithPipeline(pipelineName) {
     stopWaveformAnimation();
     setRecordingUI(false);
     console.error('Failed to start recording with pipeline:', error);
-    alert('Failed to start: ' + error);
+    showToast('Failed to start: ' + error, 'error');
   } finally {
     isRecordingBusy = false;
   }
@@ -2045,8 +2064,8 @@ if (savePromptTemplateBtn) {
     const name = promptEditorName.value.trim();
     const desc = promptEditorDesc.value.trim();
     const prompt = promptEditorText.value.trim();
-    if (!name) { alert('Name is required'); return; }
-    if (!prompt) { alert('Prompt text is required'); return; }
+    if (!name) { showToast('Name is required', 'error'); return; }
+    if (!prompt) { showToast('Prompt text is required', 'error'); return; }
 
     try {
       const template = {
@@ -2066,7 +2085,7 @@ if (savePromptTemplateBtn) {
       await loadPromptTemplates();
     } catch (err) {
       console.error('Failed to save prompt template:', err);
-      alert('Failed to save: ' + err);
+      showToast('Failed to save: ' + err, 'error');
     }
   });
 }
@@ -2082,7 +2101,7 @@ if (deletePromptTemplateBtn) {
       await loadPromptTemplates();
     } catch (err) {
       console.error('Failed to delete prompt template:', err);
-      alert('Failed to delete: ' + err);
+      showToast('Failed to delete: ' + err, 'error');
     }
   });
 }
@@ -2121,11 +2140,11 @@ function wireSlackModalButtons() {
       const tokenInput = document.getElementById('slack-token-input');
       const token = tokenInput?.value.trim();
       if (!token) {
-        alert('Please enter a bot token');
+        showToast('Please enter a bot token', 'error');
         return;
       }
       if (!token.startsWith('xoxb-')) {
-        alert('Invalid token format. Bot tokens start with xoxb-');
+        showToast('Invalid token format. Bot tokens start with xoxb-', 'error');
         return;
       }
 
@@ -2154,7 +2173,7 @@ function wireSlackModalButtons() {
         await loadSlackIntegrations();
         if (typeof renderConnectedIntegrations === 'function') renderConnectedIntegrations();
       } catch (err) {
-        alert(`Failed to add Slack workspace: ${err}`);
+        showToast(`Failed to add Slack workspace: ${err}`, 'error');
         saveBtn.disabled = false;
         saveBtn.textContent = 'Save';
       }

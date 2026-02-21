@@ -383,7 +383,7 @@ function showCustomPromptForm() {
   formEl.querySelector('.custom-prompt-confirm').addEventListener('click', async () => {
     const promptText = formEl.querySelector('.custom-prompt-textarea').value.trim();
     if (!promptText) {
-      alert('Prompt text is required');
+      showToast('Prompt text is required', 'error');
       return;
     }
 
@@ -393,7 +393,7 @@ function showCustomPromptForm() {
     if (saveAsTemplate) {
       const templateName = formEl.querySelector('.custom-prompt-name-input').value.trim();
       if (!templateName) {
-        alert('Template name is required when saving as template');
+        showToast('Template name is required when saving as template', 'error');
         return;
       }
       // Save template to backend
@@ -411,7 +411,7 @@ function showCustomPromptForm() {
         if (typeof loadPromptTemplates === 'function') await loadPromptTemplates();
         stepConfig = { prompt_template: templateName };
       } catch (err) {
-        alert('Failed to save template: ' + err);
+        showToast('Failed to save template: ' + err, 'error');
         return;
       }
     } else {
@@ -1182,12 +1182,12 @@ if (savePipelineDefBtn) {
   savePipelineDefBtn.addEventListener('click', async () => {
     const name = pipelineEditorName.value.trim();
     const desc = pipelineEditorDesc.value.trim();
-    if (!name) { alert('Pipeline name is required'); return; }
+    if (!name) { showToast('Pipeline name is required', 'error'); return; }
 
     // Validate step names
     for (let i = 0; i < pipelineEditorSteps.length; i++) {
       if (!pipelineEditorSteps[i].name.trim()) {
-        alert(`Step ${i + 1} needs a name`);
+        showToast(`Step ${i + 1} needs a name`, 'error');
         return;
       }
     }
@@ -1204,7 +1204,7 @@ if (savePipelineDefBtn) {
       await loadPipelineDefs();
     } catch (err) {
       console.error('Failed to save pipeline:', err);
-      alert('Failed to save: ' + err);
+      showToast('Failed to save: ' + err, 'error');
     }
   });
 }
@@ -1220,7 +1220,7 @@ if (deletePipelineDefBtn) {
       await loadPipelineDefs();
     } catch (err) {
       console.error('Failed to delete pipeline:', err);
-      alert('Failed to delete: ' + err);
+      showToast('Failed to delete: ' + err, 'error');
     }
   });
 }
