@@ -47,6 +47,14 @@ pub struct Pipeline {
     pub name: String,
     pub description: String,
     pub steps: Vec<PipelineStep>,
+    #[serde(default = "default_now")]
+    pub created_at: String,
+    #[serde(default = "default_now")]
+    pub updated_at: String,
+}
+
+fn default_now() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
 /// Pipeline execution status
@@ -62,6 +70,9 @@ pub enum PipelineStatus {
 /// Pipeline execution state stored in recording metadata
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PipelineState {
+    /// Unique run ID (UUID)
+    #[serde(default = "generate_run_id")]
+    pub id: String,
     pub name: String,
     pub status: PipelineStatus,
     #[serde(default)]
@@ -74,6 +85,10 @@ pub struct PipelineState {
     pub current_step: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+fn generate_run_id() -> String {
+    uuid::Uuid::new_v4().to_string()
 }
 
 /// Step execution status for UI updates
@@ -201,10 +216,10 @@ fn validate_step_config(step: &PipelineStep) -> Result<(), String> {
             }
             // Validate provider if specified
             if let Some(provider) = step.config.get("provider").and_then(|v| v.as_str())
-                && !["openai", "google", "anthropic"].contains(&provider)
+                && !["openai", "google", "anthropic", "local"].contains(&provider)
             {
                 return Err(format!(
-                    "Step '{}': Unknown LLM provider '{}'. Must be openai, google, or anthropic",
+                    "Step '{}': Unknown LLM provider '{}'. Must be openai, google, anthropic, or local",
                     step.name, provider
                 ));
             }
@@ -332,10 +347,18 @@ pub fn get_pipeline(name: String) -> Result<Pipeline, String> {
 
 /// Save (create or update) a pipeline definition
 #[tauri::command]
-pub fn save_pipeline(pipeline: Pipeline) -> Result<(), String> {
+pub fn save_pipeline(mut pipeline: Pipeline) -> Result<(), String> {
     validate_pipeline(&pipeline)?;
 
     let mut pipelines = load_pipelines()?;
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    // Preserve created_at if updating existing pipeline
+    if let Some(existing) = pipelines.get(&pipeline.name) {
+        pipeline.created_at = existing.created_at.clone();
+    } else {
+        pipeline.created_at = now.clone();
+    }
+    pipeline.updated_at = now;
     pipelines.insert(pipeline.name.clone(), pipeline);
     save_pipelines_to_disk(&pipelines)?;
 

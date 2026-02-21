@@ -45,6 +45,9 @@ src-tauri/target
 _bmad
 input
 
+# Beads issue tracker
+.beads/
+
 # Swift sidecar build artifacts
 fluidaudio-sidecar/.build/
 fluidaudio-sidecar/.swiftpm/

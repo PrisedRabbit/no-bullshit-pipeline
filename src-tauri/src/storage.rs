@@ -174,10 +174,13 @@ pub fn migrate_tags_to_pipeline_labels(metadata: &mut RecordingMetadata) -> Resu
     let mut pipelines = crate::pipelines::load_pipelines()?;
     for tag_name in &unmigrated_tags {
         if !pipelines.contains_key(tag_name) {
+            let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
             pipelines.insert(tag_name.clone(), crate::pipelines::Pipeline {
                 name: tag_name.clone(),
                 description: format!("Label (migrated from tag)"),
                 steps: vec![],
+                created_at: now.clone(),
+                updated_at: now,
             });
         }
     }
@@ -187,6 +190,7 @@ pub fn migrate_tags_to_pipeline_labels(metadata: &mut RecordingMetadata) -> Resu
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     for tag_name in unmigrated_tags {
         metadata.pipelines.push(PipelineState {
+            id: uuid::Uuid::new_v4().to_string(),
             name: tag_name,
             status: crate::pipelines::PipelineStatus::Done,
             run_index: 0,

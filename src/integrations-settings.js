@@ -244,7 +244,8 @@ async function renderLocalLlmModels() {
       e.stopPropagation();
       const modelId = btn.dataset.llmId;
       const model = llmModelsData.find(m => m.id === modelId);
-      if (!confirm(`Re-download ${model?.name || modelId}? This will replace the current file with the latest version.`)) return;
+      const ok = await showConfirm('Re-download Model?', `Re-download ${model?.name || modelId}? This will replace the current file.`);
+      if (!ok) return;
 
       btn.disabled = true;
       const progressEl = document.getElementById(`llm-progress-${modelId}`);
@@ -268,7 +269,8 @@ async function renderLocalLlmModels() {
       e.stopPropagation();
       const modelId = btn.dataset.llmId;
       const model = llmModelsData.find(m => m.id === modelId);
-      if (!confirm(`Delete ${model?.name || modelId}? The model file will be removed.`)) return;
+      const ok2 = await showConfirm('Delete Model?', `Delete ${model?.name || modelId}? The model file will be removed.`);
+      if (!ok2) return;
       try {
         await invoke('delete_llm_model', { modelId });
         appSettings = await invoke('load_settings');
@@ -507,7 +509,8 @@ function renderConnectedIntegrations() {
       e.stopPropagation();
       const id = btn.dataset.id;
       const profile = notionProfiles.find(p => p.id === id);
-      if (!confirm(`Remove Notion integration "${profile ? profile.name : id}"?`)) return;
+      const ok = await showConfirm('Remove Integration?', `Remove Notion integration "${profile ? profile.name : id}"?`);
+      if (!ok) return;
       try {
         await window.__TAURI__.core.invoke('remove_notion_integration', { integrationId: id });
         await loadAllIntegrations();
@@ -541,7 +544,8 @@ function renderConnectedIntegrations() {
       e.stopPropagation();
       const id = btn.dataset.id;
       const profile = linearProfiles.find(p => p.id === id);
-      if (!confirm(`Remove Linear integration "${profile ? profile.name : id}"?`)) return;
+      const ok = await showConfirm('Remove Integration?', `Remove Linear integration "${profile ? profile.name : id}"?`);
+      if (!ok) return;
       try {
         await window.__TAURI__.core.invoke('remove_linear_integration', { integrationId: id });
         await loadAllIntegrations();
@@ -606,7 +610,8 @@ function renderConnectedIntegrations() {
       e.stopPropagation();
       const id = btn.dataset.id;
       const data = slackIntegrations[id];
-      if (!confirm(`Remove Slack workspace "${data ? data.name : id}"?`)) return;
+      const ok = await showConfirm('Remove Integration?', `Remove Slack workspace "${data ? data.name : id}"?`);
+      if (!ok) return;
       try {
         await window.__TAURI__.core.invoke('remove_slack_integration', { id });
         await loadAllIntegrations();
@@ -691,7 +696,8 @@ function renderConnectedIntegrations() {
       e.stopPropagation();
       const id = btn.dataset.id;
       const sp = savePathIntegrations.find(p => p.id === id);
-      if (!confirm(`Remove save path "${sp ? sp.name : id}"?`)) return;
+      const ok = await showConfirm('Remove Save Path?', `Remove save path "${sp ? sp.name : id}"?`);
+      if (!ok) return;
       try {
         await window.__TAURI__.core.invoke('remove_save_path_integration', { id });
         await loadAllIntegrations();
@@ -725,7 +731,8 @@ function renderConnectedIntegrations() {
       e.stopPropagation();
       const id = btn.dataset.id;
       const wh = webhookProfiles.find(p => p.id === id);
-      if (!confirm(`Remove webhook "${wh ? wh.name : id}"?`)) return;
+      const ok = await showConfirm('Remove Webhook?', `Remove webhook "${wh ? wh.name : id}"?`);
+      if (!ok) return;
       try {
         await window.__TAURI__.core.invoke('remove_webhook_integration', { id });
         await loadAllIntegrations();

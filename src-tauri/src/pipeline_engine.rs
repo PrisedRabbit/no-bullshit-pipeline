@@ -1187,6 +1187,7 @@ fn update_pipeline_state(
         state.error = error.map(|e| e.to_string());
     } else {
         pipeline_states.push(PipelineState {
+            id: uuid::Uuid::new_v4().to_string(),
             name: pipeline_name.to_string(),
             status,
             run_index: 0,
@@ -1381,9 +1382,9 @@ fn parse_step_status(content: &str) -> (String, Option<String>, Option<f64>, Opt
     ("pending".to_string(), None, None, None)
 }
 
-/// Remove a pipeline run from a recording's metadata and delete its output directory
+/// Remove a pipeline run from a recording's metadata and delete its output directory.
 #[tauri::command]
-pub fn remove_pipeline_run(recording_id: String, pipeline_name: String, run_index: usize) -> Result<(), String> {
+pub fn remove_pipeline_run(recording_id: String, run_id: String) -> Result<(), String> {
     let recording_dir = get_data_dir().join(&recording_id);
     let metadata_path = recording_dir.join("metadata.json");
     let lock_path = recording_dir.join(".metadata.lock");
@@ -1400,13 +1401,12 @@ pub fn remove_pipeline_run(recording_id: String, pipeline_name: String, run_inde
         .and_then(|v| serde_json::from_value::<Vec<PipelineState>>(v.clone()).ok())
         .unwrap_or_default();
 
-    // Find and remove the matching entry (by name + run_index)
-    let original_len = pipeline_states.len();
-    pipeline_states.retain(|s| !(s.name == pipeline_name && s.run_index == run_index));
-
-    if pipeline_states.len() == original_len {
-        return Err(format!("Pipeline run '{}' (index {}) not found", pipeline_name, run_index));
-    }
+    // Find the entry by ID
+    let pos = pipeline_states.iter().position(|s| s.id == run_id);
+    let removed = match pos {
+        Some(i) => pipeline_states.remove(i),
+        None => return Err(format!("Pipeline run '{}' not found", run_id)),
+    };
 
     json["pipelines"] = serde_json::to_value(&pipeline_states)
         .map_err(|e| format!("Failed to serialize pipeline states: {}", e))?;
@@ -1420,7 +1420,7 @@ pub fn remove_pipeline_run(recording_id: String, pipeline_name: String, run_inde
         .map_err(|e| format!("Failed to finalize metadata: {}", e))?;
 
     // Delete the output directory (best effort)
-    let output_dir = get_pipeline_output_dir(&recording_id, &pipeline_name, run_index);
+    let output_dir = get_pipeline_output_dir(&recording_id, &removed.name, removed.run_index);
     let _ = fs::remove_dir_all(&output_dir);
 
     Ok(())
@@ -1457,6 +1457,7 @@ pub fn assign_pipeline(recording_id: String, pipeline_name: String) -> Result<()
     let run_index = pipeline_states.iter().filter(|s| s.name == pipeline_name).count();
 
     pipeline_states.push(PipelineState {
+        id: uuid::Uuid::new_v4().to_string(),
         name: pipeline_name,
         status: PipelineStatus::Waiting,
         run_index,
@@ -1533,6 +1534,7 @@ mod tests {
     #[test]
     fn test_pipeline_status_serialization() {
         let state = PipelineState {
+            id: "test-id".to_string(),
             name: "meeting-notes".to_string(),
             status: PipelineStatus::Done,
             run_index: 0,

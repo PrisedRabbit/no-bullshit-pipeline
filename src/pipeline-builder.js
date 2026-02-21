@@ -455,11 +455,12 @@ function renderPipelineDefsList() {
   pipelineDefsListEl.innerHTML = allPipelineDefs.map(p => {
     const safeName = escapeHtml(p.name);
     const safeDesc = escapeHtml(p.description || '');
+    const updated = p.updated_at ? new Date(p.updated_at).toLocaleDateString() : '';
     return `
     <div class="pipeline-def-item" data-name="${safeName}">
       <div class="pipeline-def-info">
         <div class="pipeline-def-name">${safeName}</div>
-        <div class="pipeline-def-desc">${safeDesc} &middot; ${p.steps.length} step${p.steps.length !== 1 ? 's' : ''}</div>
+        <div class="pipeline-def-desc">${safeDesc} &middot; ${p.steps.length} step${p.steps.length !== 1 ? 's' : ''}${updated ? ' &middot; ' + updated : ''}</div>
       </div>
     </div>
   `;
@@ -495,8 +496,6 @@ function openPipelineEditor(name) {
   pipelineEditor.style.display = 'block';
   renderPipelineSteps();
   pipelineEditorName.focus();
-  const saveSettingsBtn = document.getElementById('save-settings-btn');
-  if (saveSettingsBtn) saveSettingsBtn.style.display = 'none';
 }
 
 function closePipelineEditor() {
@@ -505,8 +504,6 @@ function closePipelineEditor() {
   editingStepIndex = null;
   pipelineEditorSteps = [];
   closeStepEditorPanel();
-  const saveSettingsBtn = document.getElementById('save-settings-btn');
-  if (saveSettingsBtn) saveSettingsBtn.style.display = '';
 }
 
 function closeStepEditorPanel() {
@@ -604,11 +601,12 @@ function renderPipelineSteps() {
 
   // Wire: remove buttons
   pipelineStepsListEl.querySelectorAll('.step-tile-remove').forEach(btn => {
-    btn.addEventListener('click', (e) => {
+    btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const idx = parseInt(btn.dataset.index);
       const stepName = pipelineEditorSteps[idx]?.name || `Step ${idx + 1}`;
-      if (!confirm(`Remove step "${stepName}"?`)) return;
+      const ok = await showConfirm('Remove Step?', `Remove step "${stepName}" from pipeline?`);
+      if (!ok) return;
       pipelineEditorSteps.splice(idx, 1);
       if (editingStepIndex === idx) {
         editingStepIndex = null;
@@ -1210,7 +1208,8 @@ if (savePipelineDefBtn) {
 if (deletePipelineDefBtn) {
   deletePipelineDefBtn.addEventListener('click', async () => {
     if (!editingPipelineDef) return;
-    if (!confirm(`Delete pipeline "${editingPipelineDef}"?`)) return;
+    const ok = await showConfirm('Delete Pipeline?', `Delete pipeline "${editingPipelineDef}"? This cannot be undone.`);
+    if (!ok) return;
     try {
       await invoke('delete_pipeline', { name: editingPipelineDef });
       closePipelineEditor();

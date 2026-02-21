@@ -105,10 +105,10 @@ const settingsViewEl = document.getElementById("settings-view");
 const settingsBtn = document.getElementById("settings-btn");
 const settingsBackBtn = document.getElementById("settings-back-btn");
 const browseStorageBtn = document.getElementById("browse-storage-btn");
-const saveSettingsBtn = document.getElementById("save-settings-btn");
+// Save button removed — auto-save on change
 
 const storagePathInput = document.getElementById("settings-storage-path");
-const cleanupThresholdInput = document.getElementById("settings-cleanup-threshold");
+// Auto-discard hardcoded to 3s — no UI input needed
 const themeButtons = document.querySelectorAll(".theme-btn");
 
 const detailControlsEl = document.getElementById("detail-controls");
@@ -314,6 +314,20 @@ async function startRecording() {
     startTimer();
     startWaveformAnimation();
     showDetailView(metadata.id);
+
+    // Send recording notification
+    if (appSettings?.show_recording_notification !== false) {
+      try {
+        if (Notification.permission === 'granted') {
+          new Notification('NBP Recording', { body: 'Recording has started', silent: true });
+        } else if (Notification.permission !== 'denied') {
+          const perm = await Notification.requestPermission();
+          if (perm === 'granted') {
+            new Notification('NBP Recording', { body: 'Recording has started', silent: true });
+          }
+        }
+      } catch (_) { /* notification not available */ }
+    }
 
   } catch (error) {
     // Revert all state on failure
@@ -575,6 +589,8 @@ async function renderPipelineStatus(recordingId) {
     // Wire delete buttons for completed/failed/waiting runs
     content.querySelectorAll('.pipeline-run-delete').forEach(btn => {
       btn.addEventListener('click', async () => {
+        const ok = await showConfirm('Delete Pipeline Run?', 'This will remove the run and its output.');
+        if (!ok) return;
         const runId = btn.dataset.runId;
         try {
           await invoke('remove_pipeline_run', { recordingId, runId });
@@ -1067,53 +1083,50 @@ if (detailTitleInput) {
   });
 }
 
-const deleteModal = document.getElementById('delete-modal');
-const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
-const cancelDeleteBtn = document.getElementById('cancel-delete-btn');
-let deleteTargetId = null; // Capture ID at modal open time to avoid race
+// ===== UNIVERSAL CONFIRMATION MODAL =====
+const confirmModal = document.getElementById('confirm-modal');
+const confirmModalTitle = document.getElementById('confirm-modal-title');
+const confirmModalMessage = document.getElementById('confirm-modal-message');
+const confirmModalCancel = document.getElementById('confirm-modal-cancel');
+const confirmModalOk = document.getElementById('confirm-modal-ok');
+let _confirmResolve = null;
 
+function showConfirm(title = 'Are you sure?', message = 'This action cannot be undone.', okLabel = 'Delete') {
+  confirmModalTitle.textContent = title;
+  confirmModalMessage.textContent = message;
+  confirmModalOk.textContent = okLabel;
+  confirmModal.style.display = 'flex';
+  return new Promise(resolve => { _confirmResolve = resolve; });
+}
+
+function _closeConfirm(result) {
+  confirmModal.style.display = 'none';
+  if (_confirmResolve) { _confirmResolve(result); _confirmResolve = null; }
+}
+
+if (confirmModalCancel) confirmModalCancel.addEventListener('click', () => _closeConfirm(false));
+if (confirmModalOk) confirmModalOk.addEventListener('click', () => _closeConfirm(true));
+if (confirmModal) confirmModal.addEventListener('click', (e) => { if (e.target === confirmModal) _closeConfirm(false); });
+
+// ===== DELETE RECORDING =====
 const deleteBtnHeader = document.getElementById('delete-btn-header');
 if (deleteBtnHeader) {
-  deleteBtnHeader.addEventListener('click', () => {
+  deleteBtnHeader.addEventListener('click', async () => {
     if (!selectedRecordingId) return;
-    deleteTargetId = selectedRecordingId;
-    deleteModal.style.display = 'flex';
-  });
-}
-
-if (cancelDeleteBtn) {
-  cancelDeleteBtn.addEventListener('click', () => {
-    deleteModal.style.display = 'none';
-    deleteTargetId = null;
-  });
-}
-
-if (confirmDeleteBtn) {
-  confirmDeleteBtn.addEventListener('click', async () => {
-    if (!deleteTargetId) return;
+    const ok = await showConfirm('Delete Recording?', 'This action cannot be undone.');
+    if (!ok) return;
     try {
-      await invoke('delete_recording', { recordingId: deleteTargetId });
-      deleteModal.style.display = 'none';
-      deleteTargetId = null;
+      await invoke('delete_recording', { recordingId: selectedRecordingId });
       hideDetailView();
       await loadRecordings();
     } catch (e) {
       console.error('Delete failed:', e);
-      deleteModal.style.display = 'none';
-      deleteTargetId = null;
       if (e && typeof e === 'string' && e.includes('finalized')) {
         alert('Recording is still being finalized. Please wait a moment and try again.');
       } else {
         alert('Delete failed: ' + e);
       }
     }
-  });
-}
-
-// Close modal when clicking outside the card
-if (deleteModal) {
-  deleteModal.addEventListener('click', (e) => {
-    if (e.target === deleteModal) deleteModal.style.display = 'none';
   });
 }
 
@@ -1397,7 +1410,7 @@ async function loadSettings() {
     appSettings = await invoke("load_settings");
 
     if (storagePathInput) storagePathInput.value = appSettings.storage_path;
-    if (cleanupThresholdInput) cleanupThresholdInput.value = appSettings.auto_discard_seconds;
+    // auto_discard_seconds hardcoded to 3, no UI input
 
     // Transcription Settings
     if (appSettings.transcription) {
@@ -1434,7 +1447,7 @@ async function loadSettings() {
 
 async function saveSettings() {
   try {
-    appSettings.auto_discard_seconds = parseInt(cleanupThresholdInput.value) || 0;
+    appSettings.auto_discard_seconds = 3; // Hardcoded: discard recordings under 3s
 
     if (!appSettings.transcription) appSettings.transcription = {};
 
@@ -1616,13 +1629,13 @@ if (downloadModelBtn) {
     if (downloadModelBtn.dataset.downloading === "true") return;
 
     if (action === "delete") {
-      if (confirm(`Are you sure you want to delete the ${size} model?`)) {
-        try {
-          await invoke("delete_whisper_model", { size });
-          await loadWhisperModelsAndState(); // Refresh UI
-        } catch (err) {
-          console.error("Delete failed:", err);
-        }
+      const ok = await showConfirm('Delete Model?', `Are you sure you want to delete the ${size} model?`);
+      if (!ok) return;
+      try {
+        await invoke("delete_whisper_model", { size });
+        await loadWhisperModelsAndState();
+      } catch (err) {
+        console.error("Delete failed:", err);
       }
       return;
     }
@@ -1864,6 +1877,20 @@ async function startRecordingWithPipeline(pipelineName) {
     startWaveformAnimation();
     showDetailView(metadata.id);
     renderPipelineChips(); // Update chip visual state (show assigned chip)
+
+    // Send recording notification
+    if (appSettings?.show_recording_notification !== false) {
+      try {
+        if (Notification.permission === 'granted') {
+          new Notification('NBP Recording', { body: 'Recording has started', silent: true });
+        } else if (Notification.permission !== 'denied') {
+          const perm = await Notification.requestPermission();
+          if (perm === 'granted') {
+            new Notification('NBP Recording', { body: 'Recording has started', silent: true });
+          }
+        }
+      } catch (_) { /* notification not available */ }
+    }
   } catch (error) {
     // Revert all state on failure
     isRecording = false;
@@ -1886,7 +1913,18 @@ if (settingsBtn) settingsBtn.addEventListener("click", () => {
 if (settingsBackBtn) settingsBackBtn.addEventListener("click", () => {
   ViewManager.showRecordings();
 });
-if (saveSettingsBtn) saveSettingsBtn.addEventListener("click", saveSettings);
+// Auto-save: any change in settings triggers save + flash "Saved" indicator
+const settingsSavedIndicator = document.getElementById('settings-saved-indicator');
+function flashSaved() {
+  if (!settingsSavedIndicator) return;
+  settingsSavedIndicator.style.opacity = '1';
+  clearTimeout(settingsSavedIndicator._t);
+  settingsSavedIndicator._t = setTimeout(() => { settingsSavedIndicator.style.opacity = '0'; }, 1500);
+}
+const settingsContainer = document.getElementById('settings-view');
+if (settingsContainer) {
+  settingsContainer.addEventListener('change', async () => { await saveSettings(); flashSaved(); });
+}
 
 if (transcriptionEnabledCheckbox) {
   transcriptionEnabledCheckbox.addEventListener("change", updateTranscriptionVisibility);
@@ -1954,11 +1992,12 @@ function renderPromptTemplatesList() {
     const safeName = escapeHtml(t.name);
     const safeDesc = escapeHtml(t.description || '');
     const safePreview = escapeHtml((t.prompt || '').substring(0, 80)) + (t.prompt && t.prompt.length > 80 ? '...' : '');
+    const updated = t.updated_at ? new Date(t.updated_at).toLocaleDateString() : '';
     return `
     <div class="template-item" data-name="${safeName}">
       <div class="template-item-info">
         <div class="template-item-name">${safeName}</div>
-        <div class="template-item-desc">${safeDesc}</div>
+        <div class="template-item-desc">${safeDesc}${updated ? ' &middot; ' + updated : ''}</div>
         <div class="template-item-preview">${safePreview}</div>
       </div>
     </div>
@@ -2035,7 +2074,8 @@ if (savePromptTemplateBtn) {
 if (deletePromptTemplateBtn) {
   deletePromptTemplateBtn.addEventListener('click', async () => {
     if (!editingPromptTemplate) return;
-    if (!confirm(`Delete template "${editingPromptTemplate}"?`)) return;
+    const ok = await showConfirm('Delete Template?', `Delete template "${editingPromptTemplate}"?`);
+    if (!ok) return;
     try {
       await invoke('delete_prompt_template', { name: editingPromptTemplate, force: true });
       closePromptEditor();
