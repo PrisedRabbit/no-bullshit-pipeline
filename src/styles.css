@@ -21,6 +21,7 @@
   --border: rgba(168, 85, 247, 0.3); /* Clearly visible border */
   --success: #10b981;
   --danger: #f87171;
+  --warning: #f59e0b;
 
   color: var(--text-primary);
   background: var(--bg-primary);
@@ -46,6 +47,7 @@ body.deep-blue {
   --border: rgba(59, 130, 246, 0.25);
   --success: #22c55e;
   --danger: #f87171;
+  --warning: #f59e0b;
 }
 
 /* Deep Blue theme-specific overrides */
@@ -79,6 +81,7 @@ body.light {
   --border: #cbd5e1;
   --success: #16a34a;
   --danger: #dc2626;
+  --warning: #d97706;
 }
 
 /* Light theme: ensure all text/buttons have proper contrast */
@@ -557,6 +560,7 @@ body.is-recording-active .detail-controls {
   background: transparent;
   color: var(--text-secondary);
   border: none;
+  cursor: pointer;
 }
 
 .capture-controls button:hover:not(:disabled) {
@@ -1215,8 +1219,10 @@ body.detail-open .detail-view {
 }
 
 .modal-icon {
-  font-size: 3rem;
   margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .modal-card h3 {
@@ -2582,6 +2588,8 @@ pre.content-body {
 /* Health Warning */
 .health-warning {
   margin-right: 6px;
+  display: inline-flex;
+  vertical-align: middle;
 }
 
 /* ===== RECORDING STATE: HIDE AUDIO PLAYER ===== */
@@ -3162,7 +3170,7 @@ body.is-recording-active .record-btn .stop-icon {
   font-family: inherit;
 }
 
-.pipeline-chip:focus {
+.pipeline-chip:focus:not(:focus-visible) {
   outline: none;
   background: none;
 }
@@ -3198,7 +3206,7 @@ body.is-recording-active .record-btn .stop-icon {
   font-family: inherit;
 }
 
-.chip-overflow-btn:focus {
+.chip-overflow-btn:focus:not(:focus-visible) {
   outline: none;
 }
 

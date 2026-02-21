@@ -751,7 +751,7 @@ function renderRecordingsList() {
 
     // Health indicator
     const hasIssues = rec.health && rec.health.status !== 'ok';
-    const healthIcon = hasIssues ? '<span class="health-warning" title="Issues occurred during recording">⚠️</span>' : '';
+    const healthIcon = hasIssues ? '<span class="health-warning" title="Issues occurred during recording"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--warning, #f59e0b)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>' : '';
 
     const safeTitle = escapeHtml(rec.title || "Untitled");
     const safeId = escapeHtml(rec.id);
@@ -1561,7 +1561,7 @@ async function loadWhisperModelsAndState() {
 
     whisperModelSelect.innerHTML = availableModels.map(m => {
       const sizeStr = m.size_mb ? `(~${m.size_mb} MB)` : '';
-      const statusIcon = m.downloaded ? '✅' : '⬇️';
+      const statusIcon = m.downloaded ? '✓' : '↓';
 
       let label = `${statusIcon} ${m.size} ${sizeStr}`;
       if (m.size === 'Base') label += ' (Recommended)';
