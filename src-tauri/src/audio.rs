@@ -171,13 +171,31 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<(), String> {
         }
     }
 
-    // --- Duration & Metadata Update ---
+    // --- Duration & Threshold Check ---
     let start_time = *state.start_timestamp.lock().map_err(|e| e.to_string())?;
     let duration_sec = if let Some(start) = start_time {
         start.elapsed().unwrap_or_default().as_secs_f64()
     } else {
         0.0
     };
+
+    let threshold = crate::config::load_settings().auto_discard_seconds as f64;
+
+    // Too short — discard immediately, never enter "processing"
+    if duration_sec < threshold {
+        let mut session_guard = state.current_session.lock().map_err(|e| e.to_string())?;
+        if let Some(meta) = session_guard.take() {
+            eprintln!("Discarding recording {} (duration {:.2}s < threshold {:.2}s)", meta.id, duration_sec, threshold);
+            let dir = storage::get_recording_dir(&meta.id);
+            if dir.exists() {
+                let _ = std::fs::remove_dir_all(&dir);
+            }
+        }
+        *is_recording = false;
+        crate::mic_audio::reset_audio_level();
+        crate::system_audio::reset_system_audio_level();
+        return Ok(());
+    }
 
     let save_mix_only = *state.save_mix_only.lock().map_err(|e| e.to_string())?;
 
@@ -255,15 +273,6 @@ fn finalize_recording(id: &str, duration_sec: f64, save_mix_only: bool) {
     let mix_path = dir.join("audio_mix.ogg");
     let mic_path = dir.join("raw_mic.ogg");
     let system_path = dir.join("raw_system.ogg");
-
-    // Auto-Discard check
-    let settings = crate::config::load_settings();
-    let threshold = settings.auto_discard_seconds as f64;
-    if duration_sec < threshold {
-        eprintln!("Discarding recording {} (duration {:.2}s < threshold {:.2}s)", id, duration_sec, threshold);
-        let _ = storage::delete_recording(id);
-        return;
-    }
 
     let mix_exists = mix_path.exists();
 

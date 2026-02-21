@@ -159,6 +159,7 @@ fn test_recording_metadata_serialization() {
             mix: None,
         },
         health: None,
+        pipelines: vec![],
     };
 
     // Serialize to JSON

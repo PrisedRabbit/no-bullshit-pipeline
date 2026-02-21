@@ -15,6 +15,7 @@
     "@tauri-apps/cli": "^2.10.0"
   },
   "dependencies": {
+    "marked": "^17.0.3",
     "ui-ux-pro-mcp": "^1.5.0"
   }
 }

@@ -39,7 +39,7 @@
             class="record-btn"
             title="Start Recording"
           >
-            ⏺
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="currentColor"><circle cx="5.5" cy="5.5" r="5.5"/></svg>
           </button>
         </div>
       </div>
@@ -153,16 +153,21 @@
                 class="detail-title-input"
                 placeholder="Untitled Recording"
               />
-              <div id="detail-pipeline-assignment" class="detail-pipeline-assignment" style="display: none;">
-                <label>Run pipeline</label>
-                <select id="detail-pipeline-select" class="settings-select compact-select">
-                  <option value="">— Run a pipeline —</option>
-                </select>
-              </div>
 
             </div>
 
             <div class="detail-content-grid" id="detail-content-grid">
+              <div class="content-block" id="detail-pipeline-assignment" style="display: none;">
+                <div class="block-header">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="block-icon">
+                    <polyline points="16 18 22 12 16 6"></polyline>
+                    <polyline points="8 6 2 12 8 18"></polyline>
+                  </svg>
+                  <h3>Pipelines</h3>
+                </div>
+                <div id="pipeline-cards" class="pipeline-cards"></div>
+              </div>
+
               <div class="content-block" id="transcript-section">
                 <div class="block-header">
                   <svg
@@ -200,6 +205,14 @@
                     <span style="font-weight: 600; font-size: 12px"
                       >Save</span
                     >
+                  </button>
+                  <button
+                    id="transcript-raw-toggle"
+                    class="mini-action-btn"
+                    title="Toggle raw / formatted"
+                    style="height: 28px; padding: 0 12px; display: none"
+                  >
+                    <span style="font-weight: 600; font-size: 12px">Raw</span>
                   </button>
                 </div>
                 <div id="transcript-content" class="content-body empty">
@@ -241,8 +254,8 @@
           </div>
           <div class="settings-tabs" id="settings-tabs">
             <button class="settings-tab active" data-tab="audio">Audio</button>
-            <button class="settings-tab" data-tab="connections">Connections</button>
-            <button class="settings-tab" data-tab="templates">Templates</button>
+            <button class="settings-tab" data-tab="models">Models</button>
+            <button class="settings-tab" data-tab="integrations">Integrations</button>
             <button class="settings-tab" data-tab="pipelines">Pipelines</button>
             <button class="settings-tab" data-tab="theme">Theme</button>
           </div>
@@ -369,46 +382,6 @@
 
             </div><!-- end audio tab -->
 
-            <div class="settings-grid settings-tab-content" data-tab="templates">
-              <!-- Prompt Templates List -->
-              <div class="settings-section">
-                <div class="settings-item" style="flex-direction: column; align-items: stretch;">
-                  <div id="prompt-templates-list" class="prompt-templates-list">
-                    <!-- Rendered via JS -->
-                  </div>
-                  <button id="add-prompt-template-btn" class="mini-action-btn compact-add-btn">
-                    + New Template
-                  </button>
-                </div>
-              </div>
-
-              <!-- Template Editor -->
-              <div id="prompt-template-editor" class="inline-editor" style="display: none;">
-                <div class="inline-editor-header">
-                  <h4 id="prompt-editor-title">New Prompt Template</h4>
-                  <button id="close-prompt-editor" class="mini-action-btn" title="Close">&times;</button>
-                </div>
-                <div class="inline-editor-body">
-                  <div class="editor-field">
-                    <label>Name</label>
-                    <input id="prompt-editor-name" type="text" class="settings-input-text" placeholder="e.g. meeting-notes" />
-                  </div>
-                  <div class="editor-field">
-                    <label>Description</label>
-                    <input id="prompt-editor-desc" type="text" class="settings-input-text" placeholder="What this template does..." />
-                  </div>
-                  <div class="editor-field">
-                    <label>Prompt Text</label>
-                    <textarea id="prompt-editor-text" class="settings-textarea" rows="6" placeholder="Enter your prompt. Use {transcript} for the transcript content."></textarea>
-                  </div>
-                  <div class="editor-actions">
-                    <button id="save-prompt-template-btn" class="modal-btn primary">Save</button>
-                    <button id="delete-prompt-template-btn" class="modal-btn danger" style="display: none;">Delete</button>
-                  </div>
-                </div>
-              </div>
-            </div><!-- end templates tab -->
-
             <div class="settings-grid settings-tab-content" data-tab="pipelines">
               <!-- Pipeline Definitions List -->
               <div class="settings-section">
@@ -447,23 +420,62 @@
                   </div>
                   <div id="step-editor-panel" style="display:none;"></div>
                   <div class="editor-actions">
-                    <button id="save-pipeline-def-btn" class="modal-btn primary">Save</button>
+                    <button id="save-pipeline-def-btn" class="modal-btn primary">Save Pipeline</button>
                     <button id="delete-pipeline-def-btn" class="modal-btn danger" style="display: none;">Delete</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Prompt Templates -->
+              <div class="settings-section" style="margin-top: 24px; border-top: 1px solid var(--border-color); padding-top: 24px;">
+                <h3>Prompt Templates</h3>
+                <div class="settings-item" style="flex-direction: column; align-items: stretch;">
+                  <div id="prompt-templates-list" class="prompt-templates-list">
+                    <!-- Rendered via JS -->
+                  </div>
+                  <button id="add-prompt-template-btn" class="mini-action-btn compact-add-btn">
+                    + New Template
+                  </button>
+                </div>
+              </div>
+
+              <!-- Template Editor -->
+              <div id="prompt-template-editor" class="inline-editor" style="display: none;">
+                <div class="inline-editor-header">
+                  <h4 id="prompt-editor-title">New Prompt Template</h4>
+                  <button id="close-prompt-editor" class="mini-action-btn" title="Close">&times;</button>
+                </div>
+                <div class="inline-editor-body">
+                  <div class="editor-field">
+                    <label>Name</label>
+                    <input id="prompt-editor-name" type="text" class="settings-input-text" placeholder="e.g. meeting-notes" />
+                  </div>
+                  <div class="editor-field">
+                    <label>Description</label>
+                    <input id="prompt-editor-desc" type="text" class="settings-input-text" placeholder="What this template does..." />
+                  </div>
+                  <div class="editor-field">
+                    <label>Prompt Text</label>
+                    <textarea id="prompt-editor-text" class="settings-textarea" rows="6" placeholder="Enter your prompt. Use {transcript} for the transcript content."></textarea>
+                  </div>
+                  <div class="editor-actions">
+                    <button id="save-prompt-template-btn" class="modal-btn primary">Save</button>
+                    <button id="delete-prompt-template-btn" class="modal-btn danger" style="display: none;">Delete</button>
                   </div>
                 </div>
               </div>
             </div><!-- end pipelines tab -->
 
-            <div class="settings-grid settings-tab-content" data-tab="connections">
-              <!-- Processing Group -->
+            <div class="settings-grid settings-tab-content" data-tab="models">
+              <!-- LLM Provider API Keys -->
               <div class="connections-group">
                 <div class="connections-group-header">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M13 2L3 14h9l-1 10 10-12h-9l1-10z"></path>
                   </svg>
                   <div class="group-info">
-                    <div class="group-label">Processing</div>
-                    <div class="group-desc">LLM provider API keys for pipelines and transcription</div>
+                    <div class="group-label">AI Models</div>
+                    <div class="group-desc">API keys for LLM pipeline processing</div>
                   </div>
                 </div>
                 <div id="processing-providers-list" style="display: flex; flex-direction: column; gap: 12px;">
@@ -471,7 +483,7 @@
                 </div>
               </div>
 
-              <!-- Transcription Group -->
+              <!-- Transcription -->
               <div class="connections-group">
                 <div class="connections-group-header">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -550,21 +562,23 @@
                       </div>
                     </div>
 
-                    <!-- Cloud Provider Note (replaces API key inputs) -->
+                    <!-- Cloud Provider Note -->
                     <div id="provider-api-section" style="display: none; flex-direction: column; gap: 12px">
                       <div class="settings-item">
                         <div class="settings-info">
                           <label id="cloud-provider-note-label">Requires API key</label>
-                          <p id="cloud-provider-note-detail">Configure in Processing section above</p>
+                          <p id="cloud-provider-note-detail">Configure in AI Models section above</p>
                         </div>
                         <span class="provider-key-status-dot key-missing" id="cloud-provider-status-dot"></span>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              </div><!-- end transcription group -->
+            </div><!-- end models tab -->
 
-              <!-- Delivery Group -->
+            <div class="settings-grid settings-tab-content" data-tab="integrations">
+              <!-- Delivery integrations -->
               <div class="connections-group">
                 <div class="connections-group-header">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -589,7 +603,7 @@
                   <div id="available-integrations-list" style="display: flex; flex-direction: column; gap: 12px;"></div>
                 </div>
               </div>
-            </div><!-- end connections tab -->
+            </div><!-- end integrations tab -->
 
             <div class="settings-grid settings-tab-content" data-tab="theme">
               <!-- Theme Configuration -->
@@ -791,6 +805,7 @@
     </div>
 
     <script src="vendor/sortable.min.js"></script>
+    <script src="vendor/marked.min.js"></script>
     <script src="main.js"></script>
     <script src="integrations-settings.js"></script>
     <script src="pipeline-builder.js"></script>

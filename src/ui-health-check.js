@@ -43,7 +43,7 @@ const AUDIT_ELEMENTS = [
   { id: 'back-btn',                  desc: 'Back button in detail view' },
   { id: 'detail-title',              desc: 'Recording title input' },
   { id: 'process-btn',               desc: 'Transcribe button' },
-  { id: 'detail-pipeline-select',    desc: 'Pipeline assignment select' },
+  { id: 'pipeline-cards',             desc: 'Pipeline cards container' },
   // Modals
   { id: 'delete-modal',              desc: 'Delete confirmation modal' },
   { id: 'add-slack-modal',           desc: 'Add Slack workspace modal' },

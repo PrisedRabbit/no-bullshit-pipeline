@@ -64,6 +64,8 @@ pub enum PipelineStatus {
 pub struct PipelineState {
     pub name: String,
     pub status: PipelineStatus,
+    #[serde(default)]
+    pub run_index: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub started_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -85,6 +87,8 @@ pub struct StepStatus {
     pub duration_secs: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub augmented_prompt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
 }
 
 /// Pipeline progress event payload

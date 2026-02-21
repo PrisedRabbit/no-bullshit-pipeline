@@ -199,6 +199,7 @@ pub fn run() {
             pipeline_engine::get_all_pipeline_states,
             pipeline_engine::get_step_outputs,
             pipeline_engine::assign_pipeline,
+            pipeline_engine::remove_pipeline_run,
             // Integrations
             integrations::list_slack_integrations,
             integrations::add_slack_integration,

@@ -189,6 +189,7 @@ pub fn migrate_tags_to_pipeline_labels(metadata: &mut RecordingMetadata) -> Resu
         metadata.pipelines.push(PipelineState {
             name: tag_name,
             status: crate::pipelines::PipelineStatus::Done,
+            run_index: 0,
             started_at: Some(now.clone()),
             completed_at: Some(now.clone()),
             current_step: None,

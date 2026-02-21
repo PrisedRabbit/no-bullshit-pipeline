@@ -10,10 +10,26 @@ let sortableInstance = null;  // Sortable.js instance for drag-and-drop reorderi
 let lastAutoName = '';        // Track last auto-generated pipeline name
 const slackTargetCache = {};  // Cache channels+members per integration_id
 
+const SLACK_SVG = `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zm2.521-10.123a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zm0 1.271a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zm10.123 2.521a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zm-1.268 0a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zm-2.523 10.123a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zm0-1.268a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/></svg>`;
+
+const PROVIDER_META = {
+  openai:    { img: 'assets/openai.svg',    filter: 'invert(1)',                                                          bgColor: 'rgba(16,163,127,0.15)' },
+  google:    { img: 'assets/gemini.svg',    filter: 'invert(48%) sepia(90%) saturate(400%) hue-rotate(190deg)',           bgColor: 'rgba(66,133,244,0.15)' },
+  anthropic: { img: 'assets/anthropic.svg', filter: 'invert(55%) sepia(80%) saturate(500%) hue-rotate(10deg)',            bgColor: 'rgba(217,119,6,0.15)'  },
+};
+
+function trimModelName(model, provider) {
+  if (!model) return '';
+  // Strip provider prefix: "claude-" → "", "gpt-" → "", "gemini-" → ""
+  const prefixes = { anthropic: 'claude-', openai: 'gpt-', google: 'gemini-' };
+  const prefix = prefixes[provider] || '';
+  return prefix && model.startsWith(prefix) ? model.slice(prefix.length) : model;
+}
+
 const CONNECTOR_META = {
   llm:     { abbr: 'AI', textColor: 'var(--accent)',   bgColor: 'var(--accent-soft)' },
   save:    { abbr: '↓',  textColor: '#10b981',         bgColor: 'rgba(16,185,129,0.15)' },
-  slack:   { abbr: 'S',  textColor: '#fff',            bgColor: '#4A154B' },
+  slack:   { svg: SLACK_SVG, textColor: '#fff',         bgColor: '#4A154B' },
   notion:  { abbr: 'N',  textColor: '#fff',            bgColor: '#2f2f2f' },
   webhook: { abbr: '⚡', textColor: '#60a5fa',          bgColor: 'rgba(59,130,246,0.2)' },
   linear:  { abbr: 'L',  textColor: '#fff',            bgColor: '#5E6AD2' },
@@ -274,6 +290,11 @@ function addPresetStep(preset) {
   renderPipelineSteps();
   closePicker();
   maybeAutoName();
+  // Auto-open editor for delivery connectors that need configuration
+  const needsConfig = ['slack', 'notion', 'linear', 'webhook', 'save'];
+  if (needsConfig.includes(step.connector)) {
+    showStepEditor(pipelineEditorSteps.length - 1);
+  }
 }
 
 function suggestPipelineName() {
@@ -468,6 +489,8 @@ function openPipelineEditor(name) {
   pipelineEditor.style.display = 'block';
   renderPipelineSteps();
   pipelineEditorName.focus();
+  const saveSettingsBtn = document.getElementById('save-settings-btn');
+  if (saveSettingsBtn) saveSettingsBtn.style.display = 'none';
 }
 
 function closePipelineEditor() {
@@ -476,6 +499,8 @@ function closePipelineEditor() {
   editingStepIndex = null;
   pipelineEditorSteps = [];
   closeStepEditorPanel();
+  const saveSettingsBtn = document.getElementById('save-settings-btn');
+  if (saveSettingsBtn) saveSettingsBtn.style.display = '';
 }
 
 function closeStepEditorPanel() {
@@ -484,8 +509,6 @@ function closeStepEditorPanel() {
     stepEditorPanelEl.style.display = 'none';
   }
 }
-
-// Drag-and-drop removed in favor of tile-based UI with move arrows
 
 function renderPipelineSteps() {
   if (!pipelineStepsListEl) return;
@@ -508,36 +531,44 @@ function renderPipelineSteps() {
   // Step tiles
   for (let i = 0; i < pipelineEditorSteps.length; i++) {
     const step = pipelineEditorSteps[i];
-    const meta = CONNECTOR_META[step.connector] || {
+    let meta = CONNECTOR_META[step.connector] || {
       abbr: step.connector.substring(0, 2).toUpperCase(),
       textColor: 'var(--text-primary)',
       bgColor: 'var(--bg-input)'
     };
+    // LLM: use provider-specific colors + show model
+    let iconContent = meta.svg || meta.abbr || '';
+    let tileSubtitle = '';
+    if (step.connector === 'llm') {
+      const provider = step.config?.provider || 'openai';
+      const provMeta = PROVIDER_META[provider] || PROVIDER_META.openai;
+      meta = { ...meta, bgColor: provMeta.bgColor };
+      iconContent = `<img src="${provMeta.img}" style="width:20px;height:20px;filter:${provMeta.filter};" alt="${provider}" />`;
+      const model = step.config?.model || '';
+      if (model) {
+        const short = trimModelName(model, provider);
+        tileSubtitle = `<div class="step-tile-model">${escapeHtml(short)}</div>`;
+      }
+    }
     const safeName = escapeHtml(step.name || 'Unnamed');
     const isEditing = editingStepIndex === i;
-    const canMoveLeft = i > 0;
-    const canMoveRight = i < pipelineEditorSteps.length - 1;
 
-    html += `<div class="step-tiles-arrow">›</div>`;
     html += `
-      <div class="step-tile${isEditing ? ' is-editing' : ''}" data-index="${i}">
+      <div class="step-tile step-tile--step${isEditing ? ' is-editing' : ''}" data-index="${i}">
         <span class="step-tile-num">${i + 1}</span>
         <button class="step-tile-remove" data-index="${i}" title="Remove step">×</button>
         <div class="step-tile-icon-wrap" style="background:${meta.bgColor};color:${meta.textColor};">
-          ${meta.abbr}
+          ${iconContent}
         </div>
         <div class="step-tile-name" title="${safeName}">${safeName}</div>
         <div class="step-tile-connector">${escapeHtml(step.connector)}</div>
-        <div class="step-tile-reorder">
-          <button class="step-tile-move" data-move="left" data-index="${i}" ${canMoveLeft ? '' : 'disabled'} title="Move left">‹</button>
-          <button class="step-tile-move" data-move="right" data-index="${i}" ${canMoveRight ? '' : 'disabled'} title="Move right">›</button>
-        </div>
+        ${tileSubtitle}
+        <div class="step-tile-input-from">from: ${escapeHtml(step.input || 'transcript')}</div>
       </div>
     `;
   }
 
   // Add step tile
-  html += `<div class="step-tiles-arrow">›</div>`;
   html += `
     <div class="step-tile step-tile--add" id="add-step-tile" title="Add step">
       <div class="step-tile-plus">+</div>
@@ -550,7 +581,7 @@ function renderPipelineSteps() {
   // Wire: click step tile to edit (ignore remove/move buttons)
   pipelineStepsListEl.querySelectorAll('.step-tile[data-index]').forEach(tile => {
     tile.addEventListener('click', (e) => {
-      if (e.target.closest('.step-tile-remove') || e.target.closest('.step-tile-move')) return;
+      if (e.target.closest('.step-tile-remove')) return;
       showStepEditor(parseInt(tile.dataset.index));
     });
   });
@@ -575,25 +606,6 @@ function renderPipelineSteps() {
     });
   });
 
-  // Wire: move left/right buttons
-  pipelineStepsListEl.querySelectorAll('.step-tile-move').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const idx = parseInt(btn.dataset.index);
-      const dir = btn.dataset.move;
-      const targetIdx = dir === 'left' ? idx - 1 : idx + 1;
-      if (targetIdx < 0 || targetIdx >= pipelineEditorSteps.length) return;
-      const [moved] = pipelineEditorSteps.splice(idx, 1);
-      pipelineEditorSteps.splice(targetIdx, 0, moved);
-      // Keep editing index in sync
-      if (editingStepIndex === idx) editingStepIndex = targetIdx;
-      else if (editingStepIndex === targetIdx) editingStepIndex = idx;
-      fixStepInputs();
-      renderPipelineSteps();
-      if (editingStepIndex !== null) showStepEditor(editingStepIndex);
-    });
-  });
-
   // Wire: add step tile
   const addTile = document.getElementById('add-step-tile');
   if (addTile) {
@@ -608,25 +620,22 @@ function renderPipelineSteps() {
     sortableInstance.destroy();
     sortableInstance = null;
   }
-  if (typeof Sortable !== 'undefined' && pipelineEditorSteps.length > 1) {
+  if (typeof Sortable !== 'undefined') {
     sortableInstance = Sortable.create(pipelineStepsListEl, {
-      draggable: '.step-tile:not(.step-tile--source):not(.step-tile--add)',
-      filter: '.step-tile--source, .step-tile--add, .step-tiles-arrow',
+      draggable: '.step-tile--step',
+      filter: '.step-tile--source, .step-tile--add',
       ghostClass: 'step-tile-ghost',
       chosenClass: 'step-tile-chosen',
+      dragClass: 'step-tile-dragging',
       animation: 150,
       onEnd(evt) {
-        // Compute real step indices: DOM children include source tile + arrows
-        // Source tile is index 0, then alternating arrow+tile pairs, then arrow+add-tile
-        // Step tiles are at DOM positions: 2, 4, 6, ... (0-indexed)
-        // So DOM child index N maps to step index: (N - 2) / 2
-        const oldStepIdx = Math.floor((evt.oldIndex - 2) / 2);
-        const newStepIdx = Math.floor((evt.newIndex - 2) / 2);
+        // DOM: [source(0), step1(1), step2(2), ..., stepN(N), add(N+1)]
+        const oldStepIdx = evt.oldIndex - 1;
+        const newStepIdx = evt.newIndex - 1;
         if (oldStepIdx === newStepIdx || oldStepIdx < 0 || newStepIdx < 0) return;
         const clampedNew = Math.min(Math.max(newStepIdx, 0), pipelineEditorSteps.length - 1);
         const [moved] = pipelineEditorSteps.splice(oldStepIdx, 1);
         pipelineEditorSteps.splice(clampedNew, 0, moved);
-        // Sync editing index
         if (editingStepIndex === oldStepIdx) editingStepIndex = clampedNew;
         else if (editingStepIndex !== null) {
           if (oldStepIdx < editingStepIndex && clampedNew >= editingStepIndex) editingStepIndex--;
@@ -634,6 +643,7 @@ function renderPipelineSteps() {
         }
         fixStepInputs();
         renderPipelineSteps();
+        if (editingStepIndex !== null) showStepEditor(editingStepIndex);
       }
     });
   }
@@ -736,11 +746,13 @@ function showStepEditor(index) {
       `;
     }
   } else if (step.connector === 'slack') {
-    const slackIntegrationOptions = Object.entries(slackIntegrations).map(([id, data]) =>
+    const slackEntries = Object.entries(slackIntegrations);
+    const slackIntegrationOptions = slackEntries.map(([id, data]) =>
       `<option value="${escapeHtml(id)}" ${step.config?.integration_id === id ? 'selected' : ''}>${escapeHtml(data.name)}</option>`
     ).join('');
+    const wsRowStyle = slackEntries.length <= 1 ? 'display:none;' : '';
     configFields = `
-      <div class="step-editor-row"><label>Workspace</label><select data-field="integration_id" class="slack-workspace-select">
+      <div class="step-editor-row" style="${wsRowStyle}"><label>Workspace</label><select data-field="integration_id" class="slack-workspace-select">
         <option value="">Select workspace...</option>
         ${slackIntegrationOptions}
       </select></div>
@@ -754,7 +766,6 @@ function showStepEditor(index) {
         <label>Custom Target</label>
         <input data-field="target_custom" value="" placeholder="#channel, email@example.com, or U123456" />
       </div>
-      <div class="step-editor-row"><label>Thread TS (optional)</label><input data-field="thread_ts" value="${escapeHtml(step.config?.thread_ts || '')}" placeholder="1234567890.123456" /></div>
     `;
   } else if (step.connector === 'mcp') {
     configFields = `
@@ -814,35 +825,44 @@ function showStepEditor(index) {
   editingStepIndex = index;
   renderPipelineSteps();
 
+  // Position popup below the active tile
+  const activeTile = pipelineStepsListEl.querySelector('.step-tile.is-editing');
+  const tileOffset = activeTile ? (activeTile.offsetLeft - pipelineStepsListEl.scrollLeft) : 0;
+
   // Build editor into the panel below tiles
   const editorEl = document.createElement('div');
   editorEl.className = 'step-editor';
+  editorEl.style.marginLeft = Math.max(0, tileOffset) + 'px';
   editorEl.innerHTML = `
     <div class="step-editor-header">
       <span class="step-editor-title">Step ${index + 1} — ${escapeHtml(step.name || 'Unnamed')}</span>
       <button class="step-editor-close" title="Close editor">×</button>
     </div>
-    <div class="step-editor-row"><label>Name</label><input data-field="name" value="${escapeHtml(step.name)}" placeholder="step name" /></div>
-    <div class="step-editor-row"><label>Connector</label><select data-field="connector">
-      <option value="llm" ${step.connector === 'llm' ? 'selected' : ''}>LLM</option>
-      <option value="save" ${step.connector === 'save' ? 'selected' : ''}>Save</option>
-      <option value="webhook" ${step.connector === 'webhook' ? 'selected' : ''}>Webhook</option>
-      <option value="slack" ${step.connector === 'slack' ? 'selected' : ''}>Slack</option>
-      <option value="mcp" ${step.connector === 'mcp' ? 'selected' : ''}>MCP</option>
-      <option value="notion" ${step.connector === 'notion' ? 'selected' : ''}>Notion</option>
-      <option value="linear" ${step.connector === 'linear' ? 'selected' : ''}>Linear</option>
-    </select></div>
     <div class="step-editor-row"><label>Input</label><select data-field="input">${inputOptions}</select></div>
-    <div class="step-editor-row"><label>Description</label><input data-field="description" value="${escapeHtml(step.description || '')}" placeholder="What this step does..." /></div>
     <div id="step-config-fields">${configFields}</div>
+    <details class="step-editor-advanced">
+      <summary>Advanced</summary>
+      <div class="step-editor-row"><label>Name</label><input data-field="name" value="${escapeHtml(step.name)}" placeholder="step name" /></div>
+      <div class="step-editor-row"><label>Connector</label><select data-field="connector">
+        <option value="llm" ${step.connector === 'llm' ? 'selected' : ''}>LLM</option>
+        <option value="save" ${step.connector === 'save' ? 'selected' : ''}>Save</option>
+        <option value="webhook" ${step.connector === 'webhook' ? 'selected' : ''}>Webhook</option>
+        <option value="slack" ${step.connector === 'slack' ? 'selected' : ''}>Slack</option>
+        <option value="mcp" ${step.connector === 'mcp' ? 'selected' : ''}>MCP</option>
+        <option value="notion" ${step.connector === 'notion' ? 'selected' : ''}>Notion</option>
+        <option value="linear" ${step.connector === 'linear' ? 'selected' : ''}>Linear</option>
+      </select></div>
+      <div class="step-editor-row"><label>Description</label><input data-field="description" value="${escapeHtml(step.description || '')}" placeholder="What this step does..." /></div>
+    </details>
     <div class="step-editor-actions">
-      <button class="step-editor-done">Save</button>
+      <button class="step-editor-done">Done</button>
     </div>
   `;
 
   stepEditorPanelEl.innerHTML = '';
   stepEditorPanelEl.appendChild(editorEl);
   stepEditorPanelEl.style.display = 'block';
+  setTimeout(() => editorEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
 
   // Close button
   editorEl.querySelector('.step-editor-close').addEventListener('click', () => {
@@ -1044,9 +1064,15 @@ function showStepEditor(index) {
       }
     });
 
-    // Auto-populate if workspace already selected
-    if (step.config?.integration_id) {
-      populateSlackTargets(step.config.integration_id);
+    // Auto-select workspace if only one exists or already configured
+    const wsIds = Object.keys(slackIntegrations);
+    if (!step.config?.integration_id && wsIds.length === 1) {
+      wsSelect.value = wsIds[0];
+      step.config = step.config || {};
+      step.config.integration_id = wsIds[0];
+    }
+    if (wsSelect.value) {
+      populateSlackTargets(wsSelect.value);
     }
   }
 

@@ -25,11 +25,37 @@ async function loadAllIntegrations() {
 }
 
 // ===== RENDER PROCESSING PROVIDERS =====
+async function validateApiKey(provider, key) {
+  try {
+    if (provider === 'openai') {
+      const r = await fetch('https://api.openai.com/v1/models', {
+        headers: { 'Authorization': `Bearer ${key}` }
+      });
+      return r.ok;
+    } else if (provider === 'google') {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`);
+      return r.ok;
+    } else if (provider === 'anthropic') {
+      const r = await fetch('https://api.anthropic.com/v1/models', {
+        headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' }
+      });
+      return r.ok;
+    }
+  } catch { return false; }
+  return false;
+}
+
 function renderProcessingProviders() {
   const el = document.getElementById('processing-providers-list');
   if (!el) return;
 
   const apiKeys = (appSettings && appSettings.transcription && appSettings.transcription.api_keys) || {};
+
+  const PROVIDER_ICONS = {
+    openai:    { img: 'assets/openai.svg',    filter: 'invert(1)',                                                 bg: 'rgba(16,163,127,0.15)' },
+    google:    { img: 'assets/gemini.svg',    filter: 'invert(48%) sepia(90%) saturate(400%) hue-rotate(190deg)', bg: 'rgba(66,133,244,0.15)' },
+    anthropic: { img: 'assets/anthropic.svg', filter: 'invert(55%) sepia(80%) saturate(500%) hue-rotate(10deg)',  bg: 'rgba(217,119,6,0.15)'  },
+  };
 
   const providers = [
     { id: 'openai', name: 'OpenAI', desc: 'GPT-4o, Whisper-1 transcription', placeholder: 'sk-...' },
@@ -41,15 +67,21 @@ function renderProcessingProviders() {
     const key = apiKeys[p.id] || '';
     const hasKey = !!key;
     const displayValue = hasKey ? maskApiKey(key) : '';
-    const dotClass = hasKey ? 'key-set' : 'key-missing';
+    const validatedKeys = window.__nbpValidatedKeys || {};
+    const isValidated = validatedKeys[p.id] === key && !!key;
+    const dotClass = !hasKey ? 'key-missing' : isValidated ? 'key-valid' : 'key-set';
+    const icon = PROVIDER_ICONS[p.id];
+    const iconHtml = icon
+      ? `<div class="provider-card-icon ${escapeHtml(p.id)}" style="background:${icon.bg};display:flex;align-items:center;justify-content:center;"><img src="${escapeHtml(icon.img)}" style="width:20px;height:20px;filter:${icon.filter}" /></div>`
+      : `<div class="provider-card-icon ${escapeHtml(p.id)}">${escapeHtml(p.name[0])}</div>`;
 
     return `
       <div class="provider-card" data-provider="${escapeHtml(p.id)}">
-        <div class="provider-card-icon ${escapeHtml(p.id)}">${escapeHtml(p.name[0])}</div>
+        ${iconHtml}
         <div class="provider-card-info">
           <div class="provider-card-name">
             ${escapeHtml(p.name)}
-            <span class="provider-key-status-dot ${dotClass}"></span>
+            <span class="provider-key-status-dot ${dotClass}" id="key-dot-${escapeHtml(p.id)}"></span>
           </div>
           <div class="provider-card-detail">${escapeHtml(p.desc)}</div>
         </div>
@@ -87,8 +119,22 @@ function renderProcessingProviders() {
       btn.textContent = '...';
       try {
         await window.__TAURI__.core.invoke('save_settings', { settings: appSettings });
-        renderProcessingProviders();
         if (typeof updateTranscriptionKeyStatusDot === 'function') updateTranscriptionKeyStatusDot();
+
+        // Validate key and update dot
+        if (value) {
+          const dot = document.getElementById(`key-dot-${providerId}`);
+          if (dot) { dot.className = 'provider-key-status-dot key-checking'; }
+          btn.textContent = 'Checking...';
+          const valid = await validateApiKey(providerId, value);
+          if (!window.__nbpValidatedKeys) window.__nbpValidatedKeys = {};
+          if (valid) {
+            window.__nbpValidatedKeys[providerId] = value;
+          } else {
+            delete window.__nbpValidatedKeys[providerId];
+          }
+        }
+        renderProcessingProviders();
       } catch (err) {
         alert('Failed to save: ' + err);
       } finally {
@@ -241,12 +287,13 @@ function renderConnectedIntegrations() {
   }
 
   // Save path cards
+  const FOLDER_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4l2 2h10a2 2 0 0 1 2 2z"></path></svg>`;
   for (const sp of savePathIntegrations) {
     const safeName = escapeHtml(sp.name);
     const safePath = escapeHtml(sp.path);
     cards.push(`
       <div class="integration-card" data-type="save-path" data-id="${escapeHtml(sp.id)}">
-        <div class="integration-card-icon save-path">&#128193;</div>
+        <div class="integration-card-icon save-path">${FOLDER_SVG}</div>
         <div class="integration-card-info">
           <div class="integration-card-name">${safeName}</div>
           <div class="integration-card-detail">${safePath}</div>
@@ -260,13 +307,14 @@ function renderConnectedIntegrations() {
   }
 
   // Webhook cards
+  const LINK_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>`;
   for (const wh of webhookProfiles) {
     const safeName = escapeHtml(wh.name);
     const safeUrl = escapeHtml(wh.url);
     const safeMethod = escapeHtml(wh.method || 'POST');
     cards.push(`
       <div class="integration-card" data-type="webhook" data-id="${escapeHtml(wh.id)}">
-        <div class="integration-card-icon webhook">&#x1F517;</div>
+        <div class="integration-card-icon webhook">${LINK_SVG}</div>
         <div class="integration-card-info">
           <div class="integration-card-name">${safeName}</div>
           <div class="integration-card-detail">${safeMethod} ${safeUrl}</div>
@@ -581,10 +629,13 @@ function renderAvailableIntegrations() {
     </div>
   `);
 
+  const FOLDER_SVG_AVAIL = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4l2 2h10a2 2 0 0 1 2 2z"></path></svg>`;
+  const LINK_SVG_AVAIL = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>`;
+
   // Save Path is always available to add (multiple can exist)
   available.push(`
     <div class="available-integration-card" data-type="save-path" id="add-save-path-btn">
-      <div class="integration-card-icon save-path">&#128193;</div>
+      <div class="integration-card-icon save-path">${FOLDER_SVG_AVAIL}</div>
       <div class="integration-card-info">
         <div class="integration-card-name">Save Path</div>
         <div class="integration-card-detail">Save pipeline output to a named folder location</div>
@@ -596,7 +647,7 @@ function renderAvailableIntegrations() {
   // Webhook is always available to add
   available.push(`
     <div class="available-integration-card" data-type="webhook" id="add-webhook-btn">
-      <div class="integration-card-icon webhook">&#x1F517;</div>
+      <div class="integration-card-icon webhook">${LINK_SVG_AVAIL}</div>
       <div class="integration-card-info">
         <div class="integration-card-name">Webhook</div>
         <div class="integration-card-detail">Send pipeline output to any HTTP endpoint</div>
@@ -1655,16 +1706,18 @@ function renderLinearStep3(body, nextBtn) {
 // observing the integrations tab becoming active.
 function initIntegrationsSettings() {
   const observer = new MutationObserver(() => {
-    const intTab = document.querySelector('.settings-tab-content[data-tab="connections"]');
-    if (intTab && intTab.classList.contains('active')) {
+    const modelsTab = document.querySelector('.settings-tab-content[data-tab="models"]');
+    const intTab = document.querySelector('.settings-tab-content[data-tab="integrations"]');
+    if ((modelsTab && modelsTab.classList.contains('active')) ||
+        (intTab && intTab.classList.contains('active'))) {
       loadAllIntegrations();
     }
   });
 
-  const intTab = document.querySelector('.settings-tab-content[data-tab="connections"]');
-  if (intTab) {
-    observer.observe(intTab, { attributes: true, attributeFilter: ['class'] });
-  }
+  const modelsTab = document.querySelector('.settings-tab-content[data-tab="models"]');
+  const intTab = document.querySelector('.settings-tab-content[data-tab="integrations"]');
+  if (modelsTab) observer.observe(modelsTab, { attributes: true, attributeFilter: ['class'] });
+  if (intTab) observer.observe(intTab, { attributes: true, attributeFilter: ['class'] });
 }
 
 // Auto-init when DOM is ready

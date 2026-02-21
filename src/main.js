@@ -6,6 +6,43 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+// ===== MARKDOWN RENDERING (via marked) =====
+function looksLikeMarkdown(text) {
+  if (!text || text.length < 20) return false;
+  return /^#{1,6}\s/m.test(text) || /\*\*.+?\*\*/s.test(text) ||
+    /^[-*]\s/m.test(text) || /^\d+\.\s/m.test(text) ||
+    /^```/m.test(text) || /^>\s/m.test(text);
+}
+
+function applyMarkdownRendering(el, rawText) {
+  if (!el || !rawText) return;
+  el.dataset.rawText = rawText;
+  if (looksLikeMarkdown(rawText)) {
+    el.innerHTML = marked.parse(rawText);
+    el.classList.add('md-rendered');
+    el.classList.remove('md-raw');
+  } else {
+    el.textContent = rawText;
+    el.classList.remove('md-rendered');
+    el.classList.add('md-raw');
+  }
+}
+
+function toggleMarkdownRaw(el) {
+  if (!el || !el.dataset.rawText) return;
+  if (el.classList.contains('md-rendered')) {
+    el.textContent = el.dataset.rawText;
+    el.classList.remove('md-rendered');
+    el.classList.add('md-raw');
+    return true;
+  } else {
+    el.innerHTML = marked.parse(el.dataset.rawText);
+    el.classList.add('md-rendered');
+    el.classList.remove('md-raw');
+    return false;
+  }
+}
+
 // ===== VIEW STATE MANAGER =====
 const ViewManager = {
   closeAll() {
@@ -35,7 +72,6 @@ let isRecordingBusy = false; // Guard against double-click during async start/st
 
 let allRecordings = [];
 let selectedRecordingId = null;
-let detailPipelineHandler = null; // Module-level ref to avoid stacking change listeners
 
 let permissions = { mic: false, system_audio: false };
 let appSettings = null;
@@ -223,7 +259,7 @@ function setRecordingUI(recording) {
     if (statusIndicator) statusIndicator.className = "status-recording";
     document.body.classList.add("is-recording-active");
     if (recordToggleBtn) {
-      recordToggleBtn.innerHTML = "⏹";
+      recordToggleBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 11 11" fill="currentColor"><rect width="11" height="11" rx="1.5"/></svg>';
       recordToggleBtn.classList.add("is-active");
       recordToggleBtn.classList.remove("is-play-mode");
       recordToggleBtn.title = "Stop Recording";
@@ -247,7 +283,7 @@ function updateMainButton() {
     recordToggleBtn.title = "Play Recording";
   } else {
     // Show record button
-    recordToggleBtn.innerHTML = "⏺";
+    recordToggleBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 11 11" fill="currentColor"><circle cx="5.5" cy="5.5" r="5.5"/></svg>';
     recordToggleBtn.classList.remove("is-play-mode");
     recordToggleBtn.title = "Start Recording";
   }
@@ -258,7 +294,6 @@ async function startRecording() {
   ViewManager.showRecordings();
 
   const saveMixOnly = appSettings?.save_mix_only !== false;
-  console.log('DEBUG: Starting recording with saveMixOnly =', saveMixOnly);
   try {
     const metadata = await invoke("start_recording", { saveMixOnly: saveMixOnly });
     isRecording = true;
@@ -410,18 +445,22 @@ async function renderPipelineStatus(recordingId) {
     for (const state of states) {
       const displayText = PIPELINE_STATUS_DISPLAY[state.status] || state.status;
       const runBtn = state.status === 'waiting'
-        ? `<button class="pipeline-run-btn" data-pipeline="${escapeHtml(state.name)}">Run</button>`
+        ? `<button class="pipeline-run-btn" data-pipeline="${escapeHtml(state.name)}" data-run-index="${state.run_index || 0}">Run</button>`
+        : '';
+      const deleteBtn = state.status !== 'running'
+        ? `<button class="pipeline-run-delete" data-pipeline="${escapeHtml(state.name)}" data-run-index="${state.run_index || 0}" title="Delete run">&times;</button>`
         : '';
       html += `<div class="pipeline-status-row">
   <span class="pipeline-status-name">${escapeHtml(state.name)}</span>
   <span class="pipeline-status-badge status-${escapeHtml(state.status)}">${escapeHtml(displayText)}</span>
   ${runBtn}
+  ${deleteBtn}
 </div>`;
 
       // Show per-step status detail for running, partial and done pipelines
       if (state.status === 'running' || state.status === 'partial' || state.status === 'done') {
         try {
-          const steps = await invoke('get_step_outputs', { recordingId, pipelineName: state.name });
+          const steps = await invoke('get_step_outputs', { recordingId, pipelineName: state.name, runIndex: state.run_index || 0 });
           if (steps && steps.length > 0) {
             html += '<div class="pipeline-steps-detail">';
             for (const step of steps) {
@@ -458,21 +497,32 @@ async function renderPipelineStatus(recordingId) {
                 durationHtml = `<span class="step-duration">${formatted}</span>`;
               }
 
+              // Inline expand toggles on the step row itself
+              let togglesHtml = '';
+              if (step.output) {
+                togglesHtml += `<button class="step-inline-toggle" data-target="output" title="Show details">Details</button>`;
+              }
+              if (step.augmented_prompt) {
+                togglesHtml += `<button class="step-inline-toggle" data-target="prompt" title="Show augmented prompt">Prompt</button>`;
+              }
+
               html += `<div class="${rowClass}">
   ${iconHtml}
   <span class="step-name">${escapeHtml(step.name)}</span>
   ${durationHtml}
   ${extraHtml}
+  <span class="step-toggles">${togglesHtml}</span>
 </div>`;
 
-              // Expandable augmented prompt section (LLM steps with prompt augmentation)
+              // Collapsible output panel (hidden by default)
+              if (step.output) {
+                const outputHtml = looksLikeMarkdown(step.output)
+                  ? marked.parse(step.output)
+                  : `<pre>${escapeHtml(step.output)}</pre>`;
+                html += `<div class="step-expand-panel" data-panel="output" style="display:none;">${outputHtml}</div>`;
+              }
               if (step.augmented_prompt) {
-                html += `<div class="augmented-prompt-section">
-  <button class="augmented-prompt-toggle" onclick="this.parentElement.classList.toggle('expanded')">
-    &#9654; Augmented prompt
-  </button>
-  <div class="augmented-prompt-content"><pre>${escapeHtml(step.augmented_prompt)}</pre></div>
-</div>`;
+                html += `<div class="step-expand-panel" data-panel="prompt" style="display:none;"><pre>${escapeHtml(step.augmented_prompt)}</pre></div>`;
               }
             }
             html += '</div>';
@@ -498,6 +548,43 @@ async function renderPipelineStatus(recordingId) {
         }
         await loadRecordings();
         if (selectedRecordingId === recordingId) showDetailView(recordingId);
+      });
+    });
+
+    // Wire inline expand toggles (Output / Prompt buttons on step rows)
+    content.querySelectorAll('.step-inline-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const panelType = btn.dataset.target;
+        const stepRow = btn.closest('.pipeline-step-row');
+        if (!stepRow) return;
+        // Find the matching panel after the step row
+        let sibling = stepRow.nextElementSibling;
+        while (sibling && sibling.classList.contains('step-expand-panel')) {
+          if (sibling.dataset.panel === panelType) {
+            const isOpen = sibling.style.display !== 'none';
+            sibling.style.display = isOpen ? 'none' : 'block';
+            btn.classList.toggle('is-active', !isOpen);
+            return;
+          }
+          sibling = sibling.nextElementSibling;
+        }
+      });
+    });
+
+    // Wire delete buttons for completed/failed/waiting runs
+    content.querySelectorAll('.pipeline-run-delete').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const pipelineName = btn.dataset.pipeline;
+        const runIndex = parseInt(btn.dataset.runIndex, 10);
+        try {
+          await invoke('remove_pipeline_run', { recordingId, pipelineName, runIndex });
+        } catch (err) {
+          console.error(`Failed to delete pipeline run "${pipelineName}":`, err);
+        }
+        await loadRecordings();
+        if (selectedRecordingId === recordingId) {
+          renderPipelineStatus(recordingId);
+        }
       });
     });
   } catch (e) {
@@ -659,6 +746,9 @@ function renderRecordingsList() {
       return `<span class="pipeline-tag ${statusClass}">${escapeHtml(p.name)}</span>`;
     }).join('');
 
+    const deleteDisabled = isCurrentlyRecording || isProcessing;
+    const deleteBtnHtml = deleteDisabled ? '' : `<button class="recording-item-delete" data-id="${safeId}" title="Delete recording"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>`;
+
     return `
     <div class="recording-item ${isCurrentlyRecording ? 'recording-active' : ''}" data-id="${safeId}" onclick="showDetailView(this.dataset.id)">
         <div class="recording-item-header">
@@ -670,9 +760,19 @@ function renderRecordingsList() {
           </div>
         </div>
         ${pipelineTags ? `<div class="recording-pipeline-tags">${pipelineTags}</div>` : ''}
+        ${deleteBtnHtml}
       </div>
     `;
   }).join("");
+
+  // Wire delete buttons on recording cards
+  recordingsListEl.querySelectorAll('.recording-item-delete').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation(); // Don't open detail view
+      deleteTargetId = btn.dataset.id;
+      deleteModal.style.display = 'flex';
+    });
+  });
 }
 
 function getDuration(rec) {
@@ -724,9 +824,7 @@ window.showDetailView = async (id) => {
     deleteBtnHeader.title = isProcessing ? "Processing audio..." : "Delete";
   }
   if (openFolderBtnHeader) {
-    openFolderBtnHeader.style.opacity = isProcessing ? '0.3' : '1';
-    openFolderBtnHeader.style.pointerEvents = isProcessing ? 'none' : 'auto';
-    openFolderBtnHeader.title = isProcessing ? "Processing audio..." : "Open Folder";
+    openFolderBtnHeader.title = "Open Folder";
   }
   if (prBtn) {
     prBtn.disabled = isProcessing;
@@ -759,43 +857,109 @@ window.showDetailView = async (id) => {
     }, 1000);
   }
 
-  // Detail view pipeline run (ASGN-04) — "Run pipeline" dropdown
-  // Always starts at None; selecting a pipeline assigns + executes it (if transcript exists)
+  // Detail view pipeline cards — clickable tiles with connector icons
   const detailPipelineAssignment = document.getElementById('detail-pipeline-assignment');
-  const detailPipelineSelect = document.getElementById('detail-pipeline-select');
-  if (detailPipelineAssignment && detailPipelineSelect) {
-    if (!isRecording && !isProcessing) {
-      detailPipelineSelect.innerHTML = '<option value="">— Run a pipeline —</option>';
-      if (typeof allPipelineDefs !== 'undefined') {
-        for (const p of allPipelineDefs) {
-          const opt = document.createElement('option');
-          opt.value = p.name;
-          opt.textContent = p.name;
-          detailPipelineSelect.appendChild(opt);
+  const pipelineCardsEl = document.getElementById('pipeline-cards');
+  if (detailPipelineAssignment && pipelineCardsEl) {
+    if (!isRecording && !isProcessing && typeof allPipelineDefs !== 'undefined' && allPipelineDefs.length > 0) {
+      let cardsHtml = '';
+      for (const p of allPipelineDefs) {
+        let iconsHtml = '';
+        if (p.steps && p.steps.length > 0) {
+          for (const step of p.steps) {
+            let meta = (typeof CONNECTOR_META !== 'undefined' && CONNECTOR_META[step.connector]) || { abbr: '?', textColor: 'var(--text-primary)', bgColor: 'var(--bg-input)' };
+            let iconContent = meta.svg || meta.abbr || '?';
+            let bg = meta.bgColor;
+            let fg = meta.textColor;
+            let useImg = null; // integration icon URL if available
+            // LLM: use provider logo SVGs
+            if (step.connector === 'llm') {
+              const provider = step.config?.provider || 'openai';
+              const provMeta = (typeof PROVIDER_META !== 'undefined' && PROVIDER_META[provider]) || null;
+              if (provMeta) { bg = provMeta.bgColor; fg = provMeta.textColor; }
+              const logoMap = { openai: 'assets/openai.svg', google: 'assets/gemini.svg', anthropic: 'assets/anthropic.svg' };
+              if (logoMap[provider]) {
+                useImg = logoMap[provider];
+              } else if (provMeta) {
+                iconContent = provMeta.abbr;
+              }
+            }
+            // Delivery connectors: look up integration icon
+            const intId = step.config?.integration_id;
+            if (intId) {
+              if (step.connector === 'slack' && typeof slackIntegrations !== 'undefined' && slackIntegrations[intId]?.icon_url) {
+                useImg = slackIntegrations[intId].icon_url;
+              } else if (step.connector === 'notion' && typeof notionProfiles !== 'undefined') {
+                const np = notionProfiles.find(p => p.id === intId);
+                if (np?.icon_url) useImg = np.icon_url;
+              }
+            }
+            if (useImg) {
+              iconsHtml += `<span class="pipeline-card-icon" style="background:${bg};padding:0;overflow:hidden;"><img src="${escapeHtml(useImg)}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;" /></span>`;
+            } else {
+              iconsHtml += `<span class="pipeline-card-icon" style="background:${bg};color:${fg};">${iconContent}</span>`;
+            }
+          }
         }
+        cardsHtml += `<div class="pipeline-card" data-pipeline="${escapeHtml(p.name)}">
+  <div class="pipeline-card-icons">${iconsHtml}</div>
+  <div class="pipeline-card-name">${escapeHtml(p.name)}</div>
+</div>`;
       }
+      pipelineCardsEl.innerHTML = cardsHtml;
+      detailPipelineAssignment.style.display = '';
 
-      detailPipelineAssignment.style.display = 'flex';
+      // Wire card click handlers
+      pipelineCardsEl.querySelectorAll('.pipeline-card').forEach(card => {
+        card.addEventListener('click', async () => {
+          const pipelineName = card.dataset.pipeline;
+          // Animate card flying into the pipeline runs list below
+          const statusSection = document.getElementById('pipeline-status-section');
+          const cardRect = card.getBoundingClientRect();
+          const statusContent = document.getElementById('pipeline-status-content');
+          // Target: the runs list content area, fallback to status section, fallback to below
+          const target = statusContent || statusSection;
+          let targetY, targetX;
+          if (target && target.offsetParent !== null) {
+            const targetRect = target.getBoundingClientRect();
+            targetY = targetRect.top + targetRect.height / 2;
+            targetX = targetRect.left + targetRect.width / 2 - cardRect.width / 2;
+          } else {
+            targetY = cardRect.bottom + 120;
+            targetX = cardRect.left;
+          }
+          const dx = targetX - cardRect.left;
+          const dy = targetY - cardRect.top;
 
-      // Remove previous change listener before attaching a new one
-      if (detailPipelineHandler) {
-        detailPipelineSelect.removeEventListener('change', detailPipelineHandler);
-      }
-      detailPipelineHandler = async () => {
-        const selectedPipeline = detailPipelineSelect.value;
-        if (!selectedPipeline) return;
-        // Reset to placeholder immediately so it reads as an action, not a current state
-        detailPipelineSelect.value = '';
-        try {
-          await invoke('assign_pipeline', { recordingId: id, pipelineName: selectedPipeline });
-          await invoke('execute_pipeline', { recordingId: id, pipelineName: selectedPipeline });
-        } catch (err) {
-          console.error('Failed to run pipeline from detail view:', err);
-        }
-        await loadRecordings();
-        if (selectedRecordingId === id) showDetailView(id);
-      };
-      detailPipelineSelect.addEventListener('change', detailPipelineHandler);
+          card.style.transition = 'none';
+          card.style.position = 'relative';
+          card.style.zIndex = '100';
+          void card.offsetWidth;
+          card.style.transition = 'transform 0.45s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease-in';
+          card.style.transform = `translate(${dx}px, ${dy}px) scale(0.4)`;
+          card.style.opacity = '0';
+          card.style.pointerEvents = 'none';
+
+          setTimeout(async () => {
+            // Flash the pipeline status content area (not the header)
+            if (statusSection) statusSection.style.display = '';
+            const flashTarget = document.getElementById('pipeline-status-content');
+            if (flashTarget) {
+              flashTarget.classList.remove('pipeline-status-flash');
+              void flashTarget.offsetWidth;
+              flashTarget.classList.add('pipeline-status-flash');
+            }
+            try {
+              await invoke('assign_pipeline', { recordingId: id, pipelineName });
+              await invoke('execute_pipeline', { recordingId: id, pipelineName });
+            } catch (err) {
+              console.error('Failed to run pipeline from detail view:', err);
+            }
+            await loadRecordings();
+            if (selectedRecordingId === id) showDetailView(id);
+          }, 450);
+        });
+      });
     } else {
       detailPipelineAssignment.style.display = 'none';
     }
@@ -816,22 +980,26 @@ window.showDetailView = async (id) => {
     detailTranscriptEl.textContent = "Loading...";
     detailTranscriptEl.classList.remove('empty');
 
+    const rawToggle = document.getElementById('transcript-raw-toggle');
     try {
       const transcript = await invoke("get_transcript", { recordingId: id });
       if (transcript) {
-        detailTranscriptEl.textContent = transcript;
+        applyMarkdownRendering(detailTranscriptEl, transcript);
         detailTranscriptEl.classList.remove('empty');
         if (saveTranscriptBtn) saveTranscriptBtn.style.display = '';
+        if (rawToggle) rawToggle.style.display = looksLikeMarkdown(transcript) ? '' : 'none';
       } else {
         detailTranscriptEl.textContent = "Not processed yet.";
         detailTranscriptEl.classList.add('empty');
         if (saveTranscriptBtn) saveTranscriptBtn.style.display = 'none';
+        if (rawToggle) rawToggle.style.display = 'none';
       }
     } catch (err) {
       console.error("Failed to load transcript:", err);
       detailTranscriptEl.textContent = "Not processed yet.";
       detailTranscriptEl.classList.add('empty');
       if (saveTranscriptBtn) saveTranscriptBtn.style.display = 'none';
+      if (rawToggle) rawToggle.style.display = 'none';
     }
   }
 
@@ -850,7 +1018,6 @@ window.showDetailView = async (id) => {
 
   // Reset audio player
   if (!hideContent) {
-    loadAudioDuration(id);
     isPlaying = false;
     if (playPauseBtn) {
       playPauseBtn.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
@@ -1078,6 +1245,15 @@ if (saveTranscriptBtn) {
   });
 }
 
+// ===== RAW / MARKDOWN TOGGLE =====
+const transcriptRawToggle = document.getElementById('transcript-raw-toggle');
+if (transcriptRawToggle) {
+  transcriptRawToggle.addEventListener('click', () => {
+    const isRaw = toggleMarkdownRaw(detailTranscriptEl);
+    transcriptRawToggle.querySelector('span').textContent = isRaw ? 'Formatted' : 'Raw';
+  });
+}
+
 // ===== SUMMARIZE & TEMPLATE PROCESSING =====
 const summarizeBtn = document.getElementById('summarize-btn');
 const extractBtn = document.getElementById('extract-btn');
@@ -1105,7 +1281,7 @@ if (summarizeBtn) {
       });
 
       if (detailStructuredEl) {
-        detailStructuredEl.textContent = summary;
+        applyMarkdownRendering(detailStructuredEl, summary);
         detailStructuredEl.classList.remove('empty');
       }
 
@@ -1135,7 +1311,7 @@ if (extractBtn) {
       });
 
       if (detailStructuredEl) {
-        detailStructuredEl.textContent = result;
+        applyMarkdownRendering(detailStructuredEl, result);
         detailStructuredEl.classList.remove('empty');
       }
 
@@ -1230,7 +1406,6 @@ async function loadSettings() {
     // Save mix only setting
     if (saveMixOnlyCheckbox) {
       saveMixOnlyCheckbox.checked = appSettings.save_mix_only !== false; // default true
-      console.log('DEBUG: Loaded save_mix_only =', appSettings.save_mix_only, '→ checkbox =', saveMixOnlyCheckbox.checked);
     }
 
     applyTheme(appSettings.theme);
@@ -1267,7 +1442,6 @@ async function saveSettings() {
     // Save mix only setting
     if (saveMixOnlyCheckbox) {
       appSettings.save_mix_only = saveMixOnlyCheckbox.checked;
-      console.log('DEBUG: Saving save_mix_only =', saveMixOnlyCheckbox.checked);
     }
 
     // Default pipeline setting
@@ -1545,6 +1719,7 @@ if (settingsTabs) {
   });
 }
 
+
 // ===== SIDEBAR NAV =====
 const sidebarPipelinesBtn = document.getElementById('sidebar-pipelines-btn');
 const sidebarTemplatesBtn = document.getElementById('sidebar-templates-btn');
@@ -1705,7 +1880,7 @@ if (sidebarPipelinesBtn) {
 if (sidebarTemplatesBtn) {
   sidebarTemplatesBtn.addEventListener('click', () => {
     ViewManager.showSettings();
-    switchSettingsTab('templates');
+    switchSettingsTab('pipelines');
   });
 }
 

@@ -1,18 +1,32 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::fs;
 use std::path::PathBuf;
 use chrono::Utc;
+use tokio::sync::Mutex as TokioMutex;
 use crate::pipelines::{ConnectorType, load_pipelines, validate_pipeline, PipelineState, PipelineStatus, StepStatus, PipelineProgressPayload};
 use crate::storage::get_data_dir;
 use crate::transcription::{TranscriptJson, render_transcript_from_json};
 use crate::connectors;
 
+lazy_static::lazy_static! {
+    /// Per-(recording, pipeline) execution lock.
+    /// Ensures runs of the same pipeline on the same recording execute sequentially.
+    static ref PIPELINE_EXEC_LOCKS: std::sync::Mutex<HashMap<String, Arc<TokioMutex<()>>>> =
+        std::sync::Mutex::new(HashMap::new());
+}
+
 /// Get the pipeline output directory for a recording
-fn get_pipeline_output_dir(recording_id: &str, pipeline_name: &str) -> PathBuf {
+fn get_pipeline_output_dir(recording_id: &str, pipeline_name: &str, run_index: usize) -> PathBuf {
+    let dir_name = if run_index == 0 {
+        pipeline_name.to_string()
+    } else {
+        format!("{}.run-{}", pipeline_name, run_index)
+    };
     get_data_dir()
         .join(recording_id)
         .join("pipelines")
-        .join(pipeline_name)
+        .join(dir_name)
 }
 
 /// Resolve the input path for a step.
@@ -22,6 +36,7 @@ fn resolve_input_path(
     recording_id: &str,
     pipeline_name: &str,
     input: &str,
+    run_index: usize,
 ) -> PathBuf {
     if input == "transcript" {
         let recording_dir = get_data_dir().join(recording_id);
@@ -61,7 +76,7 @@ fn resolve_input_path(
         // Fallback: legacy transcript.md
         recording_dir.join("transcript.md")
     } else {
-        get_pipeline_output_dir(recording_id, pipeline_name).join(format!("{}.md", input))
+        get_pipeline_output_dir(recording_id, pipeline_name, run_index).join(format!("{}.md", input))
     }
 }
 
@@ -468,6 +483,14 @@ pub async fn execute_pipeline_internal(
     pipeline_name: &str,
     app_handle: Option<&tauri::AppHandle>,
 ) -> Result<PipelineStatus, String> {
+    // Serialize execution: if the same pipeline is already running on this recording, wait.
+    let lock = {
+        let key = format!("{}:{}", recording_id, pipeline_name);
+        let mut locks = PIPELINE_EXEC_LOCKS.lock().unwrap();
+        locks.entry(key).or_insert_with(|| Arc::new(TokioMutex::new(()))).clone()
+    };
+    let _exec_guard = lock.lock().await;
+
     // Load pipeline definition
     let pipelines = load_pipelines()?;
     let pipeline = pipelines
@@ -491,10 +514,22 @@ pub async fn execute_pipeline_internal(
         return Err("No transcript found. Transcribe the recording first.".to_string());
     }
 
+    // Resolve run_index from the active (waiting/running) pipeline state.
+    // Use .last() to get the most recently assigned entry — if a previous run is still
+    // Running when a new run starts, .next() would incorrectly pick the old one.
+    let run_index = {
+        let states = read_pipeline_states(recording_id);
+        states.iter()
+            .filter(|s| s.name == pipeline_name && s.status != PipelineStatus::Done && s.status != PipelineStatus::Partial)
+            .map(|s| s.run_index)
+            .last()
+            .unwrap_or(0)
+    };
+
     // Update pipeline state to running
     update_pipeline_state(recording_id, pipeline_name, PipelineStatus::Running, None, None)?;
 
-    let output_dir = get_pipeline_output_dir(recording_id, pipeline_name);
+    let output_dir = get_pipeline_output_dir(recording_id, pipeline_name, run_index);
     let total_steps = pipeline.steps.len();
 
     // Track which steps have failed or been skipped (by step name).
@@ -577,7 +612,7 @@ pub async fn execute_pipeline_internal(
             );
         }
 
-        let input_path = resolve_input_path(recording_id, pipeline_name, &step.input);
+        let input_path = resolve_input_path(recording_id, pipeline_name, &step.input, run_index);
 
         if !input_path.exists() {
             let error = format!(
@@ -766,7 +801,7 @@ pub async fn execute_pipeline_internal(
                                 .unwrap_or("");
                             let original_prompt = build_augmented_prompt(
                                 &llm_step.config,
-                                &resolve_input_path(recording_id, pipeline_name, &llm_step.input),
+                                &resolve_input_path(recording_id, pipeline_name, &llm_step.input, run_index),
                                 notion_integration_id,
                             ).unwrap_or_default();
 
@@ -883,7 +918,7 @@ pub async fn execute_pipeline_internal(
                                 .unwrap_or("");
                             let original_prompt = build_linear_augmented_prompt(
                                 &llm_step.config,
-                                &resolve_input_path(recording_id, pipeline_name, &llm_step.input),
+                                &resolve_input_path(recording_id, pipeline_name, &llm_step.input, run_index),
                                 linear_integration_id,
                             ).unwrap_or_default();
 
@@ -1137,8 +1172,10 @@ fn update_pipeline_state(
         .and_then(|v| serde_json::from_value::<Vec<PipelineState>>(v.clone()).ok())
         .unwrap_or_default();
 
-    // Find or create this pipeline's state
-    if let Some(state) = pipeline_states.iter_mut().find(|s| s.name == pipeline_name) {
+    // Find the active (non-completed) entry for this pipeline, or create a new one.
+    // Search from the end so we target the most recently assigned run when multiple
+    // active entries exist (e.g. a previous run still Running when a new run starts).
+    if let Some(state) = pipeline_states.iter_mut().rev().find(|s| s.name == pipeline_name && s.status != PipelineStatus::Done && s.status != PipelineStatus::Partial) {
         state.status = status.clone();
         state.current_step = current_step;
         if status == PipelineStatus::Running && state.started_at.is_none() {
@@ -1152,6 +1189,7 @@ fn update_pipeline_state(
         pipeline_states.push(PipelineState {
             name: pipeline_name.to_string(),
             status,
+            run_index: 0,
             started_at: Some(now.clone()),
             completed_at: None,
             current_step,
@@ -1231,8 +1269,9 @@ pub fn get_all_pipeline_states(recording_id: String) -> Result<Vec<PipelineState
 pub fn get_step_outputs(
     recording_id: String,
     pipeline_name: String,
+    run_index: Option<usize>,
 ) -> Result<Vec<StepStatus>, String> {
-    let output_dir = get_pipeline_output_dir(&recording_id, &pipeline_name);
+    let output_dir = get_pipeline_output_dir(&recording_id, &pipeline_name, run_index.unwrap_or(0));
 
     if !output_dir.exists() {
         return Ok(Vec::new());
@@ -1251,7 +1290,7 @@ pub fn get_step_outputs(
         if step_file.exists() {
             let content = fs::read_to_string(&step_file).unwrap_or_default();
             // Parse status, error, and duration from frontmatter
-            let (status, error, duration_secs) = parse_step_status(&content);
+            let (status, error, duration_secs, output) = parse_step_status(&content);
             // Load augmented prompt from sidecar file if present
             let aug_path = output_dir.join(format!("{}.augmented-prompt.txt", step.name));
             let augmented_prompt = if aug_path.exists() {
@@ -1265,6 +1304,7 @@ pub fn get_step_outputs(
                 error,
                 duration_secs,
                 augmented_prompt,
+                output,
             });
         } else {
             statuses.push(StepStatus {
@@ -1273,6 +1313,7 @@ pub fn get_step_outputs(
                 error: None,
                 duration_secs: None,
                 augmented_prompt: None,
+                output: None,
             });
         }
     }
@@ -1281,8 +1322,8 @@ pub fn get_step_outputs(
 }
 
 /// Parse step status from frontmatter
-/// Returns (status, error, duration_secs)
-fn parse_step_status(content: &str) -> (String, Option<String>, Option<f64>) {
+/// Returns (status, error, duration_secs, output)
+fn parse_step_status(content: &str) -> (String, Option<String>, Option<f64>, Option<String>) {
     if let Some(stripped) = content.strip_prefix("---")
         && let Some(end_idx) = stripped.find("---")
     {
@@ -1329,10 +1370,60 @@ fn parse_step_status(content: &str) -> (String, Option<String>, Option<f64>) {
             _ => None,
         };
 
-        return (status, error, duration_secs);
+        // Extract body content after the closing frontmatter delimiter
+        let body_start = end_idx + 3; // skip past "---"
+        let body = stripped[body_start..].trim();
+        let output = if body.is_empty() { None } else { Some(body.to_string()) };
+
+        return (status, error, duration_secs, output);
     }
 
-    ("pending".to_string(), None, None)
+    ("pending".to_string(), None, None, None)
+}
+
+/// Remove a pipeline run from a recording's metadata and delete its output directory
+#[tauri::command]
+pub fn remove_pipeline_run(recording_id: String, pipeline_name: String, run_index: usize) -> Result<(), String> {
+    let recording_dir = get_data_dir().join(&recording_id);
+    let metadata_path = recording_dir.join("metadata.json");
+    let lock_path = recording_dir.join(".metadata.lock");
+
+    let _lock = FileLockGuard::acquire(&lock_path)?;
+
+    let content = fs::read_to_string(&metadata_path)
+        .map_err(|e| format!("Failed to read metadata: {}", e))?;
+    let mut json: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse metadata: {}", e))?;
+
+    let mut pipeline_states: Vec<PipelineState> = json
+        .get("pipelines")
+        .and_then(|v| serde_json::from_value::<Vec<PipelineState>>(v.clone()).ok())
+        .unwrap_or_default();
+
+    // Find and remove the matching entry (by name + run_index)
+    let original_len = pipeline_states.len();
+    pipeline_states.retain(|s| !(s.name == pipeline_name && s.run_index == run_index));
+
+    if pipeline_states.len() == original_len {
+        return Err(format!("Pipeline run '{}' (index {}) not found", pipeline_name, run_index));
+    }
+
+    json["pipelines"] = serde_json::to_value(&pipeline_states)
+        .map_err(|e| format!("Failed to serialize pipeline states: {}", e))?;
+
+    let temp_path = metadata_path.with_extension("json.tmp");
+    let updated = serde_json::to_string_pretty(&json)
+        .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
+    fs::write(&temp_path, &updated)
+        .map_err(|e| format!("Failed to write temp metadata: {}", e))?;
+    fs::rename(&temp_path, &metadata_path)
+        .map_err(|e| format!("Failed to finalize metadata: {}", e))?;
+
+    // Delete the output directory (best effort)
+    let output_dir = get_pipeline_output_dir(&recording_id, &pipeline_name, run_index);
+    let _ = fs::remove_dir_all(&output_dir);
+
+    Ok(())
 }
 
 /// Assign a pipeline to a recording (sets status to "waiting")
@@ -1344,7 +1435,49 @@ pub fn assign_pipeline(recording_id: String, pipeline_name: String) -> Result<()
         return Err(format!("Pipeline '{}' not found", pipeline_name));
     }
 
-    update_pipeline_state(&recording_id, &pipeline_name, PipelineStatus::Waiting, None, None)
+    let recording_dir = get_data_dir().join(&recording_id);
+    let metadata_path = recording_dir.join("metadata.json");
+    let lock_path = recording_dir.join(".metadata.lock");
+
+    let _lock = FileLockGuard::acquire(&lock_path)?;
+
+    let now = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+
+    let content = fs::read_to_string(&metadata_path)
+        .map_err(|e| format!("Failed to read metadata: {}", e))?;
+    let mut json: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse metadata: {}", e))?;
+
+    let mut pipeline_states: Vec<PipelineState> = json
+        .get("pipelines")
+        .and_then(|v| serde_json::from_value::<Vec<PipelineState>>(v.clone()).ok())
+        .unwrap_or_default();
+
+    // Count existing runs of this pipeline to determine run_index
+    let run_index = pipeline_states.iter().filter(|s| s.name == pipeline_name).count();
+
+    pipeline_states.push(PipelineState {
+        name: pipeline_name,
+        status: PipelineStatus::Waiting,
+        run_index,
+        started_at: Some(now),
+        completed_at: None,
+        current_step: None,
+        error: None,
+    });
+
+    json["pipelines"] = serde_json::to_value(&pipeline_states)
+        .map_err(|e| format!("Failed to serialize pipeline states: {}", e))?;
+
+    let temp_path = metadata_path.with_extension("json.tmp");
+    let updated = serde_json::to_string_pretty(&json)
+        .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
+    fs::write(&temp_path, &updated)
+        .map_err(|e| format!("Failed to write temp metadata: {}", e))?;
+    fs::rename(&temp_path, &metadata_path)
+        .map_err(|e| format!("Failed to finalize metadata: {}", e))?;
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1353,7 +1486,7 @@ mod tests {
 
     #[test]
     fn test_resolve_input_path_transcript() {
-        let path = resolve_input_path("abc-123", "my-pipeline", "transcript");
+        let path = resolve_input_path("abc-123", "my-pipeline", "transcript", 0);
         assert!(path.to_string_lossy().contains("abc-123"));
         // Falls back to transcript.md when no .json exists
         assert!(
@@ -1364,7 +1497,7 @@ mod tests {
 
     #[test]
     fn test_resolve_input_path_step() {
-        let path = resolve_input_path("abc-123", "my-pipeline", "summarize");
+        let path = resolve_input_path("abc-123", "my-pipeline", "summarize", 0);
         assert!(path.to_string_lossy().contains("pipelines/my-pipeline"));
         assert!(path.to_string_lossy().ends_with("summarize.md"));
     }
@@ -1372,26 +1505,29 @@ mod tests {
     #[test]
     fn test_parse_step_status_done() {
         let content = "---\nname: test\nstatus: done\nerror: null\n---\n\nContent";
-        let (status, error, _duration) = parse_step_status(content);
+        let (status, error, _duration, output) = parse_step_status(content);
         assert_eq!(status, "done");
         assert!(error.is_none());
+        assert_eq!(output.unwrap(), "Content");
     }
 
     #[test]
     fn test_parse_step_status_failed() {
         let content =
             "---\nname: test\nstatus: failed\nerror: \"API error: 401\"\n---\n\nFailed";
-        let (status, error, _duration) = parse_step_status(content);
+        let (status, error, _duration, output) = parse_step_status(content);
         assert_eq!(status, "failed");
         assert_eq!(error.unwrap(), "API error: 401");
+        assert_eq!(output.unwrap(), "Failed");
     }
 
     #[test]
     fn test_parse_step_status_no_frontmatter() {
         let content = "Plain content without frontmatter";
-        let (status, error, _duration) = parse_step_status(content);
+        let (status, error, _duration, output) = parse_step_status(content);
         assert_eq!(status, "pending");
         assert!(error.is_none());
+        assert!(output.is_none());
     }
 
     #[test]
@@ -1399,6 +1535,7 @@ mod tests {
         let state = PipelineState {
             name: "meeting-notes".to_string(),
             status: PipelineStatus::Done,
+            run_index: 0,
             started_at: Some("2026-02-03T12:00:00Z".to_string()),
             completed_at: Some("2026-02-03T12:00:10Z".to_string()),
             current_step: None,
@@ -1415,7 +1552,7 @@ mod tests {
 
     #[test]
     fn test_pipeline_output_dir() {
-        let dir = get_pipeline_output_dir("abc-123", "my-pipeline");
+        let dir = get_pipeline_output_dir("abc-123", "my-pipeline", 0);
         assert!(dir.to_string_lossy().contains("abc-123"));
         assert!(dir.to_string_lossy().contains("pipelines/my-pipeline"));
     }
@@ -1423,8 +1560,8 @@ mod tests {
     #[test]
     fn test_pipeline_output_dir_isolation() {
         // PIPE-05: Each pipeline gets its own output directory
-        let dir_a = get_pipeline_output_dir("rec-1", "pipeline-a");
-        let dir_b = get_pipeline_output_dir("rec-1", "pipeline-b");
+        let dir_a = get_pipeline_output_dir("rec-1", "pipeline-a", 0);
+        let dir_b = get_pipeline_output_dir("rec-1", "pipeline-b", 0);
         assert_ne!(dir_a, dir_b);
         assert!(dir_a.to_string_lossy().contains("pipelines/pipeline-a"));
         assert!(dir_b.to_string_lossy().contains("pipelines/pipeline-b"));

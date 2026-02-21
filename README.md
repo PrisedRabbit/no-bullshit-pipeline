@@ -38,7 +38,7 @@ NBP is a high-performance, local-first tool that captures **everything** happeni
 bun install
 
 # Run development mode
-bun dev
+bun run dev
 
 # Build the release binary
 bun build:release
@@ -62,6 +62,7 @@ The app will open automatically. Recordings are saved to `~/nbp-data/`.
 
 ### Transcription
 
+- **FluidAudio** (default): Device-local transcription via sidecar binary. No cloud, no diarization, plain text output.
 - **Local Whisper**: On-device inference via whisper-rs with Metal GPU acceleration. Downloadable models from Tiny (74 MB) to Large (2.95 GB).
 - **OpenAI Whisper API**: Cloud-based transcription as an alternative.
 - **AI Summarization**: Generate summaries via OpenAI GPT-4o, Google Gemini, or Anthropic Claude.
@@ -70,15 +71,19 @@ The app will open automatically. Recordings are saved to `~/nbp-data/`.
 
 ### Pipelines
 
-- **Multi-step Automation**: Define named pipelines with sequential steps.
-- **Connectors**: LLM (OpenAI/Google/Anthropic), Save (to disk), Webhook (HTTP POST/PUT/PATCH), Slack.
+- **Multi-step Automation**: Define named pipelines with sequential steps. Visual tile-based builder.
+- **Multi-Pipeline**: Assign multiple pipelines to a single recording, each tracked independently.
+- **Connectors**: LLM (OpenAI/Google/Anthropic), Save (to disk), Webhook, Slack, Notion, Linear.
 - **Progress Tracking**: Per-step status (Waiting/Running/Done/Partial) with real-time progress events.
 - **Pipeline Output**: Step results stored as Markdown with YAML frontmatter per recording.
 
-### Slack Integration
+### Integrations
 
-- **Bot Token Auth**: Add/test Slack bot tokens, stored securely in macOS Keychain.
-- **Channel Delivery**: Send pipeline outputs to Slack channels or DMs.
+- **Slack**: Bot token auth, channel/DM delivery, stored securely in macOS Keychain.
+- **Notion**: OAuth token, database sync with schema mapping, people mappings, named profiles.
+- **Linear**: API key auth, team sync, member aliases, named profiles.
+- **Webhook**: Named endpoint profiles (URL + headers), reusable across pipelines.
+- **Save Path**: Custom local save paths as named profiles.
 
 ### UI
 
