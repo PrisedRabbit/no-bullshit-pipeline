@@ -21,6 +21,15 @@ Whisper is OpenAI's speech recognition model. whisper.cpp is a C/C++ port by Geo
 
 ---
 
+## Local LLM Inference
+
+### llama-cpp-2
+- **Source:** https://github.com/utilityai/llama-cpp-rs
+- **License:** MIT
+- **Usage:** Rust bindings for llama.cpp — local GGUF model inference with Metal acceleration
+
+---
+
 ## Core Audio & System Integration
 
 ### cidre
@@ -38,6 +47,11 @@ Whisper is OpenAI's speech recognition model. whisper.cpp is a C/C++ port by Geo
 - **Source:** https://github.com/RustAudio/coreaudio-rs
 - **License:** MIT OR Apache-2.0
 - **Usage:** macOS Core Audio bindings
+
+### security-framework
+- **Source:** https://github.com/kornelski/rust-security-framework
+- **License:** MIT OR Apache-2.0
+- **Usage:** macOS Security framework bindings
 
 ---
 
@@ -73,6 +87,11 @@ Whisper is OpenAI's speech recognition model. whisper.cpp is a C/C++ port by Geo
 - **License:** MIT
 - **Usage:** Audio loudness measurement (EBU R128)
 
+### ringbuf
+- **Source:** https://github.com/agerasev/ringbuf
+- **License:** MIT OR Apache-2.0
+- **Usage:** Lock-free ring buffer for real-time audio mixing
+
 ---
 
 ## Application Framework
@@ -90,6 +109,19 @@ Whisper is OpenAI's speech recognition model. whisper.cpp is a C/C++ port by Geo
 - tauri-plugin-opener (Apache-2.0 OR MIT)
 - tauri-plugin-fs (Apache-2.0 OR MIT)
 
+### Sortable.js
+- **Source:** https://github.com/SortableJS/Sortable
+- **Version:** 1.15.6
+- **License:** MIT
+- **Usage:** Drag-and-drop reordering of pipeline steps in the builder
+
+### marked
+- **Source:** https://github.com/markedjs/marked
+- **Version:** 17.0.3
+- **License:** MIT
+- **Copyright:** Copyright (c) 2018-2026, MarkedJS
+- **Usage:** Markdown rendering for pipeline step outputs
+
 ---
 
 ## Networking & Serialization
@@ -97,17 +129,37 @@ Whisper is OpenAI's speech recognition model. whisper.cpp is a C/C++ port by Geo
 ### reqwest
 - **Source:** https://github.com/seanmonstar/reqwest
 - **License:** MIT OR Apache-2.0
-- **Usage:** HTTP client for cloud AI APIs
+- **Usage:** HTTP client for cloud AI APIs and integrations
 
 ### serde / serde_json
 - **Source:** https://github.com/serde-rs/serde
 - **License:** MIT OR Apache-2.0
 - **Usage:** Serialization/deserialization
 
+### serde_yaml
+- **Source:** https://github.com/dtolnay/serde-yaml
+- **License:** MIT OR Apache-2.0
+- **Usage:** YAML configuration parsing
+
+### encoding_rs
+- **Source:** https://github.com/nicowillis/encoding_rs
+- **License:** MIT OR Apache-2.0
+- **Usage:** Character encoding conversion
+
+### futures-util
+- **Source:** https://github.com/rust-lang/futures-rs
+- **License:** MIT OR Apache-2.0
+- **Usage:** Async stream utilities for streaming API responses
+
 ### tokio
 - **Source:** https://github.com/tokio-rs/tokio
 - **License:** MIT
 - **Usage:** Async runtime
+
+### notion-client
+- **Source:** https://github.com/Mathspy/notion-client
+- **License:** MIT
+- **Usage:** Notion API client for Notion integration connector
 
 ---
 
@@ -127,6 +179,31 @@ Whisper is OpenAI's speech recognition model. whisper.cpp is a C/C++ port by Geo
 - **Source:** https://github.com/dtolnay/anyhow
 - **License:** MIT OR Apache-2.0
 - **Usage:** Error handling
+
+### lazy_static
+- **Source:** https://github.com/rust-lang-nursery/lazy-static.rs
+- **License:** MIT OR Apache-2.0
+- **Usage:** Lazily-evaluated static variables
+
+### log
+- **Source:** https://github.com/rust-lang/log
+- **License:** MIT OR Apache-2.0
+- **Usage:** Logging facade
+
+### libc
+- **Source:** https://github.com/rust-lang/libc
+- **License:** MIT OR Apache-2.0
+- **Usage:** C standard library bindings
+
+### tempfile
+- **Source:** https://github.com/Stebalien/tempfile
+- **License:** MIT OR Apache-2.0
+- **Usage:** Temporary file creation
+
+### opener
+- **Source:** https://github.com/Seeker14491/opener
+- **License:** MIT OR Apache-2.0
+- **Usage:** Open files and URLs with the default system application
 
 ---
 
