@@ -702,6 +702,7 @@ function showStepEditor(index) {
           <option value="openai" ${step.config?.provider === 'openai' ? 'selected' : ''}>OpenAI</option>
           <option value="google" ${step.config?.provider === 'google' ? 'selected' : ''}>Google</option>
           <option value="anthropic" ${step.config?.provider === 'anthropic' ? 'selected' : ''}>Anthropic</option>
+          <option value="local" ${step.config?.provider === 'local' ? 'selected' : ''}>Local LLM</option>
         </select></div>
         <div class="step-editor-row"><label>Model</label><input data-field="model" value="${escapeHtml(step.config?.model || '')}" placeholder="e.g. gpt-5.2" /></div>
       </details>

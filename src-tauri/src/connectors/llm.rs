@@ -58,6 +58,7 @@ fn default_model_for_provider(provider: &str) -> &str {
         "openai" => "gpt-5.2",
         "google" => "gemini-1.5-flash",
         "anthropic" => "claude-sonnet-4-20250514",
+        "local" => "local",
         _ => "gpt-5.2",
     }
 }
@@ -80,6 +81,10 @@ pub fn context_limit_for_provider(provider: &str) -> usize {
         "openai" => 120_000,
         "google" => 900_000,
         "anthropic" => 190_000,
+        "local" => {
+            let settings = load_settings();
+            settings.local_llm.context_size as usize
+        }
         _ => 120_000,
     }
 }
@@ -236,6 +241,15 @@ pub async fn execute(
                 .anthropic
                 .ok_or("Anthropic API key not configured. Set it in Settings.")?;
             cloud_ai::process_with_claude(&api_key, &prompt_to_send, "").await
+        }
+        "local" => {
+            // Run local inference on a blocking thread (it's CPU/GPU bound)
+            let prompt_clone = prompt_to_send.clone();
+            tokio::task::spawn_blocking(move || {
+                crate::local_llm::process_with_local(&prompt_clone, "")
+            })
+            .await
+            .map_err(|e| format!("Local LLM task failed: {}", e))?
         }
         other => Err(format!("Unknown LLM provider: '{}'", other)),
     };
@@ -409,6 +423,14 @@ pub async fn execute_retry(
                 .anthropic
                 .ok_or("Anthropic API key not configured. Set it in Settings.")?;
             cloud_ai::process_with_claude(&api_key, &corrective_prompt, "").await
+        }
+        "local" => {
+            let prompt_clone = corrective_prompt.clone();
+            tokio::task::spawn_blocking(move || {
+                crate::local_llm::process_with_local(&prompt_clone, "")
+            })
+            .await
+            .map_err(|e| format!("Local LLM task failed: {}", e))?
         }
         other => Err(format!("Unknown LLM provider: '{}'", other)),
     };

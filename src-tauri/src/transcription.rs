@@ -458,7 +458,17 @@ pub async fn summarize_recording(
             ).await?
         },
         TranscriptionProvider::LocalWhisper | TranscriptionProvider::FluidAudio | TranscriptionProvider::Unknown => {
-            return Err("Local transcription providers cannot generate summaries. Please configure a cloud AI provider (OpenAI, Google, or Anthropic).".to_string());
+            // Try local LLM if enabled
+            let llm_settings = settings.local_llm.clone();
+            if llm_settings.enabled && llm_settings.model_id.is_some() {
+                tokio::task::spawn_blocking(move || {
+                    crate::local_llm::summarize_with_local(&transcript)
+                })
+                .await
+                .map_err(|e| format!("Local LLM task failed: {}", e))??
+            } else {
+                return Err("No AI provider available for summaries. Configure a cloud API key or download a local LLM model in Settings.".to_string());
+            }
         },
     };
 
@@ -511,7 +521,19 @@ pub async fn process_with_template(
             cloud_ai::process_with_claude(&api_key, &template.prompt, &transcript).await?
         },
         TranscriptionProvider::LocalWhisper | TranscriptionProvider::FluidAudio | TranscriptionProvider::Unknown => {
-            return Err("Local transcription providers cannot process templates. Please configure a cloud AI provider.".to_string());
+            // Try local LLM if enabled
+            let llm_settings = settings.local_llm.clone();
+            if llm_settings.enabled && llm_settings.model_id.is_some() {
+                let prompt = template.prompt.clone();
+                let transcript_clone = transcript.clone();
+                tokio::task::spawn_blocking(move || {
+                    crate::local_llm::process_with_local(&prompt, &transcript_clone)
+                })
+                .await
+                .map_err(|e| format!("Local LLM task failed: {}", e))??
+            } else {
+                return Err("No AI provider available. Configure a cloud API key or download a local LLM model in Settings.".to_string());
+            }
         },
     };
 

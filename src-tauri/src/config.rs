@@ -85,6 +85,9 @@ pub struct AppSettings {
     /// Whether the user has completed the interactive UI walkthrough
     #[serde(default)]
     pub walkthrough_completed: bool,
+    /// Local LLM settings
+    #[serde(default)]
+    pub local_llm: LocalLlmConfig,
 }
 
 fn default_true() -> bool {
@@ -105,6 +108,7 @@ impl Default for AppSettings {
             default_pipeline: None,
             last_used_pipeline: None,
             walkthrough_completed: false,
+            local_llm: LocalLlmConfig::default(),
         }
     }
 }
@@ -120,6 +124,33 @@ pub fn get_settings_path() -> PathBuf {
 
 pub fn get_models_dir() -> PathBuf {
     get_config_dir().join("models")
+}
+
+pub fn get_llm_models_dir() -> PathBuf {
+    get_config_dir().join("models").join("llm")
+}
+
+/// Local LLM configuration
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct LocalLlmConfig {
+    pub enabled: bool,
+    /// Selected model ID (e.g. "phi-3.5-mini")
+    pub model_id: Option<String>,
+    /// Number of layers to offload to GPU (99 = all)
+    pub gpu_layers: u32,
+    /// Context window size in tokens
+    pub context_size: u32,
+}
+
+impl Default for LocalLlmConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            model_id: None,
+            gpu_layers: 99,
+            context_size: 8192,
+        }
+    }
 }
 
 #[tauri::command]

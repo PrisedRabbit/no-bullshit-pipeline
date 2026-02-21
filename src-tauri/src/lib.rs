@@ -51,6 +51,7 @@ mod connectors;
 mod pipeline_engine;
 mod transcript_migration;
 mod integrations;
+pub mod local_llm;
 use audio::AudioState;
 use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
 use tauri::Manager;
@@ -233,6 +234,10 @@ pub fn run() {
             integrations::webhook::list_webhook_profiles,
             integrations::webhook::remove_webhook_integration,
             integrations::webhook::test_webhook_integration,
+            // Local LLM
+            local_llm::get_llm_models_info,
+            local_llm::download_llm_model,
+            local_llm::delete_llm_model,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

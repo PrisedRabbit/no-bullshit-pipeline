@@ -20,6 +20,7 @@ async function loadAllIntegrations() {
     loadWebhookProfiles(),
   ]);
   renderProcessingProviders();
+  renderLocalLlmModels();
   renderConnectedIntegrations();
   renderAvailableIntegrations();
 }
@@ -142,6 +143,155 @@ function renderProcessingProviders() {
         btn.textContent = 'Save';
       }
     });
+  });
+}
+
+// ===== LOCAL LLM MODELS =====
+var llmModelsData = [];
+
+async function renderLocalLlmModels() {
+  const el = document.getElementById('local-llm-models-list');
+  if (!el) return;
+
+  const invoke = window.__TAURI__.core.invoke;
+  try {
+    llmModelsData = await invoke('get_llm_models_info');
+  } catch (err) {
+    console.error('Failed to load LLM models:', err);
+    llmModelsData = [];
+  }
+
+  const selectedId = appSettings?.local_llm?.model_id || null;
+
+  el.innerHTML = llmModelsData.map(m => {
+    const isSelected = m.id === selectedId;
+    const sizeStr = m.size_mb >= 1000 ? `${(m.size_mb / 1000).toFixed(1)} GB` : `${m.size_mb} MB`;
+
+    return `
+      <div class="provider-card${isSelected ? ' llm-selected' : ''}" data-llm-id="${escapeHtml(m.id)}" style="cursor:pointer;">
+        <div class="provider-card-icon" style="background:rgba(139,92,246,0.15);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:var(--accent-color);">
+          ${escapeHtml(m.params)}
+        </div>
+        <div class="provider-card-info" style="flex:1;">
+          <div class="provider-card-name">
+            ${escapeHtml(m.name)}
+            ${isSelected ? '<span style="font-size:0.7rem;color:var(--accent-color);margin-left:6px;">ACTIVE</span>' : ''}
+          </div>
+          <div class="provider-card-detail">${escapeHtml(m.desc)}</div>
+          <div class="provider-card-detail" style="opacity:0.6;font-size:0.65rem;">${sizeStr} • Q4_K_M</div>
+        </div>
+        <div class="provider-card-input" style="gap:6px;">
+          ${m.downloaded
+            ? `<button class="mini-action-btn llm-select-btn${isSelected ? ' active' : ''}" data-llm-id="${escapeHtml(m.id)}" style="font-size:0.75rem;">${isSelected ? 'Active' : 'Select'}</button>
+               <button class="mini-action-btn llm-update-btn" data-llm-id="${escapeHtml(m.id)}" title="Re-download latest version" style="width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;">
+                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+               </button>
+               <button class="mini-action-btn llm-delete-btn" data-llm-id="${escapeHtml(m.id)}" title="Delete model" style="width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;">
+                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="m19 6-.867 12.14A2 2 0 0 1 16.138 20H7.862a2 2 0 0 1-1.995-1.86L5 6m5 0V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2"/></svg>
+               </button>`
+            : `<button class="mini-action-btn llm-download-btn" data-llm-id="${escapeHtml(m.id)}" style="font-size:0.75rem;">Download</button>`
+          }
+        </div>
+      </div>
+      <div id="llm-progress-${escapeHtml(m.id)}" style="display:none;padding:0 12px 8px;">
+        <div style="height:4px;background:var(--border-color);border-radius:2px;overflow:hidden;">
+          <div class="llm-progress-fill" style="height:100%;width:0%;background:var(--accent-color);transition:width 0.2s;border-radius:2px;"></div>
+        </div>
+        <div class="llm-progress-text" style="font-size:0.7rem;color:var(--text-secondary);margin-top:4px;"></div>
+      </div>
+    `;
+  }).join('');
+
+  // Wire download buttons
+  el.querySelectorAll('.llm-download-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const modelId = btn.dataset.llmId;
+      btn.disabled = true;
+      btn.textContent = 'Starting...';
+
+      const progressEl = document.getElementById(`llm-progress-${modelId}`);
+      if (progressEl) progressEl.style.display = 'block';
+
+      try {
+        await invoke('download_llm_model', { modelId });
+        await renderLocalLlmModels();
+      } catch (err) {
+        alert('Download failed: ' + err);
+        btn.disabled = false;
+        btn.textContent = 'Download';
+        if (progressEl) progressEl.style.display = 'none';
+      }
+    });
+  });
+
+  // Wire select buttons
+  el.querySelectorAll('.llm-select-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const modelId = btn.dataset.llmId;
+      if (!appSettings.local_llm) appSettings.local_llm = {};
+      appSettings.local_llm.model_id = modelId;
+      appSettings.local_llm.enabled = true;
+      await invoke('save_settings', { settings: appSettings });
+      await renderLocalLlmModels();
+    });
+  });
+
+  // Wire update buttons (delete + re-download)
+  el.querySelectorAll('.llm-update-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const modelId = btn.dataset.llmId;
+      const model = llmModelsData.find(m => m.id === modelId);
+      if (!confirm(`Re-download ${model?.name || modelId}? This will replace the current file with the latest version.`)) return;
+
+      btn.disabled = true;
+      const progressEl = document.getElementById(`llm-progress-${modelId}`);
+      if (progressEl) progressEl.style.display = 'block';
+
+      try {
+        await invoke('delete_llm_model', { modelId });
+        await invoke('download_llm_model', { modelId });
+        await renderLocalLlmModels();
+      } catch (err) {
+        alert('Update failed: ' + err);
+        if (progressEl) progressEl.style.display = 'none';
+        await renderLocalLlmModels();
+      }
+    });
+  });
+
+  // Wire delete buttons
+  el.querySelectorAll('.llm-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const modelId = btn.dataset.llmId;
+      const model = llmModelsData.find(m => m.id === modelId);
+      if (!confirm(`Delete ${model?.name || modelId}? The model file will be removed.`)) return;
+      try {
+        await invoke('delete_llm_model', { modelId });
+        appSettings = await invoke('load_settings');
+        await renderLocalLlmModels();
+      } catch (err) {
+        alert('Delete failed: ' + err);
+      }
+    });
+  });
+}
+
+// Listen for LLM download progress events
+if (window.__TAURI__?.event?.listen) {
+  window.__TAURI__.event.listen('llm_download_progress', (event) => {
+    const { model_id, downloaded, total, percent } = event.payload;
+    const progressEl = document.getElementById(`llm-progress-${model_id}`);
+    if (!progressEl) return;
+    const fill = progressEl.querySelector('.llm-progress-fill');
+    const text = progressEl.querySelector('.llm-progress-text');
+    if (fill) fill.style.width = `${percent.toFixed(1)}%`;
+    const dlMB = (downloaded / 1024 / 1024).toFixed(0);
+    const totalMB = (total / 1024 / 1024).toFixed(0);
+    if (text) text.textContent = `${dlMB} / ${totalMB} MB (${percent.toFixed(1)}%)`;
   });
 }
 
