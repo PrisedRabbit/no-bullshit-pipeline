@@ -442,13 +442,14 @@ async function renderPipelineStatus(recordingId) {
     section.style.display = '';
 
     let html = '';
-    for (const state of states) {
+    for (let ai = 0; ai < states.length; ai++) {
+      const state = states[ai];
       const displayText = PIPELINE_STATUS_DISPLAY[state.status] || state.status;
       const runBtn = state.status === 'waiting'
         ? `<button class="pipeline-run-btn" data-pipeline="${escapeHtml(state.name)}" data-run-index="${state.run_index || 0}">Run</button>`
         : '';
       const deleteBtn = state.status !== 'running'
-        ? `<button class="pipeline-run-delete" data-pipeline="${escapeHtml(state.name)}" data-run-index="${state.run_index || 0}" title="Delete run">&times;</button>`
+        ? `<button class="pipeline-run-delete" data-run-id="${escapeHtml(state.id)}" title="Delete run">&times;</button>`
         : '';
       html += `<div class="pipeline-status-row">
   <span class="pipeline-status-name">${escapeHtml(state.name)}</span>
@@ -574,12 +575,11 @@ async function renderPipelineStatus(recordingId) {
     // Wire delete buttons for completed/failed/waiting runs
     content.querySelectorAll('.pipeline-run-delete').forEach(btn => {
       btn.addEventListener('click', async () => {
-        const pipelineName = btn.dataset.pipeline;
-        const runIndex = parseInt(btn.dataset.runIndex, 10);
+        const runId = btn.dataset.runId;
         try {
-          await invoke('remove_pipeline_run', { recordingId, pipelineName, runIndex });
+          await invoke('remove_pipeline_run', { recordingId, runId });
         } catch (err) {
-          console.error(`Failed to delete pipeline run "${pipelineName}":`, err);
+          console.error('Failed to delete pipeline run:', err);
         }
         await loadRecordings();
         if (selectedRecordingId === recordingId) {
@@ -880,6 +880,8 @@ window.showDetailView = async (id) => {
               const logoMap = { openai: 'assets/openai.svg', google: 'assets/gemini.svg', anthropic: 'assets/anthropic.svg' };
               if (logoMap[provider]) {
                 useImg = logoMap[provider];
+              } else if (provider === 'local') {
+                iconContent = '<span style="font-size:8px;font-weight:700;">LOCAL</span>';
               } else if (provMeta) {
                 iconContent = provMeta.abbr;
               }
@@ -951,7 +953,11 @@ window.showDetailView = async (id) => {
             }
             try {
               await invoke('assign_pipeline', { recordingId: id, pipelineName });
-              await invoke('execute_pipeline', { recordingId: id, pipelineName });
+              // Only execute if transcript exists; otherwise stays in "waiting"
+              const hasTranscript = detailTranscriptEl && !detailTranscriptEl.classList.contains('empty');
+              if (hasTranscript) {
+                await invoke('execute_pipeline', { recordingId: id, pipelineName });
+              }
             } catch (err) {
               console.error('Failed to run pipeline from detail view:', err);
             }
@@ -1210,6 +1216,18 @@ if (prBtn) {
         detailTranscriptEl.classList.remove('empty');
       }
       if (saveTranscriptBtn) saveTranscriptBtn.style.display = '';
+
+      // Auto-execute any waiting pipelines now that transcript is ready
+      try {
+        const states = await invoke('get_all_pipeline_states', { recordingId: selectedRecordingId });
+        for (const s of (states || [])) {
+          if (s.status === 'waiting') {
+            invoke('execute_pipeline', { recordingId: selectedRecordingId, pipelineName: s.name }).catch(e =>
+              console.error(`Auto-execute pipeline "${s.name}" failed:`, e)
+            );
+          }
+        }
+      } catch (e) { console.error('Failed to auto-execute waiting pipelines:', e); }
 
       prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Transcribe</span>';
       prBtn.disabled = false;
@@ -1720,16 +1738,6 @@ if (settingsTabs) {
 }
 
 
-// ===== SIDEBAR NAV =====
-const sidebarPipelinesBtn = document.getElementById('sidebar-pipelines-btn');
-const sidebarTemplatesBtn = document.getElementById('sidebar-templates-btn');
-const sidebarPipelineCount = document.getElementById('sidebar-pipeline-count');
-const sidebarTemplateCount = document.getElementById('sidebar-template-count');
-
-function updateSidebarCounts() {
-  if (sidebarPipelineCount) sidebarPipelineCount.textContent = allPipelineDefs.length || '';
-  if (sidebarTemplateCount) sidebarTemplateCount.textContent = allPromptTemplates.length || '';
-}
 
 function renderPipelineChips() {
   const chipBar = document.getElementById('pipeline-chip-bar');
@@ -1870,19 +1878,6 @@ async function startRecordingWithPipeline(pipelineName) {
   }
 }
 
-if (sidebarPipelinesBtn) {
-  sidebarPipelinesBtn.addEventListener('click', () => {
-    ViewManager.showSettings();
-    switchSettingsTab('pipelines');
-  });
-}
-
-if (sidebarTemplatesBtn) {
-  sidebarTemplatesBtn.addEventListener('click', () => {
-    ViewManager.showSettings();
-    switchSettingsTab('pipelines');
-  });
-}
 
 // ===== SETTINGS EVENT LISTENERS =====
 if (settingsBtn) settingsBtn.addEventListener("click", () => {
@@ -1944,7 +1939,6 @@ async function loadPromptTemplates() {
   try {
     allPromptTemplates = await invoke('list_prompt_templates');
     renderPromptTemplatesList();
-    updateSidebarCounts();
   } catch (err) {
     console.error('Failed to load prompt templates:', err);
   }

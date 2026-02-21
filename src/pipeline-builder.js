@@ -1,8 +1,8 @@
 // ===== PIPELINE DEFINITION MANAGEMENT =====
-// Globals from main.js (loaded before this script): escapeHtml, invoke, allPromptTemplates, slackIntegrations, updateSidebarCounts
+// Globals from main.js (loaded before this script): escapeHtml, invoke, allPromptTemplates, slackIntegrations
 // Globals from integrations-settings.js (loaded before this script): notionProfiles, linearProfiles, savePathIntegrations, webhookProfiles (all via typeof guard)
 
-var allPipelineDefs = []; // var so main.js updateSidebarCounts() can access allPipelineDefs.length
+var allPipelineDefs = [];
 let editingPipelineDef = null; // null = new, string = editing name
 let pipelineEditorSteps = []; // Working copy of steps
 let editingStepIndex = null;  // index of step currently open in panel
@@ -16,6 +16,13 @@ const PROVIDER_META = {
   openai:    { img: 'assets/openai.svg',    filter: 'invert(1)',                                                          bgColor: 'rgba(16,163,127,0.15)' },
   google:    { img: 'assets/gemini.svg',    filter: 'invert(48%) sepia(90%) saturate(400%) hue-rotate(190deg)',           bgColor: 'rgba(66,133,244,0.15)' },
   anthropic: { img: 'assets/anthropic.svg', filter: 'invert(55%) sepia(80%) saturate(500%) hue-rotate(10deg)',            bgColor: 'rgba(217,119,6,0.15)'  },
+  local:     { img: null,                   filter: '',                                                                    bgColor: 'rgba(139,92,246,0.15)' },
+};
+
+const CLOUD_MODELS = {
+  openai:    ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4o', 'gpt-4o-mini', 'o3-mini'],
+  google:    ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
+  anthropic: ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5-20251001'],
 };
 
 function trimModelName(model, provider) {
@@ -432,7 +439,6 @@ async function loadPipelineDefs() {
   try {
     allPipelineDefs = await invoke('list_pipelines');
     renderPipelineDefsList();
-    updateSidebarCounts();
     if (typeof renderPipelineChips === 'function') renderPipelineChips();
     if (typeof populateDefaultPipelineSelect === 'function') populateDefaultPipelineSelect();
   } catch (err) {
@@ -543,10 +549,20 @@ function renderPipelineSteps() {
       const provider = step.config?.provider || 'openai';
       const provMeta = PROVIDER_META[provider] || PROVIDER_META.openai;
       meta = { ...meta, bgColor: provMeta.bgColor };
-      iconContent = `<img src="${provMeta.img}" style="width:20px;height:20px;filter:${provMeta.filter};" alt="${provider}" />`;
+      if (provider === 'local') {
+        iconContent = `<span style="font-size:11px;font-weight:700;">LOCAL</span>`;
+      } else {
+        iconContent = `<img src="${provMeta.img}" style="width:20px;height:20px;filter:${provMeta.filter};" alt="${provider}" />`;
+      }
       const model = step.config?.model || '';
       if (model) {
-        const short = trimModelName(model, provider);
+        let short;
+        if (provider === 'local') {
+          const localModel = (typeof llmModelsData !== 'undefined') ? llmModelsData.find(m => m.id === model) : null;
+          short = localModel ? localModel.name : model;
+        } else {
+          short = trimModelName(model, provider);
+        }
         tileSubtitle = `<div class="step-tile-model">${escapeHtml(short)}</div>`;
       }
     }
@@ -694,18 +710,27 @@ function showStepEditor(index) {
     } else {
       promptField = `<div class="step-editor-row"><label>Prompt</label><select data-field="prompt_template"><option value="">Select template...</option>${promptTemplateOptions}</select></div>`;
     }
+    const currentProvider = step.config?.provider || 'openai';
+    const currentModel = step.config?.model || '';
+    const providerModels = CLOUD_MODELS[currentProvider] || [];
+    const modelOptions = currentProvider === 'local'
+      ? (typeof llmModelsData !== 'undefined' ? llmModelsData.filter(m => m.downloaded).map(m =>
+          `<option value="${escapeHtml(m.id)}" ${currentModel === m.id ? 'selected' : ''}>${escapeHtml(m.name)} (${escapeHtml(m.params)})</option>`
+        ).join('') : '')
+      : providerModels.map(m =>
+          `<option value="${escapeHtml(m)}" ${currentModel === m ? 'selected' : ''}>${escapeHtml(m)}</option>`
+        ).join('');
     configFields = `
+      <div class="step-editor-row"><label>Provider</label><select data-field="provider" class="llm-provider-select">
+        <option value="openai" ${currentProvider === 'openai' ? 'selected' : ''}>OpenAI</option>
+        <option value="google" ${currentProvider === 'google' ? 'selected' : ''}>Google</option>
+        <option value="anthropic" ${currentProvider === 'anthropic' ? 'selected' : ''}>Anthropic</option>
+        <option value="local" ${currentProvider === 'local' ? 'selected' : ''}>Local LLM</option>
+      </select></div>
+      <div class="step-editor-row"><label>Model</label><select data-field="model" class="llm-model-select">
+        ${modelOptions}
+      </select></div>
       ${promptField}
-      <details class="step-editor-advanced">
-        <summary>Advanced</summary>
-        <div class="step-editor-row"><label>Provider</label><select data-field="provider">
-          <option value="openai" ${step.config?.provider === 'openai' ? 'selected' : ''}>OpenAI</option>
-          <option value="google" ${step.config?.provider === 'google' ? 'selected' : ''}>Google</option>
-          <option value="anthropic" ${step.config?.provider === 'anthropic' ? 'selected' : ''}>Anthropic</option>
-          <option value="local" ${step.config?.provider === 'local' ? 'selected' : ''}>Local LLM</option>
-        </select></div>
-        <div class="step-editor-row"><label>Model</label><input data-field="model" value="${escapeHtml(step.config?.model || '')}" placeholder="e.g. gpt-5.2" /></div>
-      </details>
     `;
   } else if (step.connector === 'save') {
     const savePaths = (typeof savePathIntegrations !== 'undefined') ? savePathIntegrations : [];
@@ -1075,6 +1100,30 @@ function showStepEditor(index) {
     if (wsSelect.value) {
       populateSlackTargets(wsSelect.value);
     }
+  }
+
+  // LLM provider change → update model dropdown
+  const llmProviderSelect = editorEl.querySelector('.llm-provider-select');
+  if (llmProviderSelect) {
+    llmProviderSelect.addEventListener('change', () => {
+      const newProvider = llmProviderSelect.value;
+      const modelSelect = editorEl.querySelector('.llm-model-select');
+      if (!modelSelect) return;
+      let opts = '';
+      if (newProvider === 'local') {
+        const models = (typeof llmModelsData !== 'undefined') ? llmModelsData.filter(m => m.downloaded) : [];
+        opts = models.map(m =>
+          `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)} (${escapeHtml(m.params)})</option>`
+        ).join('');
+        if (models.length === 0) {
+          opts = '<option value="" disabled>No local models downloaded</option>';
+        }
+      } else {
+        const models = CLOUD_MODELS[newProvider] || [];
+        opts = models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+      }
+      modelSelect.innerHTML = opts;
+    });
   }
 
   // Connector change → re-render config fields

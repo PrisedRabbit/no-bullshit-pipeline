@@ -10,10 +10,8 @@ const AUDIT_ELEMENTS = [
   { id: 'status-indicator',          desc: 'Status indicator dot' },
   { id: 'timer',                     desc: 'Timer display' },
   { id: 'permission-warning',        desc: 'Permission warning banner' },
-  // Sidebar
+  // App bar
   { id: 'settings-btn',              desc: 'Settings button' },
-  { id: 'sidebar-pipelines-btn',     desc: 'Pipelines sidebar nav' },
-  { id: 'sidebar-templates-btn',     desc: 'Templates sidebar nav' },
   // Settings view
   { id: 'settings-view',             desc: 'Settings view section' },
   { id: 'settings-tabs',             desc: 'Settings tab bar' },
@@ -180,9 +178,7 @@ function initHealthCheck() {
 const WALKTHROUGH_STEPS = [
   { selector: '#pipeline-chip-bar',     title: 'Pipeline Chips',    desc: 'Click any chip to instantly start recording with that pipeline pre-assigned. No menus, no navigation.' },
   { selector: '#record-toggle-btn',     title: 'Record Button',     desc: 'Start or stop recording. When a recording is selected, this plays it back instead.' },
-  { selector: '#sidebar-pipelines-btn', title: 'Pipelines',         desc: 'Open Settings > Pipelines to create multi-step AI processing pipelines with drag-and-drop.' },
-  { selector: '#sidebar-templates-btn', title: 'Templates',         desc: 'Open Settings > Templates to create reusable AI prompt templates.' },
-  { selector: '#settings-btn',          title: 'Settings',          desc: 'Configure audio, integrations (Notion, Slack), pipelines, and appearance.' },
+  { selector: '#settings-btn',          title: 'Settings',          desc: 'Configure audio, pipelines, templates, integrations (Notion, Slack), and appearance.' },
   { selector: '#recordings-list',       title: 'Recordings',        desc: 'All your recordings appear here. Click any recording to open its detail view with transcript and pipeline status.' },
 ];
 
