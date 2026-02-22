@@ -1225,19 +1225,49 @@ fn update_pipeline_state(
 /// Read pipeline states directly from metadata JSON file on disk.
 /// This avoids the RecordingMetadata struct (which doesn't include a pipelines field)
 /// by reading the raw JSON and extracting the pipeline states.
+///
+/// Migrates old entries that lack an `id` field: assigns a stable UUID and persists it,
+/// so subsequent reads (e.g. delete) can match by the same ID.
 fn read_pipeline_states(recording_id: &str) -> Vec<PipelineState> {
     let recording_dir = get_data_dir().join(recording_id);
     let metadata_path = recording_dir.join("metadata.json");
 
-    if let Ok(content) = fs::read_to_string(&metadata_path)
-        && let Ok(json) = serde_json::from_str::<serde_json::Value>(&content)
-        && let Some(pipelines) = json.get("pipelines")
-        && let Ok(states) = serde_json::from_value::<Vec<PipelineState>>(pipelines.clone())
-    {
-        return states;
+    let Ok(content) = fs::read_to_string(&metadata_path) else { return Vec::new() };
+    let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) else { return Vec::new() };
+    let Some(pipelines) = json.get("pipelines") else { return Vec::new() };
+
+    // Backfill missing `id` fields so serde default doesn't generate a new UUID each read
+    if let Some(arr) = pipelines.as_array() {
+        let needs_migration = arr.iter().any(|e| {
+            e.get("id").and_then(|v| v.as_str()).map_or(true, |s| s.is_empty())
+        });
+        if needs_migration {
+            let mut migrated = arr.clone();
+            for entry in &mut migrated {
+                let missing = entry.get("id").and_then(|v| v.as_str()).map_or(true, |s| s.is_empty());
+                if missing {
+                    if let Some(obj) = entry.as_object_mut() {
+                        obj.insert("id".to_string(), serde_json::Value::String(uuid::Uuid::new_v4().to_string()));
+                    }
+                }
+            }
+            json["pipelines"] = serde_json::Value::Array(migrated);
+            // Persist the backfilled IDs (best-effort, with lock)
+            let lock_path = recording_dir.join(".metadata.lock");
+            if let Ok(_lock) = FileLockGuard::acquire(&lock_path) {
+                if let Ok(updated) = serde_json::to_string_pretty(&json) {
+                    let temp_path = metadata_path.with_extension("json.tmp");
+                    if fs::write(&temp_path, &updated).is_ok() {
+                        let _ = fs::rename(&temp_path, &metadata_path);
+                    }
+                }
+            }
+        }
     }
 
-    Vec::new()
+    json.get("pipelines")
+        .and_then(|v| serde_json::from_value::<Vec<PipelineState>>(v.clone()).ok())
+        .unwrap_or_default()
 }
 
 /// Execute a pipeline (Tauri command)

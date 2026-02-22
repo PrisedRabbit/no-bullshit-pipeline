@@ -610,6 +610,7 @@ async function renderPipelineStatus(recordingId) {
           await invoke('remove_pipeline_run', { recordingId, runId });
         } catch (err) {
           console.error('Failed to delete pipeline run:', err);
+          showToast('Failed to delete run: ' + err, 'error');
         }
         await loadRecordings();
         if (selectedRecordingId === recordingId) {
