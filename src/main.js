@@ -2238,10 +2238,10 @@ async function loadTemplates() {
 // ===== INIT =====
 async function init() {
   await loadSettings();
+  await loadPipelineDefs();
   await loadRecordings();
   await loadTemplates();
   await loadPromptTemplates();
-  await loadPipelineDefs();
   await loadSlackIntegrations();
   try {
     const version = await invoke("get_app_version");
