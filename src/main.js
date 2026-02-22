@@ -861,6 +861,7 @@ async function renderRecordingPipelineCards(container, recordingId) {
       }
       renderRecordingPipelineCards(container, recordingId);
       if (typeof renderPipelineChips === 'function') renderPipelineChips();
+      renderPipelineStatus(recordingId);
     });
 
     container.appendChild(card);
