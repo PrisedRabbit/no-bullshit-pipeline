@@ -52,6 +52,7 @@ mod pipeline_engine;
 mod transcript_migration;
 mod integrations;
 pub mod local_llm;
+pub mod realtime_transcription;
 use audio::AudioState;
 use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
 use tauri::Manager;
