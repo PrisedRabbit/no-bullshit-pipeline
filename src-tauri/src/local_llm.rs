@@ -394,3 +394,288 @@ pub fn summarize_with_local(text: &str) -> Result<String, String> {
     );
     run_inference(&prompt, 4096)
 }
+
+// ── Model Freshness Check ──────────────────────────────────────────────────
+
+const OLLAMA_DEFAULT_URL: &str = "http://localhost:11434";
+const OLLAMA_REGISTRY_URL: &str = "https://registry.ollama.ai";
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ModelFreshnessInfo {
+    pub model_id: String,
+    pub model_name: String,
+    pub source: String,
+    pub update_available: bool,
+    pub local_size: Option<u64>,
+    pub remote_size: Option<u64>,
+    pub local_digest: Option<String>,
+    pub remote_digest: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct OllamaTagsResponse {
+    models: Vec<OllamaModelTag>,
+}
+
+#[derive(Deserialize)]
+struct OllamaModelTag {
+    name: String,
+    digest: String,
+    size: u64,
+}
+
+#[derive(Deserialize)]
+struct RegistryTokenResponse {
+    token: String,
+}
+
+async fn check_gguf_freshness() -> Vec<ModelFreshnessInfo> {
+    let models_dir = get_llm_models_dir();
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+
+    let checks: Vec<_> = MODELS
+        .iter()
+        .filter_map(|model| {
+            let local_path = models_dir.join(model.filename);
+            if !local_path.exists() {
+                return None;
+            }
+            let local_size = std::fs::metadata(&local_path).map(|m| m.len()).unwrap_or(0);
+            Some((model, local_size))
+        })
+        .collect();
+
+    let futures: Vec<_> = checks
+        .into_iter()
+        .map(|(model, local_size)| {
+            let client = client.clone();
+            async move {
+                let mut info = ModelFreshnessInfo {
+                    model_id: model.id.to_string(),
+                    model_name: model.name.to_string(),
+                    source: "gguf".to_string(),
+                    update_available: false,
+                    local_size: Some(local_size),
+                    remote_size: None,
+                    local_digest: None,
+                    remote_digest: None,
+                    error: None,
+                };
+
+                match client.head(model.url).send().await {
+                    Ok(resp) if resp.status().is_success() => {
+                        if let Some(len) = resp.content_length() {
+                            info.remote_size = Some(len);
+                            info.update_available = len != local_size;
+                        }
+                    }
+                    Ok(resp) => {
+                        info.error = Some(format!("HTTP {}", resp.status()));
+                    }
+                    Err(e) => {
+                        info.error = Some(e.to_string());
+                    }
+                }
+
+                info
+            }
+        })
+        .collect();
+
+    futures_util::future::join_all(futures).await
+}
+
+fn parse_ollama_model_ref(name: &str) -> (String, String) {
+    let (name_part, tag) = match name.rfind(':') {
+        Some(idx) => (&name[..idx], &name[idx + 1..]),
+        None => (name, "latest"),
+    };
+
+    let namespace_name = if name_part.contains('/') {
+        name_part.to_string()
+    } else {
+        format!("library/{}", name_part)
+    };
+
+    (namespace_name, tag.to_string())
+}
+
+fn parse_www_authenticate(header: &str) -> Result<(String, String, String), String> {
+    let stripped = header
+        .strip_prefix("Bearer ")
+        .ok_or("Not Bearer auth")?;
+
+    let mut realm = String::new();
+    let mut service = String::new();
+    let mut scope = String::new();
+
+    for part in stripped.split(',') {
+        let part = part.trim();
+        if let Some(val) = part.strip_prefix("realm=\"") {
+            realm = val.trim_end_matches('"').to_string();
+        } else if let Some(val) = part.strip_prefix("service=\"") {
+            service = val.trim_end_matches('"').to_string();
+        } else if let Some(val) = part.strip_prefix("scope=\"") {
+            scope = val.trim_end_matches('"').to_string();
+        }
+    }
+
+    if realm.is_empty() {
+        return Err("Missing realm in WWW-Authenticate".to_string());
+    }
+
+    Ok((realm, service, scope))
+}
+
+fn normalize_digest(digest: &str) -> &str {
+    digest.strip_prefix("sha256:").unwrap_or(digest)
+}
+
+async fn get_registry_digest(
+    client: &reqwest::Client,
+    name: &str,
+    tag: &str,
+) -> Result<String, String> {
+    let url = format!("{}/v2/{}/manifests/{}", OLLAMA_REGISTRY_URL, name, tag);
+    let accept = "application/vnd.docker.distribution.manifest.v2+json";
+
+    let resp = client
+        .head(&url)
+        .header("Accept", accept)
+        .send()
+        .await
+        .map_err(|e| format!("Registry request failed: {}", e))?;
+
+    if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+        let www_auth = resp
+            .headers()
+            .get("www-authenticate")
+            .and_then(|v| v.to_str().ok())
+            .ok_or("Missing WWW-Authenticate header")?
+            .to_string();
+
+        let (realm, service, scope) = parse_www_authenticate(&www_auth)?;
+
+        let token_url = if scope.is_empty() {
+            format!("{}?service={}", realm, service)
+        } else {
+            format!("{}?service={}&scope={}", realm, service, scope)
+        };
+
+        let token_resp: RegistryTokenResponse = client
+            .get(&token_url)
+            .send()
+            .await
+            .map_err(|e| format!("Token request failed: {}", e))?
+            .json()
+            .await
+            .map_err(|e| format!("Token parse failed: {}", e))?;
+
+        let resp = client
+            .head(&url)
+            .header("Accept", accept)
+            .header("Authorization", format!("Bearer {}", token_resp.token))
+            .send()
+            .await
+            .map_err(|e| format!("Authenticated request failed: {}", e))?;
+
+        if !resp.status().is_success() {
+            return Err(format!("Registry returned HTTP {}", resp.status()));
+        }
+
+        return resp
+            .headers()
+            .get("docker-content-digest")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string())
+            .ok_or_else(|| "No Docker-Content-Digest header".to_string());
+    }
+
+    if !resp.status().is_success() {
+        return Err(format!("Registry returned HTTP {}", resp.status()));
+    }
+
+    resp.headers()
+        .get("docker-content-digest")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "No Docker-Content-Digest header".to_string())
+}
+
+async fn check_ollama_freshness() -> Result<Vec<ModelFreshnessInfo>, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let tags: OllamaTagsResponse = client
+        .get(format!("{}/api/tags", OLLAMA_DEFAULT_URL))
+        .send()
+        .await
+        .map_err(|e| format!("Ollama not reachable: {}", e))?
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Ollama response: {}", e))?;
+
+    let futures: Vec<_> = tags
+        .models
+        .into_iter()
+        .map(|model| {
+            let client = client.clone();
+            async move {
+                let (name, tag) = parse_ollama_model_ref(&model.name);
+                let local_digest = normalize_digest(&model.digest).to_string();
+
+                let mut info = ModelFreshnessInfo {
+                    model_id: model.name.clone(),
+                    model_name: model.name.clone(),
+                    source: "ollama".to_string(),
+                    update_available: false,
+                    local_size: Some(model.size),
+                    remote_size: None,
+                    local_digest: Some(local_digest.clone()),
+                    remote_digest: None,
+                    error: None,
+                };
+
+                match get_registry_digest(&client, &name, &tag).await {
+                    Ok(remote_digest) => {
+                        let normalized = normalize_digest(&remote_digest).to_string();
+                        info.remote_digest = Some(normalized.clone());
+                        info.update_available = local_digest != normalized;
+                    }
+                    Err(e) => {
+                        info.error = Some(e);
+                    }
+                }
+
+                info
+            }
+        })
+        .collect();
+
+    Ok(futures_util::future::join_all(futures).await)
+}
+
+#[tauri::command]
+pub async fn check_model_freshness() -> Result<Vec<ModelFreshnessInfo>, String> {
+    let (gguf_results, ollama_results) = futures_util::future::join(
+        check_gguf_freshness(),
+        check_ollama_freshness(),
+    )
+    .await;
+
+    let mut results = gguf_results;
+    if let Ok(ollama) = ollama_results {
+        results.extend(ollama);
+    }
+
+    Ok(results)
+}
