@@ -55,10 +55,10 @@ async function refreshAllProviderModels() {
       fetches.push(fetchProviderModels(provider));
     }
   }
-  if (fetches.length > 0) {
-    await Promise.all(fetches);
-    renderProcessingProviders();
-  }
+  // Ollama is local — no API key needed
+  fetches.push(fetchProviderModels('ollama'));
+  await Promise.all(fetches);
+  renderProcessingProviders();
   providerModelsFetching = false;
 }
 
@@ -83,11 +83,14 @@ function renderProviderModelsList(providerId) {
       const bg = CAP_COLORS[c] || 'rgba(148,163,184,0.2)';
       return `<span class="provider-model-cap" style="background:${bg}">${escapeHtml(c)}</span>`;
     }).join('');
+    const deprecatedBadge = m.deprecated
+      ? '<span class="provider-model-cap" style="background:rgba(239,68,68,0.25);color:rgba(239,68,68,0.9)">deprecated</span>'
+      : '';
     const displayName = m.name !== m.id ? escapeHtml(m.name) : '';
-    return `<div class="provider-model-item">
+    return `<div class="provider-model-item"${m.deprecated ? ' style="opacity:0.55"' : ''}>
       <span class="provider-model-id">${escapeHtml(m.id)}</span>
       ${displayName ? `<span class="provider-model-name">${displayName}</span>` : ''}
-      ${capBadges}
+      ${capBadges}${deprecatedBadge}
     </div>`;
   }).join('');
 
@@ -140,6 +143,21 @@ function renderProcessingProviders() {
 
   const hasAnyKey = providers.some(p => !!(apiKeys[p.id]));
 
+  // Ollama card (local — no API key)
+  const ollamaModelsHtml = renderProviderModelsList('ollama');
+  const ollamaCard = `
+    <div class="provider-card-wrapper">
+      <div class="provider-card" data-provider="ollama">
+        <div class="provider-card-icon ollama" style="background:rgba(139,92,246,0.15);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:var(--accent-color);">O</div>
+        <div class="provider-card-info">
+          <div class="provider-card-name">Ollama</div>
+          <div class="provider-card-detail">Local models via Ollama</div>
+        </div>
+      </div>
+      ${ollamaModelsHtml}
+    </div>
+  `;
+
   el.innerHTML = providers.map(p => {
     const key = apiKeys[p.id] || '';
     const hasKey = !!key;
@@ -181,7 +199,7 @@ function renderProcessingProviders() {
         ${modelsHtml}
       </div>
     `;
-  }).join('') + (hasAnyKey ? `<button class="mini-action-btn refresh-provider-models-btn" style="align-self:flex-start;margin-top:4px;font-size:0.75rem;">Refresh Models</button>` : '');
+  }).join('') + ollamaCard + `<button class="mini-action-btn refresh-provider-models-btn" style="align-self:flex-start;margin-top:4px;font-size:0.75rem;">Refresh Models</button>`;
 
   // Wire Refresh Models button
   const refreshBtn = el.querySelector('.refresh-provider-models-btn');
@@ -207,6 +225,11 @@ function renderProcessingProviders() {
       if (!appSettings.transcription.api_keys) appSettings.transcription.api_keys = {};
       appSettings.transcription.api_keys[providerId] = value || null;
 
+      // Clear cached models when key is removed
+      if (!value) {
+        delete providerModels[providerId];
+      }
+
       btn.disabled = true;
       btn.textContent = '...';
       try {
@@ -226,6 +249,7 @@ function renderProcessingProviders() {
             fetchProviderModels(providerId).then(() => renderProcessingProviders());
           } else {
             delete window.__nbpValidatedKeys[providerId];
+            delete providerModels[providerId];
           }
         }
         renderProcessingProviders();

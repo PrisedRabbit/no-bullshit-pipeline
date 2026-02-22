@@ -6,6 +6,7 @@ pub struct ProviderModel {
     pub id: String,
     pub name: String,
     pub capabilities: Vec<String>,
+    pub deprecated: bool,
 }
 
 // ===== OpenAI =====
@@ -22,15 +23,17 @@ struct OpenAIModel {
 }
 
 fn openai_capabilities(id: &str) -> Option<Vec<String>> {
-    if id.starts_with("gpt-")
+    // Check transcription patterns first — models like gpt-4o-transcribe must
+    // not be caught by the broad gpt-* chat prefix below.
+    if id.starts_with("whisper-") || id.contains("-transcribe") {
+        Some(vec!["transcription".to_string()])
+    } else if id.starts_with("gpt-")
         || id.starts_with("o1-")
         || id.starts_with("o3-")
         || id.starts_with("o4-")
         || id.starts_with("chatgpt-")
     {
         Some(vec!["chat".to_string()])
-    } else if id.starts_with("whisper-") {
-        Some(vec!["transcription".to_string()])
     } else if id.starts_with("text-embedding-") {
         Some(vec!["embedding".to_string()])
     } else if id.starts_with("tts-") {
@@ -70,6 +73,7 @@ async fn fetch_openai_models(api_key: &str) -> Result<Vec<ProviderModel>, String
                 name: m.id.clone(),
                 id: m.id,
                 capabilities: caps,
+                deprecated: false,
             })
         })
         .collect();
@@ -114,10 +118,15 @@ async fn fetch_anthropic_models(api_key: &str) -> Result<Vec<ProviderModel>, Str
     let models = body
         .data
         .into_iter()
-        .map(|m| ProviderModel {
-            name: m.display_name,
-            id: m.id,
-            capabilities: vec!["chat".to_string()],
+        .map(|m| {
+            let deprecated =
+                m.id.starts_with("claude-2") || m.id.starts_with("claude-instant");
+            ProviderModel {
+                name: m.display_name,
+                id: m.id,
+                capabilities: vec!["chat".to_string()],
+                deprecated,
+            }
         })
         .collect();
 
@@ -187,10 +196,60 @@ async fn fetch_google_models(api_key: &str) -> Result<Vec<ProviderModel>, String
                 name: m.display_name,
                 id,
                 capabilities: caps,
+                deprecated: false,
             })
         })
         .collect();
 
+    Ok(models)
+}
+
+// ===== Ollama =====
+
+#[derive(Debug, Deserialize)]
+struct OllamaTagsResponse {
+    #[serde(default)]
+    models: Vec<OllamaModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaModel {
+    name: String,
+}
+
+async fn fetch_ollama_models() -> Result<Vec<ProviderModel>, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| format!("Client error: {}", e))?;
+
+    let response = client
+        .get("http://localhost:11434/api/tags")
+        .send()
+        .await
+        .map_err(|e| format!("Cannot reach Ollama (is it running?): {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Ollama API error ({})", response.status()));
+    }
+
+    let body: OllamaTagsResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    let mut models: Vec<ProviderModel> = body
+        .models
+        .into_iter()
+        .map(|m| ProviderModel {
+            name: m.name.clone(),
+            id: m.name,
+            capabilities: vec!["chat".to_string()],
+            deprecated: false,
+        })
+        .collect();
+
+    models.sort_by(|a, b| a.id.cmp(&b.id));
     Ok(models)
 }
 
@@ -223,6 +282,7 @@ pub async fn fetch_provider_models(provider: String) -> Result<Vec<ProviderModel
                 .ok_or("Google API key not configured")?;
             fetch_google_models(key).await
         }
+        "ollama" => fetch_ollama_models().await,
         other => Err(format!("Unknown provider: {}", other)),
     }
 }

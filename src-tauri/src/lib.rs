@@ -238,7 +238,6 @@ pub fn run() {
             local_llm::get_llm_models_info,
             local_llm::download_llm_model,
             local_llm::delete_llm_model,
-            local_llm::check_all_llm_freshness,
             // Provider models
             cloud_ai::models::fetch_provider_models,
         ])
