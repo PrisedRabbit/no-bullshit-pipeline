@@ -824,40 +824,47 @@ body.detail-open .detail-view {
 
 .recording-pipeline-tags {
   display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recording-pipeline-entry {
+  display: flex;
+  align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  padding: 2px 0;
 }
 
-.pipeline-tag {
-  font-size: 0.68rem;
+.recording-pipeline-name {
+  font-size: 0.67rem;
   font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 100px;
-  border: 1px solid var(--border);
   letter-spacing: 0.2px;
-}
-
-.pipeline-tag.tag-done {
-  color: var(--success);
-  background: rgba(16, 185, 129, 0.1);
-  border-color: rgba(16, 185, 129, 0.3);
-}
-
-.pipeline-tag.tag-partial {
-  color: #f59e0b;
-  background: rgba(245, 158, 11, 0.1);
-  border-color: rgba(245, 158, 11, 0.3);
-}
-
-.pipeline-tag.tag-running {
-  color: var(--accent);
-  background: var(--accent-soft);
-  border-color: var(--accent);
-}
-
-.pipeline-tag.tag-waiting {
+  white-space: nowrap;
   color: var(--text-secondary);
-  background: var(--bg-input);
+}
+
+.recording-pipeline-entry.tag-done .recording-pipeline-name { color: var(--success); }
+.recording-pipeline-entry.tag-partial .recording-pipeline-name { color: #f59e0b; }
+.recording-pipeline-entry.tag-running .recording-pipeline-name { color: var(--accent); }
+.recording-pipeline-entry.tag-waiting .recording-pipeline-name { color: var(--text-muted, var(--text-secondary)); opacity: 0.6; }
+
+.recording-pipeline-entry .pflow--compact {
+  opacity: 0.85;
+}
+
+.recording-pipeline-entry .pflow--compact .pflow-chip-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.recording-pipeline-entry .pflow--compact .pflow-chip-icon svg {
+  width: 10px;
+  height: 10px;
+}
+
+.recording-pipeline-entry .pflow--compact .pflow-chip-icon img {
+  width: 10px;
+  height: 10px;
 }
 
 .recording-item.recording-active {

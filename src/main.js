@@ -770,10 +770,14 @@ function renderRecordingsList() {
     const safeTitle = escapeHtml(rec.title || "Untitled");
     const safeId = escapeHtml(rec.id);
 
-    // Pipeline tags
+    // Pipeline tags with step chips
     const pipelineTags = (rec.pipelines || []).map(p => {
       const statusClass = p.status === 'Done' ? 'tag-done' : p.status === 'Partial' ? 'tag-partial' : p.status === 'Running' ? 'tag-running' : 'tag-waiting';
-      return `<span class="pipeline-tag ${statusClass}">${escapeHtml(p.name)}</span>`;
+      const def = typeof allPipelineDefs !== 'undefined' ? allPipelineDefs.find(d => d.name === p.name) : null;
+      const flowHtml = def && def.steps && def.steps.length > 0 && typeof renderPipelineFlowHTML !== 'undefined'
+        ? renderPipelineFlowHTML(def.steps, { compact: true })
+        : '';
+      return `<div class="recording-pipeline-entry ${statusClass}"><span class="recording-pipeline-name">${escapeHtml(p.name)}</span>${flowHtml}</div>`;
     }).join('');
 
     const deleteDisabled = isCurrentlyRecording || isProcessing;
