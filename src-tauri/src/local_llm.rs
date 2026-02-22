@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Sha256, Digest};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Instant;
@@ -127,6 +128,27 @@ fn remove_etag(models_dir: &Path, filename: &str) {
     let _ = std::fs::remove_file(etag_sidecar_path(models_dir, filename));
 }
 
+/// Compute the SHA-256 hash of a local file (matches HuggingFace LFS OID).
+async fn compute_file_sha256(path: &Path) -> Result<String, String> {
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        use std::io::Read;
+        let mut file = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+        let mut hasher = Sha256::new();
+        let mut buf = vec![0u8; 1024 * 1024]; // 1 MB chunks
+        loop {
+            let n = file.read(&mut buf).map_err(|e| e.to_string())?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+        }
+        Ok(format!("{:x}", hasher.finalize()))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Fetch the remote ETag for a HuggingFace model URL.
 /// Uses a HEAD request without following redirects to get X-Linked-Etag
 /// (the LFS content hash) from the HuggingFace 302 response.
@@ -160,33 +182,8 @@ pub async fn check_all_llm_freshness() -> Result<FreshnessResult, String> {
             continue;
         }
 
-        let cached_etag = match read_etag(&models_dir, model_def.filename) {
-            Some(etag) => etag,
-            None => {
-                results.push(ModelFreshness {
-                    model_id: model_def.id.to_string(),
-                    status: "unknown".to_string(),
-                    error: Some("No cached version info — re-download to enable freshness tracking".to_string()),
-                });
-                failed += 1;
-                continue;
-            }
-        };
-
-        match fetch_remote_etag(model_def.url).await {
-            Ok(remote_etag) => {
-                let status = if cached_etag.trim() == remote_etag.trim() {
-                    "up_to_date"
-                } else {
-                    "update_available"
-                };
-                results.push(ModelFreshness {
-                    model_id: model_def.id.to_string(),
-                    status: status.to_string(),
-                    error: None,
-                });
-                checked += 1;
-            }
+        let remote_etag = match fetch_remote_etag(model_def.url).await {
+            Ok(etag) => etag,
             Err(e) => {
                 results.push(ModelFreshness {
                     model_id: model_def.id.to_string(),
@@ -194,8 +191,43 @@ pub async fn check_all_llm_freshness() -> Result<FreshnessResult, String> {
                     error: Some(e),
                 });
                 failed += 1;
+                continue;
             }
-        }
+        };
+
+        let local_etag = match read_etag(&models_dir, model_def.filename) {
+            Some(etag) => etag,
+            None => {
+                // No cached ETag — compute SHA-256 of local file to compare
+                match compute_file_sha256(&local_path).await {
+                    Ok(hash) => {
+                        save_etag(&models_dir, model_def.filename, &hash);
+                        hash
+                    }
+                    Err(e) => {
+                        results.push(ModelFreshness {
+                            model_id: model_def.id.to_string(),
+                            status: "unknown".to_string(),
+                            error: Some(format!("Failed to hash local file: {}", e)),
+                        });
+                        failed += 1;
+                        continue;
+                    }
+                }
+            }
+        };
+
+        let status = if local_etag.trim() == remote_etag.trim() {
+            "up_to_date"
+        } else {
+            "update_available"
+        };
+        results.push(ModelFreshness {
+            model_id: model_def.id.to_string(),
+            status: status.to_string(),
+            error: None,
+        });
+        checked += 1;
     }
 
     Ok(FreshnessResult {
