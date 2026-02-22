@@ -3566,7 +3566,7 @@ body.light .connections-group-header {
 .pipeline-card.is-flying::after { opacity: 0 !important; }
 
 /* Recording: two-column layout — left=info, right=pipeline panel */
-body.is-recording-active .detail-container {
+body.is-recording-active #detail-view .detail-container {
   flex-direction: row;
   align-items: flex-start;
   gap: 2rem;

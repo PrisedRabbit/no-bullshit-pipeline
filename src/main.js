@@ -1028,10 +1028,8 @@ window.showDetailView = async (id) => {
   const contentGrid = document.getElementById('detail-content-grid');
   if (contentGrid) contentGrid.style.display = hideContent ? 'none' : 'flex';
 
-  // Render pipeline status (runs in parallel with transcript loading — no await needed)
-  if (!hideContent) {
-    renderPipelineStatus(id);
-  }
+  // Render pipeline status (shown during recording and after)
+  renderPipelineStatus(id);
 
   // Load Transcript only if not recording/processing
   if (!hideContent && detailTranscriptEl) {
