@@ -94,15 +94,14 @@ impl CloudTranscriber {
 
     pub fn stop(&mut self) {
         self.should_stop.store(true, Ordering::Relaxed);
-        if let Some(handle) = self.task_handle.take() {
-            handle.abort();
-        }
+        // Don't abort — let the task observe the flag and shut down gracefully
+        // (flushes remaining audio, sends WebSocket close frame)
     }
 }
 
 impl Drop for CloudTranscriber {
     fn drop(&mut self) {
-        self.stop();
+        self.should_stop.store(true, Ordering::Relaxed);
     }
 }
 
@@ -117,15 +116,13 @@ fn build_session_update(model: &str, language: Option<&str>) -> String {
 
     let event = serde_json::json!({
         "type": "transcription_session.update",
-        "session": {
-            "input_audio_format": "pcm16",
-            "input_audio_transcription": transcription,
-            "turn_detection": {
-                "type": "server_vad",
-                "threshold": 0.5,
-                "prefix_padding_ms": 300,
-                "silence_duration_ms": 500,
-            },
+        "input_audio_format": "pcm16",
+        "input_audio_transcription": transcription,
+        "turn_detection": {
+            "type": "server_vad",
+            "threshold": 0.5,
+            "prefix_padding_ms": 300,
+            "silence_duration_ms": 500,
         },
     });
     event.to_string()
@@ -204,6 +201,8 @@ async fn run_cloud_transcription(
         tokio::time::Duration::from_millis(AUDIO_CHUNK_INTERVAL_MS),
     );
 
+    let mut loop_error: Option<String> = None;
+
     loop {
         if should_stop.load(Ordering::Relaxed) {
             break;
@@ -259,7 +258,7 @@ async fn run_cloud_transcription(
                 }).to_string();
 
                 if let Err(e) = ws_write.send(tungstenite::Message::Text(msg.into())).await {
-                    eprintln!("Failed to send audio: {}", e);
+                    loop_error = Some(format!("Failed to send audio: {}", e));
                     break;
                 }
             }
@@ -273,10 +272,11 @@ async fn run_cloud_transcription(
                         break;
                     }
                     Some(Err(e)) => {
-                        eprintln!("WebSocket read error: {}", e);
+                        loop_error = Some(format!("WebSocket read error: {}", e));
                         break;
                     }
                     None => {
+                        loop_error = Some("WebSocket connection closed unexpectedly".to_string());
                         break;
                     }
                     _ => {}
@@ -285,8 +285,28 @@ async fn run_cloud_transcription(
         }
     }
 
-    // Clean close
-    let _ = ws_write.send(tungstenite::Message::Close(None)).await;
+    // Flush remaining buffered audio and close gracefully (only if connection is still alive)
+    if loop_error.is_none() {
+        let remaining = std::mem::take(&mut resample_accum);
+        if !remaining.is_empty() {
+            if let Ok(output) = resampler.process_partial(Some(&[remaining]), None) {
+                if !output[0].is_empty() {
+                    let pcm_bytes = f32_to_pcm16_bytes(&output[0]);
+                    let b64 = BASE64.encode(&pcm_bytes);
+                    let msg = serde_json::json!({
+                        "type": "input_audio_buffer.append",
+                        "audio": b64,
+                    }).to_string();
+                    let _ = ws_write.send(tungstenite::Message::Text(msg.into())).await;
+                }
+            }
+        }
+        let _ = ws_write.send(tungstenite::Message::Close(None)).await;
+    }
+
+    if let Some(e) = loop_error {
+        return Err(e);
+    }
     Ok(())
 }
 
