@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Instant;
@@ -169,6 +170,13 @@ pub async fn download_llm_model(
         }
     }
 
+    // Hash the downloaded file and save sidecar
+    file.flush().await.map_err(|e| e.to_string())?;
+    drop(file);
+    if let Err(e) = compute_and_cache_sha256(&file_path) {
+        eprintln!("Warning: failed to cache SHA-256 sidecar: {}", e);
+    }
+
     Ok(file_path.to_string_lossy().to_string())
 }
 
@@ -183,6 +191,11 @@ pub fn delete_llm_model(model_id: String) -> Result<(), String> {
     if file_path.exists() {
         std::fs::remove_file(&file_path).map_err(|e| e.to_string())?;
     }
+    // Remove SHA-256 sidecar if it exists
+    let sidecar = sha256_sidecar_path(&file_path);
+    if sidecar.exists() {
+        let _ = std::fs::remove_file(&sidecar);
+    }
 
     // If this was the selected model, clear the selection
     let mut settings = load_settings();
@@ -193,6 +206,146 @@ pub fn delete_llm_model(model_id: String) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+// ── Freshness Check ─────────────────────────────────────────────────────────
+
+fn sha256_sidecar_path(model_path: &PathBuf) -> PathBuf {
+    model_path.with_extension("gguf.sha256")
+}
+
+/// Compute SHA-256 of a file using streaming reads (no full-file allocation).
+fn compute_sha256(path: &PathBuf) -> Result<String, String> {
+    use sha2::{Sha256, Digest};
+    use std::io::Read;
+
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut reader = std::io::BufReader::with_capacity(8 * 1024 * 1024, file);
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 8 * 1024 * 1024];
+    loop {
+        let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 { break; }
+        hasher.update(&buf[..n]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+/// Compute SHA-256 and write to sidecar file.
+fn compute_and_cache_sha256(model_path: &PathBuf) -> Result<String, String> {
+    let hash = compute_sha256(model_path)?;
+    let sidecar = sha256_sidecar_path(model_path);
+    std::fs::write(&sidecar, &hash).map_err(|e| e.to_string())?;
+    Ok(hash)
+}
+
+/// Read cached SHA-256 from sidecar, or compute + cache if missing.
+fn get_local_sha256(model_path: &PathBuf) -> Result<String, String> {
+    let sidecar = sha256_sidecar_path(model_path);
+    if sidecar.exists() {
+        let cached = std::fs::read_to_string(&sidecar).map_err(|e| e.to_string())?;
+        let cached = cached.trim().to_string();
+        if cached.len() == 64 {
+            return Ok(cached);
+        }
+    }
+    compute_and_cache_sha256(model_path)
+}
+
+/// Fetch the remote SHA-256 from HuggingFace via HEAD request ETag header.
+fn fetch_remote_sha256(url: &str) -> Result<String, String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let res = client.head(url).send().map_err(|e| e.to_string())?;
+    if !res.status().is_success() {
+        return Err(format!("HEAD request failed: HTTP {}", res.status()));
+    }
+
+    let etag = res
+        .headers()
+        .get("etag")
+        .or_else(|| res.headers().get("x-linked-etag"))
+        .ok_or("No ETag header in response")?
+        .to_str()
+        .map_err(|e| e.to_string())?;
+
+    // HuggingFace ETag format: "sha256:abc123..." or "\"abc123...\""
+    let hash = etag.trim_matches('"');
+    let hash = hash.strip_prefix("sha256:").unwrap_or(hash);
+    Ok(hash.to_string())
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LlmFreshnessEntry {
+    pub status: String, // "up_to_date", "update_available", "error"
+    pub detail: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LlmFreshnessReport {
+    pub models: HashMap<String, LlmFreshnessEntry>,
+    pub checked: usize,
+    pub failed: usize,
+}
+
+#[tauri::command]
+pub fn check_all_llm_freshness() -> Result<LlmFreshnessReport, String> {
+    let models_dir = get_llm_models_dir();
+    let mut results: HashMap<String, LlmFreshnessEntry> = HashMap::new();
+    let mut checked: usize = 0;
+    let mut failed: usize = 0;
+
+    for model_def in MODELS {
+        let local_path = models_dir.join(model_def.filename);
+        if !local_path.exists() {
+            continue; // skip models that aren't downloaded
+        }
+
+        let local_hash = match get_local_sha256(&local_path) {
+            Ok(h) => h,
+            Err(e) => {
+                failed += 1;
+                results.insert(model_def.id.to_string(), LlmFreshnessEntry {
+                    status: "error".to_string(),
+                    detail: Some(format!("Local hash failed: {}", e)),
+                });
+                continue;
+            }
+        };
+
+        let remote_hash = match fetch_remote_sha256(model_def.url) {
+            Ok(h) => h,
+            Err(e) => {
+                failed += 1;
+                results.insert(model_def.id.to_string(), LlmFreshnessEntry {
+                    status: "error".to_string(),
+                    detail: Some(format!("Remote check failed: {}", e)),
+                });
+                continue;
+            }
+        };
+
+        checked += 1;
+        let status = if local_hash == remote_hash {
+            "up_to_date"
+        } else {
+            "update_available"
+        };
+
+        results.insert(model_def.id.to_string(), LlmFreshnessEntry {
+            status: status.to_string(),
+            detail: None,
+        });
+    }
+
+    Ok(LlmFreshnessReport {
+        models: results,
+        checked,
+        failed,
+    })
 }
 
 // ── Inference Engine ────────────────────────────────────────────────────────

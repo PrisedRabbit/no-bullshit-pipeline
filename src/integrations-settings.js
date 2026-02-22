@@ -268,6 +268,7 @@ function renderProcessingProviders() {
 
 // ===== LOCAL LLM MODELS =====
 var llmModelsData = [];
+var llmFreshnessData = {};
 
 async function renderLocalLlmModels() {
   const el = document.getElementById('local-llm-models-list');
@@ -296,6 +297,7 @@ async function renderLocalLlmModels() {
           <div class="provider-card-name">
             ${escapeHtml(m.name)}
             ${isSelected ? '<span style="font-size:0.7rem;color:var(--accent-color);margin-left:6px;">ACTIVE</span>' : ''}
+            ${llmFreshnessData[m.id]?.status === 'update_available' ? '<span style="font-size:0.6rem;color:#e6a700;background:rgba(230,167,0,0.12);padding:1px 6px;border-radius:3px;margin-left:6px;font-weight:600;">UPDATE AVAILABLE</span>' : ''}
           </div>
           <div class="provider-card-detail">${escapeHtml(m.desc)}</div>
           <div class="provider-card-detail" style="opacity:0.6;font-size:0.65rem;">${sizeStr} • Q4_K_M</div>
@@ -373,6 +375,7 @@ async function renderLocalLlmModels() {
 
       try {
         await invoke('delete_llm_model', { modelId });
+        delete llmFreshnessData[modelId];
         await invoke('download_llm_model', { modelId });
         await renderLocalLlmModels();
       } catch (err) {
@@ -393,6 +396,7 @@ async function renderLocalLlmModels() {
       if (!ok2) return;
       try {
         await invoke('delete_llm_model', { modelId });
+        delete llmFreshnessData[modelId];
         appSettings = await invoke('load_settings');
         await renderLocalLlmModels();
       } catch (err) {
@@ -416,6 +420,44 @@ if (window.__TAURI__?.event?.listen) {
     if (text) text.textContent = `${dlMB} / ${totalMB} MB (${percent.toFixed(1)}%)`;
   });
 }
+
+// Wire "Check for Updates" button
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.getElementById('llm-check-freshness-btn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const invoke = window.__TAURI__.core.invoke;
+    const statusEl = document.getElementById('llm-freshness-status');
+    btn.disabled = true;
+    btn.textContent = 'Checking...';
+    if (statusEl) statusEl.textContent = '';
+    try {
+      const report = await invoke('check_all_llm_freshness');
+      llmFreshnessData = report.models || {};
+      const updateCount = Object.values(llmFreshnessData).filter(v => v.status === 'update_available').length;
+      if (report.failed > 0 && report.checked === 0) {
+        showToast('Could not check for updates — network error', 'error');
+        if (statusEl) statusEl.textContent = `${report.failed} model(s) could not be checked`;
+      } else if (report.failed > 0) {
+        const msg = updateCount > 0
+          ? `${updateCount} update(s) available, ${report.failed} could not be checked`
+          : `${report.checked} checked, ${report.failed} could not be checked`;
+        if (statusEl) statusEl.textContent = msg;
+      } else if (updateCount > 0) {
+        if (statusEl) statusEl.textContent = `${updateCount} update(s) available`;
+      } else {
+        showToast('All models are up to date', 'success');
+        if (statusEl) statusEl.textContent = 'All up to date';
+      }
+      await renderLocalLlmModels();
+    } catch (err) {
+      showToast('Freshness check failed: ' + err, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Check for Updates';
+    }
+  });
+});
 
 async function loadNotionProfiles() {
   try {
