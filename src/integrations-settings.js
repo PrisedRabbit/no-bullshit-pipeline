@@ -32,6 +32,73 @@ async function loadAllIntegrations() {
   renderAvailableIntegrations();
 }
 
+// ===== PROVIDER MODELS =====
+var providerModels = {};
+var providerModelsFetching = false;
+
+async function fetchProviderModels(provider) {
+  try {
+    const models = await window.__TAURI__.core.invoke('fetch_provider_models', { provider });
+    providerModels[provider] = { models, error: null };
+  } catch (err) {
+    providerModels[provider] = { models: [], error: String(err) };
+  }
+}
+
+async function refreshAllProviderModels() {
+  if (providerModelsFetching) return;
+  providerModelsFetching = true;
+  const apiKeys = (appSettings && appSettings.transcription && appSettings.transcription.api_keys) || {};
+  const fetches = [];
+  for (const provider of ['openai', 'google', 'anthropic']) {
+    if (apiKeys[provider]) {
+      fetches.push(fetchProviderModels(provider));
+    }
+  }
+  if (fetches.length > 0) {
+    await Promise.all(fetches);
+    renderProcessingProviders();
+  }
+  providerModelsFetching = false;
+}
+
+function renderProviderModelsList(providerId) {
+  const data = providerModels[providerId];
+  if (!data) return '';
+  if (data.error) {
+    return `<div class="provider-models-section"><span class="provider-models-error">Failed to load models</span></div>`;
+  }
+  if (data.models.length === 0) return '';
+
+  const CAP_COLORS = {
+    chat: 'rgba(59,130,246,0.2)',
+    transcription: 'rgba(16,185,129,0.2)',
+    embedding: 'rgba(168,85,247,0.2)',
+    'text-to-speech': 'rgba(245,158,11,0.2)',
+    image: 'rgba(239,68,68,0.2)',
+  };
+
+  const chips = data.models.map(m => {
+    const capBadges = m.capabilities.map(c => {
+      const bg = CAP_COLORS[c] || 'rgba(148,163,184,0.2)';
+      return `<span class="provider-model-cap" style="background:${bg}">${escapeHtml(c)}</span>`;
+    }).join('');
+    const displayName = m.name !== m.id ? escapeHtml(m.name) : '';
+    return `<div class="provider-model-item">
+      <span class="provider-model-id">${escapeHtml(m.id)}</span>
+      ${displayName ? `<span class="provider-model-name">${displayName}</span>` : ''}
+      ${capBadges}
+    </div>`;
+  }).join('');
+
+  return `<div class="provider-models-section">
+    <div class="provider-models-header">
+      <span class="provider-models-count">${data.models.length} model${data.models.length !== 1 ? 's' : ''} available</span>
+    </div>
+    <div class="provider-models-list">${chips}</div>
+  </div>`;
+}
+
 // ===== RENDER PROCESSING PROVIDERS =====
 async function validateApiKey(provider, key) {
   try {
@@ -71,6 +138,8 @@ function renderProcessingProviders() {
     { id: 'anthropic', name: 'Anthropic', desc: 'Claude structured extraction', placeholder: 'sk-ant-...' },
   ];
 
+  const hasAnyKey = providers.some(p => !!(apiKeys[p.id]));
+
   el.innerHTML = providers.map(p => {
     const key = apiKeys[p.id] || '';
     const hasKey = !!key;
@@ -83,31 +152,46 @@ function renderProcessingProviders() {
       ? `<div class="provider-card-icon ${escapeHtml(p.id)}" style="background:${icon.bg};display:flex;align-items:center;justify-content:center;"><img src="${escapeHtml(icon.img)}" style="width:20px;height:20px;filter:${icon.filter}" /></div>`
       : `<div class="provider-card-icon ${escapeHtml(p.id)}">${escapeHtml(p.name[0])}</div>`;
 
+    const modelsHtml = renderProviderModelsList(p.id);
+
     return `
-      <div class="provider-card" data-provider="${escapeHtml(p.id)}">
-        ${iconHtml}
-        <div class="provider-card-info">
-          <div class="provider-card-name">
-            ${escapeHtml(p.name)}
-            <span class="provider-key-status-dot ${dotClass}" id="key-dot-${escapeHtml(p.id)}"></span>
+      <div class="provider-card-wrapper">
+        <div class="provider-card" data-provider="${escapeHtml(p.id)}">
+          ${iconHtml}
+          <div class="provider-card-info">
+            <div class="provider-card-name">
+              ${escapeHtml(p.name)}
+              <span class="provider-key-status-dot ${dotClass}" id="key-dot-${escapeHtml(p.id)}"></span>
+            </div>
+            <div class="provider-card-detail">${escapeHtml(p.desc)}</div>
           </div>
-          <div class="provider-card-detail">${escapeHtml(p.desc)}</div>
+          <div class="provider-card-input">
+            <input
+              id="settings-api-key-${escapeHtml(p.id)}"
+              type="password"
+              placeholder="${escapeHtml(p.placeholder)}"
+              class="settings-input-text"
+              value="${escapeHtml(displayValue)}"
+              data-original-key="${escapeHtml(key)}"
+              style="width: 200px;"
+            />
+            <button class="mini-action-btn provider-save-btn" data-provider="${escapeHtml(p.id)}">Save</button>
+          </div>
         </div>
-        <div class="provider-card-input">
-          <input
-            id="settings-api-key-${escapeHtml(p.id)}"
-            type="password"
-            placeholder="${escapeHtml(p.placeholder)}"
-            class="settings-input-text"
-            value="${escapeHtml(displayValue)}"
-            data-original-key="${escapeHtml(key)}"
-            style="width: 200px;"
-          />
-          <button class="mini-action-btn provider-save-btn" data-provider="${escapeHtml(p.id)}">Save</button>
-        </div>
+        ${modelsHtml}
       </div>
     `;
-  }).join('');
+  }).join('') + (hasAnyKey ? `<button class="mini-action-btn refresh-provider-models-btn" style="align-self:flex-start;margin-top:4px;font-size:0.75rem;">Refresh Models</button>` : '');
+
+  // Wire Refresh Models button
+  const refreshBtn = el.querySelector('.refresh-provider-models-btn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', async () => {
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = 'Refreshing...';
+      await refreshAllProviderModels();
+    });
+  }
 
   // Wire Save buttons
   el.querySelectorAll('.provider-save-btn').forEach(btn => {
@@ -138,6 +222,8 @@ function renderProcessingProviders() {
           if (!window.__nbpValidatedKeys) window.__nbpValidatedKeys = {};
           if (valid) {
             window.__nbpValidatedKeys[providerId] = value;
+            // Auto-fetch models after successful validation
+            fetchProviderModels(providerId).then(() => renderProcessingProviders());
           } else {
             delete window.__nbpValidatedKeys[providerId];
           }
@@ -1870,6 +1956,10 @@ function initIntegrationsSettings() {
     if ((modelsTab && modelsTab.classList.contains('active')) ||
         (intTab && intTab.classList.contains('active'))) {
       loadAllIntegrations();
+    }
+    // Auto-fetch provider models when models tab opens
+    if (modelsTab && modelsTab.classList.contains('active')) {
+      refreshAllProviderModels();
     }
   });
 
