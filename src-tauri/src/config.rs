@@ -18,6 +18,15 @@ pub enum TranscriptionProvider {
     Unknown,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub enum RealtimeTranscriptionProvider {
+    #[default]
+    Local,
+    OpenAI,
+    #[serde(other)]
+    Unknown,
+}
+
 /// API keys for cloud AI services
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct ApiKeys {
@@ -82,6 +91,15 @@ pub struct TranscriptionConfig {
     // Very old single-key legacy field — read-only for migration, never written
     #[serde(skip_serializing, default)]
     pub api_key: Option<String>,
+    /// Whether real-time (live) transcription is enabled
+    #[serde(default)]
+    pub realtime_enabled: bool,
+    /// Provider for real-time transcription (Local or OpenAI)
+    #[serde(default)]
+    pub realtime_provider: RealtimeTranscriptionProvider,
+    /// Model for real-time transcription (e.g. "base", "small" for local; "gpt-4o-mini-transcribe" for cloud)
+    #[serde(default)]
+    pub realtime_model: Option<String>,
 }
 
 impl Default for TranscriptionConfig {
@@ -92,6 +110,9 @@ impl Default for TranscriptionConfig {
             whisper_model: Some(WhisperModelSize::Base),
             api_keys: ApiKeys::default(),
             api_key: None,
+            realtime_enabled: false,
+            realtime_provider: RealtimeTranscriptionProvider::default(),
+            realtime_model: None,
         }
     }
 }
