@@ -818,6 +818,55 @@ function formatDuration(seconds) {
 
 
 
+// ===== RECORDING PIPELINE PRE-ASSIGNMENT =====
+async function renderRecordingPipelineCards(container, recordingId) {
+  container.innerHTML = '';
+  if (typeof allPipelineDefs === 'undefined' || allPipelineDefs.length === 0) return;
+
+  for (const p of allPipelineDefs) {
+    const isAssigned = currentAssignedPipelines.has(p.name);
+    const flowHtml = typeof renderPipelineFlowHTML !== 'undefined'
+      ? renderPipelineFlowHTML(p.steps || [], { compact: true })
+      : '';
+
+    const card = document.createElement('div');
+    card.className = `pipeline-card${isAssigned ? ' is-assigned' : ''}`;
+    card.dataset.pipeline = p.name;
+    card.style.cursor = 'pointer';
+
+    const badgeSvg = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+    card.innerHTML = `${flowHtml}<div class="pipeline-card-name">${escapeHtml(p.name)}</div>${isAssigned ? `<div class="pipeline-assigned-badge">${badgeSvg}</div>` : ''}`;
+
+    card.addEventListener('click', async () => {
+      const pipelineName = p.name;
+      try {
+        if (currentAssignedPipelines.has(pipelineName)) {
+          // Unassign: find the waiting run and remove it
+          currentAssignedPipelines.delete(pipelineName);
+          try {
+            const states = await invoke('get_all_pipeline_states', { recordingId });
+            const waitingRun = states.find(s => s.name === pipelineName && s.status === 'waiting');
+            if (waitingRun) {
+              await invoke('remove_pipeline_run', { recordingId, runId: waitingRun.id });
+            }
+          } catch (err) {
+            console.error('Failed to unassign pipeline:', err);
+          }
+        } else {
+          currentAssignedPipelines.add(pipelineName);
+          await invoke('assign_pipeline', { recordingId, pipelineName });
+        }
+      } catch (err) {
+        console.error('Failed to toggle pipeline assignment:', err);
+      }
+      renderRecordingPipelineCards(container, recordingId);
+      if (typeof renderPipelineChips === 'function') renderPipelineChips();
+    });
+
+    container.appendChild(card);
+  }
+}
+
 // ===== DETAIL VIEW =====
 window.showDetailView = async (id) => {
   const rec = allRecordings.find(r => r.id === id);
@@ -959,6 +1008,18 @@ window.showDetailView = async (id) => {
       });
     } else {
       detailPipelineAssignment.style.display = 'none';
+    }
+  }
+
+  // Show recording pipeline pre-assign panel when actively recording
+  const recordingPipelinePanel = document.getElementById('recording-pipeline-panel');
+  const recordingPipelineCardsEl = document.getElementById('recording-pipeline-cards');
+  if (recordingPipelinePanel && recordingPipelineCardsEl) {
+    if (isRecording && typeof allPipelineDefs !== 'undefined' && allPipelineDefs.length > 0) {
+      recordingPipelinePanel.style.display = '';
+      renderRecordingPipelineCards(recordingPipelineCardsEl, id);
+    } else {
+      recordingPipelinePanel.style.display = 'none';
     }
   }
 

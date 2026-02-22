@@ -3565,6 +3565,65 @@ body.light .connections-group-header {
 /* Pipeline card: hide hover overlay during fly */
 .pipeline-card.is-flying::after { opacity: 0 !important; }
 
+/* Recording: two-column layout — left=info, right=pipeline panel */
+body.is-recording-active .detail-container {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 2rem;
+}
+
+body.is-recording-active .detail-header-card {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Recording pipeline pre-assign panel (right column) */
+.recording-pipeline-panel {
+  display: none;
+  width: 260px;
+  flex-shrink: 0;
+}
+
+body.is-recording-active .recording-pipeline-panel {
+  display: block;
+}
+
+.recording-pipeline-cards {
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Assigned pipeline card state */
+.pipeline-card.is-assigned {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.pipeline-card.is-assigned::after {
+  content: '−';
+  font-size: 4rem;
+  font-weight: 300;
+}
+
+.pipeline-card.is-assigned:hover::after {
+  opacity: 1;
+}
+
+/* Small persistent checkmark badge on assigned cards */
+.pipeline-assigned-badge {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 18px;
+  height: 18px;
+  background: var(--accent);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
 
 /* Flash on pipeline runs block when a new run lands */
 .pipeline-status-flash { animation: statusFlash 1.2s ease-out forwards; border-radius: 12px; }
