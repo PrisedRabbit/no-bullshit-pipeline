@@ -311,9 +311,12 @@ pub async fn download_llm_model(
         }
     }
 
-    // Save remote ETag for freshness tracking
-    if let Ok(etag) = fetch_remote_etag(model_def.url).await {
-        save_etag(&models_dir, model_def.filename, &etag);
+    // Save SHA-256 of the downloaded file for freshness tracking.
+    // We hash the local file (not a follow-up HEAD) to avoid a race where
+    // upstream changes between the GET that produced the bytes and a HEAD.
+    match compute_file_sha256(&file_path).await {
+        Ok(hash) => save_etag(&models_dir, model_def.filename, &hash),
+        Err(e) => eprintln!("Warning: could not hash downloaded model: {}", e),
     }
 
     Ok(file_path.to_string_lossy().to_string())
