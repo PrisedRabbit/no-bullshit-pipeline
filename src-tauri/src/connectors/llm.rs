@@ -162,7 +162,8 @@ pub async fn execute(
         let prompt_to_send = if truncated {
             let max_chars = context_limit * 4;
             if augmented.len() > max_chars {
-                augmented[..max_chars].to_string()
+                let safe = augmented.floor_char_boundary(max_chars);
+                augmented[..safe].to_string()
             } else {
                 augmented.to_string()
             }
@@ -202,7 +203,8 @@ pub async fn execute(
             // Truncate to fit within context window (chars ~ tokens * 3.5)
             let max_chars = context_limit * 4;
             if full_prompt.len() > max_chars {
-                full_prompt[..max_chars].to_string()
+                let safe = full_prompt.floor_char_boundary(max_chars);
+                full_prompt[..safe].to_string()
             } else {
                 full_prompt.clone()
             }
@@ -357,14 +359,16 @@ pub async fn execute_retry(
 
     // Truncate failed output to first 2000 chars for the corrective prompt
     let failed_preview = if failed_output.len() > 2000 {
-        &failed_output[..2000]
+        let safe = failed_output.floor_char_boundary(2000);
+        &failed_output[..safe]
     } else {
         failed_output
     };
 
     // Use last 500 chars of the original prompt as the format spec context
     let prompt_context = if original_prompt.len() > 500 {
-        &original_prompt[original_prompt.len() - 500..]
+        let start = original_prompt.ceil_char_boundary(original_prompt.len() - 500);
+        &original_prompt[start..]
     } else {
         original_prompt
     };
