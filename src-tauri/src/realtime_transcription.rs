@@ -317,7 +317,7 @@ async fn run_cloud_transcription(
         }
 
         // Drain resampler's internal delay line
-        if let Ok(output) = resampler.process_partial(None, None) {
+        if let Ok(output) = resampler.process_partial(None::<&[Vec<f32>]>, None) {
             if !output[0].is_empty() {
                 flush_resampled.extend_from_slice(&output[0]);
             }
