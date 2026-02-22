@@ -287,20 +287,52 @@ async fn run_cloud_transcription(
 
     // Flush remaining buffered audio and close gracefully (only if connection is still alive)
     if loop_error.is_none() {
+        // Drain any queued samples from TRANSCRIPTION_BUFFER
+        let queued = TRANSCRIPTION_BUFFER.available();
+        if queued > 0 {
+            resample_accum.extend_from_slice(&TRANSCRIPTION_BUFFER.pop(queued));
+        }
+
+        let mut flush_resampled: Vec<f32> = Vec::new();
+
+        // Process full chunks through resampler
+        while resample_accum.len() >= chunk_size {
+            let chunk: Vec<f32> = resample_accum.drain(..chunk_size).collect();
+            if let Ok(output) = resampler.process(&[chunk], None) {
+                if !output[0].is_empty() {
+                    flush_resampled.extend_from_slice(&output[0]);
+                }
+            }
+        }
+
+        // Flush partial input chunk
         let remaining = std::mem::take(&mut resample_accum);
         if !remaining.is_empty() {
             if let Ok(output) = resampler.process_partial(Some(&[remaining]), None) {
                 if !output[0].is_empty() {
-                    let pcm_bytes = f32_to_pcm16_bytes(&output[0]);
-                    let b64 = BASE64.encode(&pcm_bytes);
-                    let msg = serde_json::json!({
-                        "type": "input_audio_buffer.append",
-                        "audio": b64,
-                    }).to_string();
-                    let _ = ws_write.send(tungstenite::Message::Text(msg.into())).await;
+                    flush_resampled.extend_from_slice(&output[0]);
                 }
             }
         }
+
+        // Drain resampler's internal delay line
+        if let Ok(output) = resampler.process_partial(None, None) {
+            if !output[0].is_empty() {
+                flush_resampled.extend_from_slice(&output[0]);
+            }
+        }
+
+        // Send any flushed audio
+        if !flush_resampled.is_empty() {
+            let pcm_bytes = f32_to_pcm16_bytes(&flush_resampled);
+            let b64 = BASE64.encode(&pcm_bytes);
+            let msg = serde_json::json!({
+                "type": "input_audio_buffer.append",
+                "audio": b64,
+            }).to_string();
+            let _ = ws_write.send(tungstenite::Message::Text(msg.into())).await;
+        }
+
         let _ = ws_write.send(tungstenite::Message::Close(None)).await;
     }
 
