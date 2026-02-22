@@ -141,8 +141,6 @@ function renderProcessingProviders() {
     { id: 'anthropic', name: 'Anthropic', desc: 'Claude structured extraction', placeholder: 'sk-ant-...' },
   ];
 
-  const hasAnyKey = providers.some(p => !!(apiKeys[p.id]));
-
   // Ollama card (local — no API key)
   const ollamaModelsHtml = renderProviderModelsList('ollama');
   const ollamaCard = `
@@ -207,7 +205,12 @@ function renderProcessingProviders() {
     refreshBtn.addEventListener('click', async () => {
       refreshBtn.disabled = true;
       refreshBtn.textContent = 'Refreshing...';
-      await refreshAllProviderModels();
+      try {
+        await refreshAllProviderModels();
+      } finally {
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = 'Refresh Models';
+      }
     });
   }
 

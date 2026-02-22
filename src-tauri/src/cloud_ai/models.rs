@@ -241,11 +241,19 @@ async fn fetch_ollama_models() -> Result<Vec<ProviderModel>, String> {
     let mut models: Vec<ProviderModel> = body
         .models
         .into_iter()
-        .map(|m| ProviderModel {
-            name: m.name.clone(),
-            id: m.name,
-            capabilities: vec!["chat".to_string()],
-            deprecated: false,
+        .map(|m| {
+            let lower = m.name.to_lowercase();
+            let capabilities = if lower.contains("embed") {
+                vec!["embedding".to_string()]
+            } else {
+                vec!["chat".to_string()]
+            };
+            ProviderModel {
+                name: m.name.clone(),
+                id: m.name,
+                capabilities,
+                deprecated: false,
+            }
         })
         .collect();
 

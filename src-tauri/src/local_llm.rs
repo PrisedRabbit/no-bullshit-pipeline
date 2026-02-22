@@ -179,8 +179,7 @@ pub fn delete_llm_model(model_id: String) -> Result<(), String> {
         .find(|m| m.id == model_id)
         .ok_or_else(|| format!("Unknown model: {}", model_id))?;
 
-    let models_dir = get_llm_models_dir();
-    let file_path = models_dir.join(model_def.filename);
+    let file_path = get_llm_models_dir().join(model_def.filename);
     if file_path.exists() {
         std::fs::remove_file(&file_path).map_err(|e| e.to_string())?;
     }
