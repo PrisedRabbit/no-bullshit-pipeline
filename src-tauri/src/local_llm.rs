@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Instant;
 use crate::config::{get_llm_models_dir, load_settings};
@@ -95,6 +95,116 @@ pub fn get_llm_models_info() -> Result<Vec<LlmModelInfo>, String> {
         .collect())
 }
 
+// ── Freshness Check ─────────────────────────────────────────────────────────
+
+#[derive(Clone, Serialize)]
+pub struct ModelFreshness {
+    pub model_id: String,
+    pub status: String,
+    pub error: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct FreshnessResult {
+    pub models: Vec<ModelFreshness>,
+    pub checked: usize,
+    pub failed: usize,
+}
+
+fn etag_sidecar_path(models_dir: &Path, filename: &str) -> PathBuf {
+    models_dir.join(format!("{}.etag", filename))
+}
+
+fn save_etag(models_dir: &Path, filename: &str, etag: &str) {
+    let _ = std::fs::write(etag_sidecar_path(models_dir, filename), etag);
+}
+
+fn read_etag(models_dir: &Path, filename: &str) -> Option<String> {
+    std::fs::read_to_string(etag_sidecar_path(models_dir, filename)).ok()
+}
+
+fn remove_etag(models_dir: &Path, filename: &str) {
+    let _ = std::fs::remove_file(etag_sidecar_path(models_dir, filename));
+}
+
+/// Fetch the remote ETag for a HuggingFace model URL.
+/// Uses a HEAD request without following redirects to get X-Linked-Etag
+/// (the LFS content hash) from the HuggingFace 302 response.
+async fn fetch_remote_etag(url: &str) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client.head(url).send().await.map_err(|e| e.to_string())?;
+
+    resp.headers()
+        .get("x-linked-etag")
+        .or_else(|| resp.headers().get("etag"))
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim_matches('"').to_string())
+        .ok_or_else(|| "No ETag in response".to_string())
+}
+
+#[tauri::command]
+pub async fn check_all_llm_freshness() -> Result<FreshnessResult, String> {
+    let models_dir = get_llm_models_dir();
+    let mut results = Vec::new();
+    let mut checked: usize = 0;
+    let mut failed: usize = 0;
+
+    for model_def in MODELS {
+        let local_path = models_dir.join(model_def.filename);
+        if !local_path.exists() {
+            continue;
+        }
+
+        let cached_etag = match read_etag(&models_dir, model_def.filename) {
+            Some(etag) => etag,
+            None => {
+                results.push(ModelFreshness {
+                    model_id: model_def.id.to_string(),
+                    status: "unknown".to_string(),
+                    error: Some("No cached version info — re-download to enable freshness tracking".to_string()),
+                });
+                failed += 1;
+                continue;
+            }
+        };
+
+        match fetch_remote_etag(model_def.url).await {
+            Ok(remote_etag) => {
+                let status = if cached_etag.trim() == remote_etag.trim() {
+                    "up_to_date"
+                } else {
+                    "update_available"
+                };
+                results.push(ModelFreshness {
+                    model_id: model_def.id.to_string(),
+                    status: status.to_string(),
+                    error: None,
+                });
+                checked += 1;
+            }
+            Err(e) => {
+                results.push(ModelFreshness {
+                    model_id: model_def.id.to_string(),
+                    status: "unknown".to_string(),
+                    error: Some(e),
+                });
+                failed += 1;
+            }
+        }
+    }
+
+    Ok(FreshnessResult {
+        models: results,
+        checked,
+        failed,
+    })
+}
+
 // ── Download / Delete ───────────────────────────────────────────────────────
 
 #[derive(Clone, Serialize)]
@@ -169,6 +279,11 @@ pub async fn download_llm_model(
         }
     }
 
+    // Save remote ETag for freshness tracking
+    if let Ok(etag) = fetch_remote_etag(model_def.url).await {
+        save_etag(&models_dir, model_def.filename, &etag);
+    }
+
     Ok(file_path.to_string_lossy().to_string())
 }
 
@@ -179,10 +294,12 @@ pub fn delete_llm_model(model_id: String) -> Result<(), String> {
         .find(|m| m.id == model_id)
         .ok_or_else(|| format!("Unknown model: {}", model_id))?;
 
-    let file_path = get_llm_models_dir().join(model_def.filename);
+    let models_dir = get_llm_models_dir();
+    let file_path = models_dir.join(model_def.filename);
     if file_path.exists() {
         std::fs::remove_file(&file_path).map_err(|e| e.to_string())?;
     }
+    remove_etag(&models_dir, model_def.filename);
 
     // If this was the selected model, clear the selection
     let mut settings = load_settings();
