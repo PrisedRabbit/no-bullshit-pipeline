@@ -68,16 +68,17 @@ pub enum WhisperModelSize {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TranscriptionConfig {
     pub enabled: bool,
-    /// Legacy: provider selection (pipeline steps own provider selection now)
-    #[serde(skip_serializing, default)]
+    /// Provider selection (still used by backend execution paths)
+    #[serde(default)]
     pub provider: TranscriptionProvider,
-    /// Legacy: local whisper model selection (pipeline steps own model selection now)
-    #[serde(skip_serializing, default)]
+    /// Local whisper model selection (still used by backend execution paths)
+    #[serde(default)]
     pub whisper_model: Option<WhisperModelSize>,
-    /// Legacy: role-scoped API keys (migrated into providers map on load)
-    #[serde(skip_serializing, default)]
+    /// Role-scoped API keys — persisted so the frontend UI can read them; migrated into
+    /// providers map on load and on save to keep provider-first storage in sync.
+    #[serde(default)]
     pub api_keys: ApiKeys,
-    // Legacy field for migration - will be removed in future
+    // Very old single-key legacy field — read-only for migration, never written
     #[serde(skip_serializing, default)]
     pub api_key: Option<String>,
 }
@@ -193,8 +194,8 @@ pub fn get_llm_models_dir() -> PathBuf {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct LocalLlmConfig {
     pub enabled: bool,
-    /// Legacy: selected model ID — model selection is now stored in providers["local"].models
-    #[serde(skip_serializing, default)]
+    /// Selected local LLM model ID — still used by backend execution paths
+    #[serde(default)]
     pub model_id: Option<String>,
     /// Number of layers to offload to GPU (99 = all)
     pub gpu_layers: u32,
@@ -235,10 +236,13 @@ pub fn load_settings() -> AppSettings {
             // Run this BEFORE migration so any newly-inserted entries have correct capabilities.
             for (id, default_cfg) in default_providers() {
                 let entry = settings.providers.entry(id).or_insert(default_cfg.clone());
-                // If entry exists but has empty capabilities (inserted by an older migration),
-                // restore the defaults.
+                // If entry exists but has empty capabilities or models (inserted by an older
+                // migration before models were added), restore the defaults.
                 if entry.capabilities.is_empty() {
                     entry.capabilities = default_cfg.capabilities;
+                }
+                if entry.models.is_empty() {
+                    entry.models = default_cfg.models;
                 }
             }
 
@@ -259,6 +263,18 @@ pub fn load_settings() -> AppSettings {
                 }
             }
 
+            // Sync providers → api_keys so the frontend UI reads accurate key state.
+            // providers is the authoritative source; api_keys is kept in sync for the UI.
+            if let Some(cfg) = settings.providers.get("openai") {
+                settings.transcription.api_keys.openai = cfg.api_key.clone();
+            }
+            if let Some(cfg) = settings.providers.get("google") {
+                settings.transcription.api_keys.google = cfg.api_key.clone();
+            }
+            if let Some(cfg) = settings.providers.get("anthropic") {
+                settings.transcription.api_keys.anthropic = cfg.api_key.clone();
+            }
+
             settings
         },
         Err(_) => AppSettings::default(),
@@ -266,7 +282,23 @@ pub fn load_settings() -> AppSettings {
 }
 
 #[tauri::command]
-pub fn save_settings(settings: AppSettings) -> Result<(), String> {
+pub fn save_settings(mut settings: AppSettings) -> Result<(), String> {
+    // Pre-save migration: sync transcription.api_keys into providers map.
+    // This ensures provider-first storage stays authoritative even when the frontend
+    // writes to the legacy transcription.api_keys path.
+    for (provider_id, legacy_key) in [
+        ("openai", settings.transcription.api_keys.openai.clone()),
+        ("google", settings.transcription.api_keys.google.clone()),
+        ("anthropic", settings.transcription.api_keys.anthropic.clone()),
+    ] {
+        if let Some(key) = legacy_key {
+            settings.providers
+                .entry(provider_id.to_string())
+                .or_insert_with(ProviderConfig::default)
+                .api_key = if key.is_empty() { None } else { Some(key) };
+        }
+    }
+
     let config_dir = get_config_dir();
     if !config_dir.exists() {
         fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;

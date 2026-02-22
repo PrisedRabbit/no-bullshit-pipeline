@@ -1515,11 +1515,16 @@ async function saveSettings() {
 
     // Handle API keys - fresh DOM lookups (cards are dynamically rendered)
     if (!appSettings.transcription.api_keys) appSettings.transcription.api_keys = {};
+    if (!appSettings.providers) appSettings.providers = {};
 
     for (const providerId of ['openai', 'google', 'anthropic']) {
       const input = document.getElementById(`settings-api-key-${providerId}`);
       if (input && !isKeyMasked(input.value)) {
-        appSettings.transcription.api_keys[providerId] = input.value || null;
+        const keyValue = input.value || null;
+        appSettings.transcription.api_keys[providerId] = keyValue;
+        // Also write to provider-first storage
+        if (!appSettings.providers[providerId]) appSettings.providers[providerId] = {};
+        appSettings.providers[providerId].api_key = keyValue;
       }
     }
 

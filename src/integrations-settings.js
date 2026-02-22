@@ -122,6 +122,10 @@ function renderProcessingProviders() {
       if (!appSettings.transcription) appSettings.transcription = {};
       if (!appSettings.transcription.api_keys) appSettings.transcription.api_keys = {};
       appSettings.transcription.api_keys[providerId] = value || null;
+      // Also write to provider-first storage so the persisted schema stays in sync
+      if (!appSettings.providers) appSettings.providers = {};
+      if (!appSettings.providers[providerId]) appSettings.providers[providerId] = {};
+      appSettings.providers[providerId].api_key = value || null;
 
       btn.disabled = true;
       btn.textContent = '...';
