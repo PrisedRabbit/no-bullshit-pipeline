@@ -438,7 +438,7 @@ impl LocalTranscriber {
 
 impl Drop for LocalTranscriber {
     fn drop(&mut self) {
-        self.should_stop.store(true, Ordering::Relaxed);
+        self.stop();
     }
 }
 
@@ -448,13 +448,9 @@ fn run_local_transcription(
     should_stop: Arc<AtomicBool>,
 ) -> Result<(), String> {
     use std::os::raw::c_int;
-    use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+    use whisper_rs::{FullParams, SamplingStrategy};
 
-    let ctx = WhisperContext::new_with_params(
-        model_path.to_str().ok_or("Invalid model path")?,
-        WhisperContextParameters::default(),
-    )
-    .map_err(|e| format!("Failed to load Whisper model: {}", e))?;
+    let ctx = crate::transcription::load_whisper_context(model_path)?;
 
     let mut state = ctx
         .create_state()
@@ -495,7 +491,9 @@ fn run_local_transcription(
             window.drain(..excess);
         }
 
-        let is_speaking = compute_rms(&window) > VAD_RMS_THRESHOLD;
+        // VAD on the newest step only (last 1 s) to avoid stale speech energy
+        let vad_start = window.len().saturating_sub(LOCAL_STEP_SAMPLES);
+        let is_speaking = compute_rms(&window[vad_start..]) > VAD_RMS_THRESHOLD;
 
         if is_speaking {
             let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
