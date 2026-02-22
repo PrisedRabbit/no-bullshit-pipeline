@@ -86,7 +86,11 @@
       "Bash(do echo \"=== Testing $id ===\" ffmpeg -y -i \"/Users/skopanev/nbp-data/$id/audio_mix.ogg\" -ar 16000 -ac 1 /tmp/test_$id.wav /Users/skopanev/Projects/nbp/fluidaudio-sidecar/.build/release/fluidaudio-sidecar /tmp/test_$id.wav)",
       "Bash(.build/release/fluidaudio-sidecar:*)",
       "Bash(brew list:*)",
-      "Bash(terminal-notifier:*)"
+      "Bash(terminal-notifier:*)",
+      "Bash(echo bd not available:*)",
+      "Bash(echo === $branch ===:*)",
+      "Bash(bd list:*)",
+      "Bash(git merge:*)"
     ]
   }
 }

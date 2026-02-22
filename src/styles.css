@@ -3558,6 +3558,80 @@ body.light .connections-group-header {
   border-bottom-color: #cbd5e1;
 }
 
+/* ===== PROVIDER MODELS LIST ===== */
+.provider-card-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+.provider-models-section {
+  padding: 6px 12px 8px;
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 10px 10px;
+  background: var(--bg-card);
+  margin-top: -1px;
+}
+
+.provider-models-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.provider-models-count {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
+.provider-models-error {
+  font-size: 0.7rem;
+  color: #ef4444;
+}
+
+.provider-models-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.provider-model-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 0.72rem;
+}
+
+.provider-model-id {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: var(--text-primary);
+  font-size: 0.7rem;
+}
+
+.provider-model-name {
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  opacity: 0.7;
+}
+
+.provider-model-cap {
+  font-size: 0.6rem;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+body.light .provider-models-section {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
 /* ===== PIPELINE CARDS (detail view) ===== */
 .pipeline-cards { display: flex; gap: 10px; flex-wrap: wrap; }
 .pipeline-card { cursor: pointer; padding: 10px 16px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-card); display: flex; flex-direction: column; align-items: center; gap: 6px; transition: transform 0.15s, opacity 0.15s, border-color 0.15s, background 0.15s; min-width: 100px; position: relative; }
