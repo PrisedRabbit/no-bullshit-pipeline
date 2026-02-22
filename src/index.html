@@ -566,6 +566,59 @@
                       </div>
                     </div>
                   </div>
+
+                  <!-- Real-time Transcription -->
+                  <div class="settings-item" style="border-top: 1px solid var(--border-color); padding-top: 12px; margin-top: 12px;">
+                    <div class="settings-info">
+                      <label>Real-time transcription</label>
+                      <p>Live speech-to-text during recording</p>
+                    </div>
+                    <div class="settings-input-group" style="justify-content: flex-end">
+                      <label class="toggle-switch">
+                        <input type="checkbox" id="settings-realtime-enabled" />
+                        <span class="slider round"></span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div
+                    id="realtime-details"
+                    style="display: none; flex-direction: column; gap: 12px; border-top: 1px solid var(--border-color); padding-top: 12px; margin-top: 12px;"
+                  >
+                    <div class="settings-item">
+                      <div class="settings-info">
+                        <label>Provider</label>
+                      </div>
+                      <div class="settings-input-group">
+                        <select id="settings-realtime-provider" class="settings-select">
+                          <option value="Local">Local Whisper</option>
+                          <option value="OpenAI">OpenAI</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div class="settings-item">
+                      <div class="settings-info">
+                        <label>Model</label>
+                      </div>
+                      <div class="settings-input-group">
+                        <select id="settings-realtime-model" class="settings-select">
+                        </select>
+                      </div>
+                    </div>
+
+                    <!-- Realtime cloud provider note -->
+                    <div id="realtime-api-section" style="display: none; flex-direction: column; gap: 12px">
+                      <div class="settings-item">
+                        <div class="settings-info">
+                          <label id="realtime-provider-note-label">Requires API key</label>
+                          <p id="realtime-provider-note-detail">Configure in AI Models section above</p>
+                        </div>
+                        <span class="provider-key-status-dot key-missing" id="realtime-provider-status-dot"></span>
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
               </div><!-- end transcription group -->
             </div><!-- end models tab -->

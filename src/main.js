@@ -1449,6 +1449,11 @@ const providerLocalSection = document.getElementById("provider-local-section");
 const providerApiSection = document.getElementById("provider-api-section");
 const whisperModelSelect = document.getElementById("settings-whisper-model");
 const downloadModelBtn = document.getElementById("download-model-btn");
+const realtimeEnabledCheckbox = document.getElementById("settings-realtime-enabled");
+const realtimeDetailsEl = document.getElementById("realtime-details");
+const realtimeProviderSelect = document.getElementById("settings-realtime-provider");
+const realtimeModelSelect = document.getElementById("settings-realtime-model");
+const realtimeApiSection = document.getElementById("realtime-api-section");
 const recordingNotificationCheckbox = document.getElementById("settings-recording-notification");
 const saveMixOnlyCheckbox = document.getElementById("settings-save-mix-only");
 
@@ -1488,6 +1493,21 @@ async function loadSettings() {
       updateProviderVisibility();
     }
 
+    // Real-time transcription settings
+    if (appSettings.transcription) {
+      if (realtimeEnabledCheckbox) {
+        realtimeEnabledCheckbox.checked = !!appSettings.transcription.realtime_enabled;
+        updateRealtimeVisibility();
+      }
+      if (realtimeProviderSelect) {
+        realtimeProviderSelect.value = appSettings.transcription.realtime_provider || 'Local';
+      }
+      updateRealtimeProviderVisibility();
+      if (realtimeModelSelect && appSettings.transcription.realtime_model) {
+        realtimeModelSelect.value = appSettings.transcription.realtime_model;
+      }
+    }
+
     // Recording notification setting
     if (recordingNotificationCheckbox) {
       recordingNotificationCheckbox.checked = appSettings.show_recording_notification !== false;
@@ -1513,6 +1533,11 @@ async function saveSettings() {
     appSettings.transcription.enabled = transcriptionEnabledCheckbox.checked;
     appSettings.transcription.provider = transcriptionProviderSelect.value;
     appSettings.transcription.whisper_model = whisperModelSelect.value;
+
+    // Real-time transcription
+    appSettings.transcription.realtime_enabled = realtimeEnabledCheckbox ? realtimeEnabledCheckbox.checked : false;
+    appSettings.transcription.realtime_provider = realtimeProviderSelect ? realtimeProviderSelect.value : 'Local';
+    appSettings.transcription.realtime_model = realtimeModelSelect ? realtimeModelSelect.value || null : null;
 
     // Handle API keys - fresh DOM lookups (cards are dynamically rendered)
     if (!appSettings.transcription.api_keys) appSettings.transcription.api_keys = {};
@@ -1614,6 +1639,57 @@ async function updateProviderVisibility() {
     providerApiSection.style.display = 'flex';
     updateTranscriptionKeyStatusDot();
   }
+}
+
+const REALTIME_MODELS = {
+  Local: [
+    { value: 'base', label: 'Base' },
+    { value: 'small', label: 'Small' },
+  ],
+  OpenAI: [
+    { value: 'gpt-4o-mini-transcribe', label: 'GPT-4o Mini Transcribe' },
+    { value: 'gpt-4o-transcribe', label: 'GPT-4o Transcribe' },
+  ],
+};
+
+function updateRealtimeVisibility() {
+  if (!realtimeDetailsEl) return;
+  realtimeDetailsEl.style.display = realtimeEnabledCheckbox && realtimeEnabledCheckbox.checked ? 'flex' : 'none';
+}
+
+function updateRealtimeProviderVisibility() {
+  if (!realtimeProviderSelect || !realtimeModelSelect) return;
+  const provider = realtimeProviderSelect.value;
+
+  const models = REALTIME_MODELS[provider] || [];
+  const currentModel = appSettings?.transcription?.realtime_model;
+  realtimeModelSelect.innerHTML = models.map(m =>
+    `<option value="${m.value}"${m.value === currentModel ? ' selected' : ''}>${m.label}</option>`
+  ).join('');
+
+  if (realtimeApiSection) {
+    if (provider === 'OpenAI') {
+      realtimeApiSection.style.display = 'flex';
+      updateRealtimeKeyStatusDot();
+    } else {
+      realtimeApiSection.style.display = 'none';
+    }
+  }
+}
+
+function updateRealtimeKeyStatusDot() {
+  const apiKeys = (appSettings && appSettings.transcription && appSettings.transcription.api_keys) || {};
+  const hasKey = !!apiKeys.openai;
+
+  const dot = document.getElementById('realtime-provider-status-dot');
+  if (dot) {
+    dot.className = 'provider-key-status-dot ' + (hasKey ? 'key-set' : 'key-missing');
+  }
+
+  const label = document.getElementById('realtime-provider-note-label');
+  const detail = document.getElementById('realtime-provider-note-detail');
+  if (label) label.textContent = hasKey ? 'OpenAI key configured' : 'OpenAI key required';
+  if (detail) detail.textContent = hasKey ? 'Using key from Processing above' : 'Add your OpenAI key in Processing above';
 }
 
 async function loadWhisperModelsAndState() {
@@ -1998,7 +2074,13 @@ if (transcriptionProviderSelect) {
   transcriptionProviderSelect.addEventListener("change", updateProviderVisibility);
 }
 
+if (realtimeEnabledCheckbox) {
+  realtimeEnabledCheckbox.addEventListener("change", updateRealtimeVisibility);
+}
 
+if (realtimeProviderSelect) {
+  realtimeProviderSelect.addEventListener("change", updateRealtimeProviderVisibility);
+}
 
 if (browseStorageBtn) {
   browseStorageBtn.addEventListener("click", async () => {
