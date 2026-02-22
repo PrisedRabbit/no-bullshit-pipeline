@@ -333,7 +333,7 @@ pub async fn transcribe_recording(
             }
         },
         TranscriptionProvider::OpenAI => {
-            let api_key = settings.transcription.api_keys.openai
+            let api_key = crate::config::get_api_key_for_provider(&settings, "openai")
                 .ok_or("OpenAI API key not configured")?;
 
             let transcript = cloud_ai::transcribe_with_whisper(&api_key, &audio_path).await?;
@@ -440,17 +440,17 @@ pub async fn summarize_recording(
 
     let summary = match use_provider {
         TranscriptionProvider::OpenAI => {
-            let api_key = settings.transcription.api_keys.openai
+            let api_key = crate::config::get_api_key_for_provider(&settings, "openai")
                 .ok_or("OpenAI API key not configured")?;
             cloud_ai::summarize_with_gpt4o(&api_key, &transcript, None).await?
         },
         TranscriptionProvider::Google => {
-            let api_key = settings.transcription.api_keys.google
+            let api_key = crate::config::get_api_key_for_provider(&settings, "google")
                 .ok_or("Google API key not configured")?;
             cloud_ai::summarize_with_gemini(&api_key, &transcript).await?
         },
         TranscriptionProvider::Anthropic => {
-            let api_key = settings.transcription.api_keys.anthropic
+            let api_key = crate::config::get_api_key_for_provider(&settings, "anthropic")
                 .ok_or("Anthropic API key not configured")?;
             cloud_ai::process_with_claude(&api_key,
                 "Create a comprehensive summary of this transcript. Include main topics, key points, decisions, and action items.\n\nTranscript:\n{transcript}",
@@ -506,17 +506,17 @@ pub async fn process_with_template(
 
     let result = match use_provider {
         TranscriptionProvider::OpenAI => {
-            let api_key = settings.transcription.api_keys.openai
+            let api_key = crate::config::get_api_key_for_provider(&settings, "openai")
                 .ok_or("OpenAI API key not configured")?;
             cloud_ai::process_with_gpt4o(&api_key, &template.prompt, &transcript).await?
         },
         TranscriptionProvider::Google => {
-            let api_key = settings.transcription.api_keys.google
+            let api_key = crate::config::get_api_key_for_provider(&settings, "google")
                 .ok_or("Google API key not configured")?;
             cloud_ai::process_with_gemini(&api_key, &template.prompt, &transcript).await?
         },
         TranscriptionProvider::Anthropic => {
-            let api_key = settings.transcription.api_keys.anthropic
+            let api_key = crate::config::get_api_key_for_provider(&settings, "anthropic")
                 .ok_or("Anthropic API key not configured")?;
             cloud_ai::process_with_claude(&api_key, &template.prompt, &transcript).await?
         },

@@ -219,26 +219,17 @@ pub async fn execute(
     // Execute with appropriate provider
     let result = match llm_config.provider.as_str() {
         "openai" => {
-            let api_key = settings
-                .transcription
-                .api_keys
-                .openai
+            let api_key = crate::config::get_api_key_for_provider(&settings, "openai")
                 .ok_or("OpenAI API key not configured. Set it in Settings.")?;
             cloud_ai::process_with_gpt4o(&api_key, &prompt_to_send, "").await
         }
         "google" => {
-            let api_key = settings
-                .transcription
-                .api_keys
-                .google
+            let api_key = crate::config::get_api_key_for_provider(&settings, "google")
                 .ok_or("Google API key not configured. Set it in Settings.")?;
             cloud_ai::process_with_gemini(&api_key, &prompt_to_send, "").await
         }
         "anthropic" => {
-            let api_key = settings
-                .transcription
-                .api_keys
-                .anthropic
+            let api_key = crate::config::get_api_key_for_provider(&settings, "anthropic")
                 .ok_or("Anthropic API key not configured. Set it in Settings.")?;
             cloud_ai::process_with_claude(&api_key, &prompt_to_send, "").await
         }
@@ -401,26 +392,17 @@ pub async fn execute_retry(
     // Execute with the same provider/model as the original call
     let result = match llm_config.provider.as_str() {
         "openai" => {
-            let api_key = settings
-                .transcription
-                .api_keys
-                .openai
+            let api_key = crate::config::get_api_key_for_provider(&settings, "openai")
                 .ok_or("OpenAI API key not configured. Set it in Settings.")?;
             cloud_ai::process_with_gpt4o(&api_key, &corrective_prompt, "").await
         }
         "google" => {
-            let api_key = settings
-                .transcription
-                .api_keys
-                .google
+            let api_key = crate::config::get_api_key_for_provider(&settings, "google")
                 .ok_or("Google API key not configured. Set it in Settings.")?;
             cloud_ai::process_with_gemini(&api_key, &corrective_prompt, "").await
         }
         "anthropic" => {
-            let api_key = settings
-                .transcription
-                .api_keys
-                .anthropic
+            let api_key = crate::config::get_api_key_for_provider(&settings, "anthropic")
                 .ok_or("Anthropic API key not configured. Set it in Settings.")?;
             cloud_ai::process_with_claude(&api_key, &corrective_prompt, "").await
         }
