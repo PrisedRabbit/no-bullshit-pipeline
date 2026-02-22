@@ -989,7 +989,15 @@ pub async fn execute_pipeline_internal(
                 }
             }
             ConnectorType::Mcp => {
-                Err("MCP connector not yet implemented".to_string())
+                connectors::mcp::execute(
+                    &input_path,
+                    &step.config,
+                    &output_dir,
+                    &step.name,
+                    &step.input,
+                    step.description.as_deref(),
+                )
+                .await
             }
         };
 

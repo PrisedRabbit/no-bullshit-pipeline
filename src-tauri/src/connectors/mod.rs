@@ -1,4 +1,5 @@
 pub mod llm;
+pub mod mcp;
 pub mod save;
 pub mod webhook;
 pub mod slack;

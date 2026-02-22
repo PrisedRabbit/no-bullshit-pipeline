@@ -144,6 +144,17 @@ const PROCESSING_PRESETS = [
     }
   },
   {
+    label: 'MCP Tool',
+    icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>',
+    step: {
+      name: 'mcp-tool',
+      connector: 'mcp',
+      input: 'transcript',
+      config: { url: '', tool: '' },
+      description: 'Call an MCP tool'
+    }
+  },
+  {
     label: 'Custom Prompt',
     icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
     step: null  // handled specially in Plan 05-03
@@ -340,7 +351,7 @@ function addPresetStep(preset) {
   closePicker();
   maybeAutoName();
   // Auto-open editor for delivery connectors that need configuration
-  const needsConfig = ['slack', 'notion', 'linear', 'webhook', 'save'];
+  const needsConfig = ['slack', 'notion', 'linear', 'webhook', 'save', 'mcp'];
   if (needsConfig.includes(step.connector)) {
     showStepEditor(pipelineEditorSteps.length - 1);
   }
@@ -831,7 +842,7 @@ function showStepEditor(index) {
     `;
   } else if (step.connector === 'mcp') {
     configFields = `
-      <div class="step-editor-row"><label>Server</label><input data-field="server" value="${escapeHtml(step.config?.server || '')}" placeholder="e.g. slack-mcp" /></div>
+      <div class="step-editor-row"><label>URL</label><input data-field="url" value="${escapeHtml(step.config?.url || '')}" placeholder="https://mcp.example.com" /></div>
       <div class="step-editor-row"><label>Tool</label><input data-field="tool" value="${escapeHtml(step.config?.tool || '')}" placeholder="e.g. send-message" /></div>
       <div class="step-editor-row"><label>Args</label><textarea data-field="args" rows="2" placeholder='{"channel": "#team"}'>${escapeHtml(step.config?.args ? JSON.stringify(step.config.args, null, 2) : '')}</textarea></div>
     `;

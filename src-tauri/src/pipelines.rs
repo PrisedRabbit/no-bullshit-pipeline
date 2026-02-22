@@ -275,7 +275,27 @@ fn validate_step_config(step: &PipelineStep) -> Result<(), String> {
             }
         }
         ConnectorType::Mcp => {
-            // MCP not yet implemented, no validation needed
+            let url = step.config.get("url").and_then(|v| v.as_str());
+            if url.is_none() {
+                return Err(format!(
+                    "Step '{}': MCP connector requires 'url' in config",
+                    step.name
+                ));
+            }
+            if let Some(u) = url
+                && !u.starts_with("http://") && !u.starts_with("https://")
+            {
+                return Err(format!(
+                    "Step '{}': MCP URL must start with http:// or https://",
+                    step.name
+                ));
+            }
+            if step.config.get("tool").and_then(|v| v.as_str()).is_none() {
+                return Err(format!(
+                    "Step '{}': MCP connector requires 'tool' in config",
+                    step.name
+                ));
+            }
         }
         ConnectorType::Notion => {
             if step.config.get("integration_id").and_then(|v| v.as_str()).is_none() {
