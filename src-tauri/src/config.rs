@@ -6,8 +6,9 @@ use std::os::unix::fs::PermissionsExt;
 use crate::storage::get_data_dir;
 use crate::integrations::IntegrationsConfig;
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub enum TranscriptionProvider {
+    #[default]
     FluidAudio,
     LocalWhisper,
     OpenAI,
