@@ -28,7 +28,7 @@ pub struct ApiKeys {
     pub anthropic: Option<String>,
 }
 
-/// Per-provider configuration (API key + capabilities)
+/// Per-provider configuration (API key + capabilities + available models)
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct ProviderConfig {
     /// API key for this provider (None for local providers)
@@ -37,14 +37,22 @@ pub struct ProviderConfig {
     /// Capability badges: e.g. ["Transcription", "Processing", "Embedding"]
     #[serde(default)]
     pub capabilities: Vec<String>,
+    /// Known model IDs for this provider
+    #[serde(default)]
+    pub models: Vec<String>,
 }
 
 impl ProviderConfig {
-    pub fn with_capabilities(caps: &[&str]) -> Self {
+    pub fn new(caps: &[&str], models: &[&str]) -> Self {
         Self {
             api_key: None,
             capabilities: caps.iter().map(|s| s.to_string()).collect(),
+            models: models.iter().map(|s| s.to_string()).collect(),
         }
+    }
+
+    pub fn with_capabilities(caps: &[&str]) -> Self {
+        Self::new(caps, &[])
     }
 }
 
@@ -60,9 +68,14 @@ pub enum WhisperModelSize {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TranscriptionConfig {
     pub enabled: bool,
+    /// Legacy: provider selection (pipeline steps own provider selection now)
+    #[serde(skip_serializing, default)]
     pub provider: TranscriptionProvider,
+    /// Legacy: local whisper model selection (pipeline steps own model selection now)
+    #[serde(skip_serializing, default)]
     pub whisper_model: Option<WhisperModelSize>,
-    #[serde(default)]
+    /// Legacy: role-scoped API keys (migrated into providers map on load)
+    #[serde(skip_serializing, default)]
     pub api_keys: ApiKeys,
     // Legacy field for migration - will be removed in future
     #[serde(skip_serializing, default)]
@@ -120,10 +133,22 @@ fn default_true() -> bool {
 
 fn default_providers() -> HashMap<String, ProviderConfig> {
     let mut map = HashMap::new();
-    map.insert("openai".to_string(), ProviderConfig::with_capabilities(&["Transcription", "Processing"]));
-    map.insert("google".to_string(), ProviderConfig::with_capabilities(&["Transcription", "Processing"]));
-    map.insert("anthropic".to_string(), ProviderConfig::with_capabilities(&["Processing"]));
-    map.insert("local".to_string(), ProviderConfig::with_capabilities(&["Processing"]));
+    map.insert("openai".to_string(), ProviderConfig::new(
+        &["Transcription", "Processing"],
+        &["whisper-1", "gpt-4o", "gpt-4o-mini"],
+    ));
+    map.insert("google".to_string(), ProviderConfig::new(
+        &["Transcription", "Processing"],
+        &["gemini-1.5-pro", "gemini-1.5-flash"],
+    ));
+    map.insert("anthropic".to_string(), ProviderConfig::new(
+        &["Processing"],
+        &["claude-3-5-sonnet-20241022", "claude-3-haiku-20240307"],
+    ));
+    map.insert("local".to_string(), ProviderConfig::new(
+        &["Processing"],
+        &[],
+    ));
     map
 }
 
@@ -168,7 +193,8 @@ pub fn get_llm_models_dir() -> PathBuf {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct LocalLlmConfig {
     pub enabled: bool,
-    /// Selected model ID (e.g. "phi-3.5-mini")
+    /// Legacy: selected model ID — model selection is now stored in providers["local"].models
+    #[serde(skip_serializing, default)]
     pub model_id: Option<String>,
     /// Number of layers to offload to GPU (99 = all)
     pub gpu_layers: u32,
@@ -205,6 +231,17 @@ pub fn load_settings() -> AppSettings {
                 }
             }
 
+            // Ensure all default providers exist (for existing settings files missing new entries)
+            // Run this BEFORE migration so any newly-inserted entries have correct capabilities.
+            for (id, default_cfg) in default_providers() {
+                let entry = settings.providers.entry(id).or_insert(default_cfg.clone());
+                // If entry exists but has empty capabilities (inserted by an older migration),
+                // restore the defaults.
+                if entry.capabilities.is_empty() {
+                    entry.capabilities = default_cfg.capabilities;
+                }
+            }
+
             // Migration v2: sync transcription.api_keys into providers map
             // If a provider entry has no api_key set but transcription.api_keys has one, migrate it.
             // This ensures the new providers field stays populated after upgrade.
@@ -214,17 +251,12 @@ pub fn load_settings() -> AppSettings {
                 ("anthropic", settings.transcription.api_keys.anthropic.clone()),
             ] {
                 if let Some(key) = legacy_key {
-                    let entry = settings.providers.entry(provider_id.to_string())
-                        .or_insert_with(|| ProviderConfig::with_capabilities(&[]));
-                    if entry.api_key.is_none() {
-                        entry.api_key = Some(key);
+                    if let Some(entry) = settings.providers.get_mut(provider_id) {
+                        if entry.api_key.is_none() {
+                            entry.api_key = Some(key);
+                        }
                     }
                 }
-            }
-
-            // Ensure all default providers exist (for existing settings files missing new entries)
-            for (id, default_cfg) in default_providers() {
-                settings.providers.entry(id).or_insert(default_cfg);
             }
 
             settings
