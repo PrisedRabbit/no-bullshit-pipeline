@@ -117,8 +117,84 @@ impl SharedAudioBuffer {
     }
 }
 
+/// Max buffer capacity for transcription: 10 seconds at 16kHz mono
+const MAX_TRANSCRIPTION_SAMPLES: usize = 16000 * 10;
+
+/// Shared mono audio buffer for transcription.
+/// Single channel at 16kHz, matching Whisper's expected input format.
+pub struct MonoAudioBuffer {
+    samples: Mutex<VecDeque<f32>>,
+    sample_rate: Mutex<u32>,
+}
+
+impl MonoAudioBuffer {
+    pub fn new(sample_rate: u32) -> Arc<Self> {
+        Arc::new(Self {
+            samples: Mutex::new(VecDeque::with_capacity(sample_rate as usize * 2)),
+            sample_rate: Mutex::new(sample_rate),
+        })
+    }
+
+    fn enforce_capacity(buf: &mut VecDeque<f32>) {
+        if buf.len() > MAX_TRANSCRIPTION_SAMPLES {
+            let excess = buf.len() - MAX_TRANSCRIPTION_SAMPLES;
+            buf.drain(..excess);
+        }
+    }
+
+    pub fn set_sample_rate(&self, rate: u32) {
+        if let Ok(mut sr) = self.sample_rate.lock() {
+            *sr = rate;
+        }
+    }
+
+    pub fn get_sample_rate(&self) -> u32 {
+        self.sample_rate.lock().map(|sr| *sr).unwrap_or(16000)
+    }
+
+    /// Push mono samples
+    pub fn push(&self, samples: &[f32]) {
+        let Ok(mut buf) = self.samples.lock() else {
+            return; // Poisoned mutex — skip rather than panic in audio thread
+        };
+        buf.extend(samples.iter().cloned());
+        Self::enforce_capacity(&mut buf);
+    }
+
+    /// Get available sample count
+    pub fn available(&self) -> usize {
+        let Ok(buf) = self.samples.lock() else {
+            return 0;
+        };
+        buf.len()
+    }
+
+    /// Pop up to `count` mono samples
+    pub fn pop(&self, count: usize) -> Vec<f32> {
+        let mut out = Vec::with_capacity(count);
+        let Ok(mut buf) = self.samples.lock() else {
+            return out;
+        };
+        for _ in 0..count {
+            match buf.pop_front() {
+                Some(s) => out.push(s),
+                None => break,
+            }
+        }
+        out
+    }
+
+    /// Clear all buffered samples
+    pub fn clear(&self) {
+        if let Ok(mut buf) = self.samples.lock() {
+            buf.clear();
+        }
+    }
+}
+
 // Global shared buffers
 lazy_static::lazy_static! {
     pub static ref MIC_BUFFER: Arc<SharedAudioBuffer> = SharedAudioBuffer::new();
     pub static ref SYSTEM_BUFFER: Arc<SharedAudioBuffer> = SharedAudioBuffer::new();
+    pub static ref TRANSCRIPTION_BUFFER: Arc<MonoAudioBuffer> = MonoAudioBuffer::new(16000);
 }
