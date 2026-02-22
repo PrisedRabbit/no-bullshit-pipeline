@@ -39,7 +39,9 @@ rubato = "0.15"
 log = "0.4.29"
 reqwest = { version = "0.13", features = ["json", "blocking", "rustls", "stream", "multipart", "query", "form"] }
 futures-util = "0.3.31"
-tokio = { version = "1.49", features = ["fs", "io-util"] }
+tokio = { version = "1.49", features = ["fs", "io-util", "sync", "time"] }
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+base64 = "0.22"
 whisper-rs = { version = "0.12", features = ["metal"] }
 opener = "0.7"
 rodio = { version = "0.21", features = ["vorbis"] }

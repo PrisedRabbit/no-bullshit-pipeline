@@ -705,24 +705,30 @@ fn convert_ogg_to_wav(ogg_path: &std::path::Path, wav_path: &std::path::Path) ->
     Ok(())
 }
 
+pub(crate) fn load_whisper_context(model_path: &std::path::Path) -> Result<whisper_rs::WhisperContext, String> {
+    use whisper_rs::{WhisperContext, WhisperContextParameters};
+    WhisperContext::new_with_params(
+        model_path.to_str().ok_or("Invalid model path")?,
+        WhisperContextParameters::default(),
+    )
+    .map_err(|e| format!("Failed to load Whisper model: {}", e))
+}
+
 fn run_whisper_transcription(model_path: &std::path::Path, wav_path: &std::path::Path) -> Result<String, String> {
-    use whisper_rs::{WhisperContext, FullParams, SamplingStrategy, WhisperContextParameters};
+    use whisper_rs::{FullParams, SamplingStrategy};
     use hound::WavReader;
-    
-    let ctx = WhisperContext::new_with_params(
-        model_path.to_str().unwrap(), 
-        WhisperContextParameters::default()
-    ).map_err(|e| e.to_string())?;
-    
+
+    let ctx = load_whisper_context(model_path)?;
+
     let mut wav_reader = WavReader::open(wav_path).map_err(|e| e.to_string())?;
     let samples: Vec<f32> = wav_reader.samples::<i16>().map(|s| s.unwrap() as f32 / 32768.0).collect();
-    
+
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
     params.set_language(None);
     params.set_translate(false);
     params.set_print_progress(false);
     params.set_print_realtime(false);
-    
+
     let mut state = ctx.create_state().map_err(|e| e.to_string())?;
     state.full(params, &samples).map_err(|e| e.to_string())?;
     
