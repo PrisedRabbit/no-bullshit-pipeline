@@ -253,13 +253,8 @@ fn get_local_sha256(model_path: &PathBuf) -> Result<String, String> {
 }
 
 /// Fetch the remote SHA-256 from HuggingFace via HEAD request ETag header.
-fn fetch_remote_sha256(url: &str) -> Result<String, String> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let res = client.head(url).send().map_err(|e| e.to_string())?;
+async fn fetch_remote_sha256(client: &reqwest::Client, url: &str) -> Result<String, String> {
+    let res = client.head(url).send().await.map_err(|e| e.to_string())?;
     if !res.status().is_success() {
         return Err(format!("HEAD request failed: HTTP {}", res.status()));
     }
@@ -291,18 +286,48 @@ pub struct LlmFreshnessReport {
     pub failed: usize,
 }
 
+#[derive(Clone, Serialize)]
+struct LlmFreshnessProgress {
+    model_id: String,
+    model_name: String,
+    current: usize,
+    total: usize,
+}
+
 #[tauri::command]
-pub fn check_all_llm_freshness() -> Result<LlmFreshnessReport, String> {
+pub async fn check_all_llm_freshness(
+    app_handle: tauri::AppHandle,
+) -> Result<LlmFreshnessReport, String> {
+    use tauri::Emitter;
+
     let models_dir = get_llm_models_dir();
     let mut results: HashMap<String, LlmFreshnessEntry> = HashMap::new();
     let mut checked: usize = 0;
     let mut failed: usize = 0;
 
-    for model_def in MODELS {
+    let downloaded: Vec<_> = MODELS
+        .iter()
+        .filter(|m| models_dir.join(m.filename).exists())
+        .collect();
+    let total = downloaded.len();
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    for (i, model_def) in downloaded.iter().enumerate() {
         let local_path = models_dir.join(model_def.filename);
-        if !local_path.exists() {
-            continue; // skip models that aren't downloaded
-        }
+
+        let _ = app_handle.emit(
+            "llm_freshness_progress",
+            LlmFreshnessProgress {
+                model_id: model_def.id.to_string(),
+                model_name: model_def.name.to_string(),
+                current: i + 1,
+                total,
+            },
+        );
 
         let local_hash = match get_local_sha256(&local_path) {
             Ok(h) => h,
@@ -316,7 +341,7 @@ pub fn check_all_llm_freshness() -> Result<LlmFreshnessReport, String> {
             }
         };
 
-        let remote_hash = match fetch_remote_sha256(model_def.url) {
+        let remote_hash = match fetch_remote_sha256(&client, model_def.url).await {
             Ok(h) => h,
             Err(e) => {
                 failed += 1;

@@ -425,6 +425,15 @@ if (window.__TAURI__?.event?.listen) {
   });
 }
 
+// Listen for LLM freshness check progress events
+if (window.__TAURI__?.event?.listen) {
+  window.__TAURI__.event.listen('llm_freshness_progress', (event) => {
+    const { model_name, current, total } = event.payload;
+    const statusEl = document.getElementById('llm-freshness-status');
+    if (statusEl) statusEl.textContent = `Checking ${model_name} (${current}/${total})…`;
+  });
+}
+
 // Wire "Check for Updates" button
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.getElementById('llm-check-freshness-btn');
@@ -433,7 +442,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const invoke = window.__TAURI__.core.invoke;
     const statusEl = document.getElementById('llm-freshness-status');
     btn.disabled = true;
-    btn.textContent = 'Checking...';
+    btn.textContent = 'Checking…';
     if (statusEl) statusEl.textContent = '';
     try {
       const report = await invoke('check_all_llm_freshness');
