@@ -1,4 +1,5 @@
 use anyhow::Result;
+use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 use std::collections::VecDeque;
 use std::fs::File;
 use std::num::{NonZeroU32, NonZeroU8};
@@ -9,6 +10,7 @@ use std::thread;
 use std::time::Duration;
 use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoder, VorbisEncoderBuilder};
 
+use super::shared_buffer::TRANSCRIPTION_BUFFER;
 use super::{MIC_BUFFER, SYSTEM_BUFFER};
 
 /// Adaptive gain controller for real-time level normalization
@@ -99,6 +101,7 @@ impl RealtimeMixer {
         // Clear buffers before starting
         MIC_BUFFER.clear();
         SYSTEM_BUFFER.clear();
+        TRANSCRIPTION_BUFFER.clear();
 
         let should_stop = Arc::new(AtomicBool::new(false));
         let should_stop_clone = should_stop.clone();
@@ -144,6 +147,24 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
     // Adaptive gain controllers for each source
     let mut mic_gain = AdaptiveGain::new(sample_rate);
     let mut sys_gain = AdaptiveGain::new(sample_rate);
+
+    // Transcription resampler: 48kHz mono → 16kHz mono
+    let transcription_chunk_size = 1024usize;
+    let transcription_params = SincInterpolationParameters {
+        sinc_len: 256,
+        f_cutoff: 0.95,
+        interpolation: SincInterpolationType::Linear,
+        oversampling_factor: 256,
+        window: WindowFunction::BlackmanHarris2,
+    };
+    let mut transcription_resampler = SincFixedIn::<f32>::new(
+        16000.0 / 48000.0,
+        2.0,
+        transcription_params,
+        transcription_chunk_size,
+        1, // mono
+    )?;
+    let mut transcription_accum: Vec<f32> = Vec::with_capacity(transcription_chunk_size * 2);
 
     // Continuous timeline tracking (like mic/system recorders)
     let start_time = std::time::Instant::now();
@@ -206,6 +227,14 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
                         mixed_right.push(soft_clip(mr + sr));
                     }
 
+                    // Tap mixed audio to transcription buffer (48kHz stereo → 16kHz mono)
+                    feed_transcription_resampler(
+                        &mixed_left, &mixed_right,
+                        &mut transcription_resampler,
+                        &mut transcription_accum,
+                        transcription_chunk_size,
+                    );
+
                     let slices: Vec<&[f32]> = vec![&mixed_left, &mixed_right];
                     encoder.encode_audio_block(&slices)?;
                     total_frames_written += frame_count as u64;
@@ -237,7 +266,15 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
     }
 
     // Drain remaining samples from buffers (use last known gains)
-    drain_and_encode(&mut encoder, 4096, mic_gain.gain(), sys_gain.gain())?;
+    drain_and_encode(
+        &mut encoder, 4096, mic_gain.gain(), sys_gain.gain(),
+        &mut transcription_resampler, &mut transcription_accum, transcription_chunk_size,
+    )?;
+
+    // Flush remaining transcription resampler buffer
+    flush_transcription_resampler(
+        &mut transcription_resampler, &mut transcription_accum, transcription_chunk_size,
+    );
 
     // Final padding to match wall-clock duration
     let elapsed = start_time.elapsed().as_secs_f64();
@@ -265,7 +302,15 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
 }
 
 /// Drain remaining samples from buffers with given gains
-fn drain_and_encode(encoder: &mut VorbisEncoder<File>, block_size: usize, mg: f32, sg: f32) -> Result<()> {
+fn drain_and_encode(
+    encoder: &mut VorbisEncoder<File>,
+    block_size: usize,
+    mg: f32,
+    sg: f32,
+    transcription_resampler: &mut SincFixedIn<f32>,
+    transcription_accum: &mut Vec<f32>,
+    transcription_chunk_size: usize,
+) -> Result<()> {
     loop {
         let mic_avail = MIC_BUFFER.available();
         let sys_avail = SYSTEM_BUFFER.available();
@@ -296,10 +341,54 @@ fn drain_and_encode(encoder: &mut VorbisEncoder<File>, block_size: usize, mg: f3
             mixed_right.push(soft_clip(mr + sr));
         }
 
+        feed_transcription_resampler(
+            &mixed_left, &mixed_right,
+            transcription_resampler, transcription_accum, transcription_chunk_size,
+        );
+
         let slices: Vec<&[f32]> = vec![&mixed_left, &mixed_right];
         encoder.encode_audio_block(&slices)?;
     }
     Ok(())
+}
+
+/// Downsample stereo mixed audio to 16kHz mono and push to TRANSCRIPTION_BUFFER
+fn feed_transcription_resampler(
+    left: &[f32],
+    right: &[f32],
+    resampler: &mut SincFixedIn<f32>,
+    accum: &mut Vec<f32>,
+    chunk_size: usize,
+) {
+    let frame_count = left.len().min(right.len());
+    for i in 0..frame_count {
+        accum.push((left[i] + right[i]) * 0.5);
+    }
+    while accum.len() >= chunk_size {
+        let chunk: Vec<f32> = accum.drain(..chunk_size).collect();
+        if let Ok(resampled) = resampler.process(&[chunk], None) {
+            if !resampled[0].is_empty() {
+                TRANSCRIPTION_BUFFER.push(&resampled[0]);
+            }
+        }
+    }
+}
+
+/// Flush remaining samples in the transcription resampler accumulation buffer
+fn flush_transcription_resampler(
+    resampler: &mut SincFixedIn<f32>,
+    accum: &mut Vec<f32>,
+    chunk_size: usize,
+) {
+    if !accum.is_empty() {
+        accum.resize(chunk_size, 0.0);
+        let chunk = std::mem::take(accum);
+        if let Ok(resampled) = resampler.process(&[chunk], None) {
+            if !resampled[0].is_empty() {
+                TRANSCRIPTION_BUFFER.push(&resampled[0]);
+            }
+        }
+    }
 }
 
 /// Soft clipping to prevent harsh distortion using tanh.
