@@ -1,9 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 use crate::config::{get_llm_models_dir, load_settings};
+
+static FRESHNESS_CANCELLED: AtomicBool = AtomicBool::new(false);
 
 // ── Model Registry ──────────────────────────────────────────────────────────
 
@@ -295,10 +298,17 @@ struct LlmFreshnessProgress {
 }
 
 #[tauri::command]
+pub fn cancel_llm_freshness() {
+    FRESHNESS_CANCELLED.store(true, Ordering::SeqCst);
+}
+
+#[tauri::command]
 pub async fn check_all_llm_freshness(
     app_handle: tauri::AppHandle,
 ) -> Result<LlmFreshnessReport, String> {
     use tauri::Emitter;
+
+    FRESHNESS_CANCELLED.store(false, Ordering::SeqCst);
 
     let models_dir = get_llm_models_dir();
     let mut results: HashMap<String, LlmFreshnessEntry> = HashMap::new();
@@ -317,6 +327,10 @@ pub async fn check_all_llm_freshness(
         .map_err(|e| e.to_string())?;
 
     for (i, model_def) in downloaded.iter().enumerate() {
+        if FRESHNESS_CANCELLED.load(Ordering::SeqCst) {
+            return Err("cancelled".to_string());
+        }
+
         let local_path = models_dir.join(model_def.filename);
 
         let _ = app_handle.emit(
@@ -340,6 +354,10 @@ pub async fn check_all_llm_freshness(
                 continue;
             }
         };
+
+        if FRESHNESS_CANCELLED.load(Ordering::SeqCst) {
+            return Err("cancelled".to_string());
+        }
 
         let remote_hash = match fetch_remote_sha256(&client, model_def.url).await {
             Ok(h) => h,

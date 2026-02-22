@@ -434,7 +434,21 @@ if (window.__TAURI__?.event?.listen) {
   });
 }
 
-// Wire "Check for Updates" button
+// Wire "Check for Updates" button with spinner and cancellation
+let freshnessCheckRunning = false;
+
+function cancelFreshnessCheck() {
+  if (!freshnessCheckRunning) return;
+  window.__TAURI__.core.invoke('cancel_llm_freshness');
+}
+
+// Cancel freshness check when navigating away from settings
+new MutationObserver(() => {
+  if (!document.body.classList.contains('settings-open')) {
+    cancelFreshnessCheck();
+  }
+}).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.getElementById('llm-check-freshness-btn');
   if (!btn) return;
@@ -442,7 +456,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const invoke = window.__TAURI__.core.invoke;
     const statusEl = document.getElementById('llm-freshness-status');
     btn.disabled = true;
-    btn.textContent = 'Checking…';
+    btn.innerHTML = '<span class="btn-spinner"></span> Checking…';
+    freshnessCheckRunning = true;
     if (statusEl) statusEl.textContent = '';
     try {
       const report = await invoke('check_all_llm_freshness');
@@ -464,8 +479,13 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       await renderLocalLlmModels();
     } catch (err) {
-      showToast('Freshness check failed: ' + err, 'error');
+      if (String(err).includes('cancelled')) {
+        if (statusEl) statusEl.textContent = '';
+      } else {
+        showToast('Freshness check failed: ' + err, 'error');
+      }
     } finally {
+      freshnessCheckRunning = false;
       btn.disabled = false;
       btn.textContent = 'Check for Updates';
     }

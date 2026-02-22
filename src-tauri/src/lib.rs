@@ -240,6 +240,7 @@ pub fn run() {
             local_llm::delete_llm_model,
             local_llm::check_model_freshness,
             local_llm::check_all_llm_freshness,
+            local_llm::cancel_llm_freshness,
             // Provider models
             cloud_ai::models::fetch_provider_models,
         ])
