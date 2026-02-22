@@ -250,6 +250,12 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
             // 2. Fill remainder with silence to maintain timeline
             if frames_remaining > 0 {
                 let silence = vec![0.0f32; frames_remaining];
+                feed_transcription_resampler(
+                    &silence, &silence,
+                    &mut transcription_resampler,
+                    &mut transcription_accum,
+                    transcription_chunk_size,
+                );
                 let slices: Vec<&[f32]> = vec![&silence, &silence];
                 encoder.encode_audio_block(&slices)?;
                 total_frames_written += frames_remaining as u64;
@@ -271,11 +277,6 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
         &mut transcription_resampler, &mut transcription_accum, transcription_chunk_size,
     )?;
 
-    // Flush remaining transcription resampler buffer
-    flush_transcription_resampler(
-        &mut transcription_resampler, &mut transcription_accum, transcription_chunk_size,
-    );
-
     // Final padding to match wall-clock duration
     let elapsed = start_time.elapsed().as_secs_f64();
     let expected_frames = (elapsed * sample_rate as f64) as u64;
@@ -288,11 +289,23 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
         let mut remaining = missing_frames;
         while remaining > 0 {
             let chunk = remaining.min(silence_chunk as u64) as usize;
+            feed_transcription_resampler(
+                &silence[..chunk], &silence[..chunk],
+                &mut transcription_resampler,
+                &mut transcription_accum,
+                transcription_chunk_size,
+            );
             let slices: Vec<&[f32]> = vec![&silence[..chunk], &silence[..chunk]];
             encoder.encode_audio_block(&slices)?;
             remaining -= chunk as u64;
         }
     }
+
+    // Flush remaining transcription resampler buffer and drain sinc filter delay
+    // (must happen after all audio including silence padding has been fed)
+    flush_transcription_resampler(
+        &mut transcription_resampler, &mut transcription_accum,
+    );
 
     encoder.finish()?;
     #[cfg(debug_assertions)]
@@ -375,18 +388,29 @@ fn feed_transcription_resampler(
 }
 
 /// Flush remaining samples in the transcription resampler accumulation buffer
+/// and drain the resampler's internal sinc filter delay
 fn flush_transcription_resampler(
     resampler: &mut SincFixedIn<f32>,
     accum: &mut Vec<f32>,
-    chunk_size: usize,
 ) {
+    // Process any remaining accumulated samples via process_partial which
+    // handles zero-padding internally for sub-chunk input
     if !accum.is_empty() {
-        accum.resize(chunk_size, 0.0);
-        let chunk = std::mem::take(accum);
-        if let Ok(resampled) = resampler.process(&[chunk], None) {
+        let partial: Vec<Vec<f32>> = vec![std::mem::take(accum)];
+        if let Ok(resampled) = resampler.process_partial(Some(&partial), None) {
             if !resampled[0].is_empty() {
                 TRANSCRIPTION_BUFFER.push(&resampled[0]);
             }
+        }
+    }
+
+    // Drain the resampler's internal sinc filter delay.
+    // process_partial(None) feeds zero-padded input to push any remaining
+    // delayed frames out. One call is sufficient since the delay is bounded
+    // by sinc_len and fits within a single output chunk.
+    if let Ok(resampled) = resampler.process_partial(None::<&[Vec<f32>]>, None) {
+        if !resampled[0].is_empty() {
+            TRANSCRIPTION_BUFFER.push(&resampled[0]);
         }
     }
 }
