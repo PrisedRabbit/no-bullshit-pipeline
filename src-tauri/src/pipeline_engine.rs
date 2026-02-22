@@ -1233,7 +1233,7 @@ fn read_pipeline_states(recording_id: &str) -> Vec<PipelineState> {
     let metadata_path = recording_dir.join("metadata.json");
 
     let Ok(content) = fs::read_to_string(&metadata_path) else { return Vec::new() };
-    let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) else { return Vec::new() };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) else { return Vec::new() };
     let Some(pipelines) = json.get("pipelines") else { return Vec::new() };
 
     // Backfill missing `id` fields so serde default doesn't generate a new UUID each read
@@ -1242,23 +1242,34 @@ fn read_pipeline_states(recording_id: &str) -> Vec<PipelineState> {
             e.get("id").and_then(|v| v.as_str()).map_or(true, |s| s.is_empty())
         });
         if needs_migration {
-            let mut migrated = arr.clone();
-            for entry in &mut migrated {
-                let missing = entry.get("id").and_then(|v| v.as_str()).map_or(true, |s| s.is_empty());
-                if missing {
-                    if let Some(obj) = entry.as_object_mut() {
-                        obj.insert("id".to_string(), serde_json::Value::String(uuid::Uuid::new_v4().to_string()));
-                    }
-                }
-            }
-            json["pipelines"] = serde_json::Value::Array(migrated);
-            // Persist the backfilled IDs (best-effort, with lock)
+            // Acquire lock BEFORE re-reading to avoid overwriting concurrent changes
             let lock_path = recording_dir.join(".metadata.lock");
             if let Ok(_lock) = FileLockGuard::acquire(&lock_path) {
-                if let Ok(updated) = serde_json::to_string_pretty(&json) {
-                    let temp_path = metadata_path.with_extension("json.tmp");
-                    if fs::write(&temp_path, &updated).is_ok() {
-                        let _ = fs::rename(&temp_path, &metadata_path);
+                // Re-read file under lock to get the latest state
+                if let Ok(locked_content) = fs::read_to_string(&metadata_path) {
+                    if let Ok(mut locked_json) = serde_json::from_str::<serde_json::Value>(&locked_content) {
+                        if let Some(locked_arr) = locked_json.get("pipelines").and_then(|v| v.as_array()) {
+                            let mut migrated = locked_arr.clone();
+                            for entry in &mut migrated {
+                                let missing = entry.get("id").and_then(|v| v.as_str()).map_or(true, |s| s.is_empty());
+                                if missing {
+                                    if let Some(obj) = entry.as_object_mut() {
+                                        obj.insert("id".to_string(), serde_json::Value::String(uuid::Uuid::new_v4().to_string()));
+                                    }
+                                }
+                            }
+                            locked_json["pipelines"] = serde_json::Value::Array(migrated);
+                            if let Ok(updated) = serde_json::to_string_pretty(&locked_json) {
+                                let temp_path = metadata_path.with_extension("json.tmp");
+                                if fs::write(&temp_path, &updated).is_ok() {
+                                    let _ = fs::rename(&temp_path, &metadata_path);
+                                }
+                            }
+                            // Return states from the locked read (authoritative)
+                            return locked_json.get("pipelines")
+                                .and_then(|v| serde_json::from_value::<Vec<PipelineState>>(v.clone()).ok())
+                                .unwrap_or_default();
+                        }
                     }
                 }
             }
@@ -1434,20 +1445,29 @@ pub fn remove_pipeline_run(recording_id: String, run_id: String) -> Result<(), S
     let mut json: serde_json::Value = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse metadata: {}", e))?;
 
-    let mut pipeline_states: Vec<PipelineState> = json
-        .get("pipelines")
-        .and_then(|v| serde_json::from_value::<Vec<PipelineState>>(v.clone()).ok())
-        .unwrap_or_default();
+    // Work with raw JSON array to avoid serde default generating new random UUIDs
+    // for legacy entries without persisted `id` fields (which would never match run_id)
+    let pipelines_arr = json.get("pipelines")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "No pipelines array in metadata".to_string())?;
 
-    // Find the entry by ID
-    let pos = pipeline_states.iter().position(|s| s.id == run_id);
-    let removed = match pos {
-        Some(i) => pipeline_states.remove(i),
+    let pos = pipelines_arr.iter().position(|entry| {
+        entry.get("id").and_then(|v| v.as_str()) == Some(run_id.as_str())
+    });
+
+    let idx = match pos {
+        Some(i) => i,
         None => return Err(format!("Pipeline run '{}' not found", run_id)),
     };
 
-    json["pipelines"] = serde_json::to_value(&pipeline_states)
-        .map_err(|e| format!("Failed to serialize pipeline states: {}", e))?;
+    // Extract name and run_index for output dir cleanup before removing
+    let removed = &pipelines_arr[idx];
+    let removed_name = removed.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let removed_run_index = removed.get("run_index").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+
+    let mut arr = pipelines_arr.clone();
+    arr.remove(idx);
+    json["pipelines"] = serde_json::Value::Array(arr);
 
     let temp_path = metadata_path.with_extension("json.tmp");
     let updated = serde_json::to_string_pretty(&json)
@@ -1458,7 +1478,7 @@ pub fn remove_pipeline_run(recording_id: String, run_id: String) -> Result<(), S
         .map_err(|e| format!("Failed to finalize metadata: {}", e))?;
 
     // Delete the output directory (best effort)
-    let output_dir = get_pipeline_output_dir(&recording_id, &removed.name, removed.run_index);
+    let output_dir = get_pipeline_output_dir(&recording_id, &removed_name, removed_run_index);
     let _ = fs::remove_dir_all(&output_dir);
 
     Ok(())
