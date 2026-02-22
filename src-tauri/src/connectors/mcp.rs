@@ -100,6 +100,13 @@ pub async fn execute(
         );
     }
 
+    // Extract session ID from initialize response if provided
+    let session_id = init_resp
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
     // Step 2: notifications/initialized (notification — no id, no response expected)
     let notif = serde_json::json!({
         "jsonrpc": "2.0",
@@ -107,13 +114,16 @@ pub async fn execute(
         "params": {}
     });
     // Send notification; ignore errors (some servers may not accept it)
-    let _ = client
-        .post(&url)
-        .header("Content-Type", "application/json")
-        .header("Accept", "application/json, text/event-stream")
-        .json(&notif)
-        .send()
-        .await;
+    {
+        let mut req = client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json, text/event-stream");
+        if let Some(ref sid) = session_id {
+            req = req.header("Mcp-Session-Id", sid);
+        }
+        let _ = req.json(&notif).send().await;
+    }
 
     // Step 3: tools/call
     let call_req = serde_json::json!({
@@ -126,16 +136,26 @@ pub async fn execute(
         }
     });
 
-    let call_resp = client
+    let mut call_builder = client
         .post(&url)
         .header("Content-Type", "application/json")
-        .header("Accept", "application/json, text/event-stream")
+        .header("Accept", "application/json, text/event-stream");
+    if let Some(ref sid) = session_id {
+        call_builder = call_builder.header("Mcp-Session-Id", sid);
+    }
+    let call_resp = call_builder
         .json(&call_req)
         .send()
         .await
         .map_err(|e| format!("MCP tools/call request failed: {}", e))?;
 
     let call_status = call_resp.status();
+    let content_type = call_resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
     let body_text = call_resp
         .text()
         .await
@@ -156,9 +176,34 @@ pub async fn execute(
         );
     }
 
-    // Parse JSON-RPC response
-    let rpc: serde_json::Value = serde_json::from_str(&body_text)
-        .unwrap_or(serde_json::Value::Null);
+    // Parse JSON-RPC response — handle both JSON and SSE (text/event-stream)
+    let rpc: serde_json::Value = if content_type.contains("text/event-stream") {
+        // Extract JSON-RPC message from SSE: lines starting with "data: "
+        let json_line = body_text
+            .lines()
+            .find(|l| l.starts_with("data: "))
+            .map(|l| &l["data: ".len()..])
+            .unwrap_or("");
+        if json_line.is_empty() {
+            return write_error(
+                output_dir,
+                step_name,
+                step_input,
+                step_description,
+                &created_at,
+                &url,
+                &tool,
+                "MCP tools/call returned SSE stream with no data event",
+            );
+        }
+        serde_json::from_str(json_line).map_err(|e| {
+            format!("MCP tools/call SSE data is not valid JSON: {}", e)
+        })?
+    } else {
+        serde_json::from_str(&body_text).map_err(|e| {
+            format!("MCP tools/call response is not valid JSON: {}", e)
+        })?
+    };
 
     // Check for JSON-RPC error
     if let Some(err_obj) = rpc.get("error") {

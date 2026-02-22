@@ -290,11 +290,14 @@ fn validate_step_config(step: &PipelineStep) -> Result<(), String> {
                     step.name
                 ));
             }
-            if step.config.get("tool").and_then(|v| v.as_str()).is_none() {
-                return Err(format!(
-                    "Step '{}': MCP connector requires 'tool' in config",
-                    step.name
-                ));
+            match step.config.get("tool").and_then(|v| v.as_str()) {
+                None | Some("") => {
+                    return Err(format!(
+                        "Step '{}': MCP connector requires 'tool' in config",
+                        step.name
+                    ));
+                }
+                _ => {}
             }
         }
         ConnectorType::Notion => {
