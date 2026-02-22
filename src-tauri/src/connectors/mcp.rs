@@ -107,6 +107,27 @@ pub async fn execute(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
+    // Parse and validate initialize response body
+    let init_body = init_resp.text().await.unwrap_or_default();
+    if let Ok(init_rpc) = serde_json::from_str::<serde_json::Value>(&init_body) {
+        if let Some(err_obj) = init_rpc.get("error") {
+            let msg = err_obj
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown error");
+            return write_error(
+                output_dir,
+                step_name,
+                step_input,
+                step_description,
+                &created_at,
+                &url,
+                &tool,
+                &format!("MCP initialize rejected: {}", msg),
+            );
+        }
+    }
+
     // Step 2: notifications/initialized (notification — no id, no response expected)
     let notif = serde_json::json!({
         "jsonrpc": "2.0",
@@ -178,27 +199,35 @@ pub async fn execute(
 
     // Parse JSON-RPC response — handle both JSON and SSE (text/event-stream)
     let rpc: serde_json::Value = if content_type.contains("text/event-stream") {
-        // Extract JSON-RPC message from SSE: lines starting with "data: "
-        let json_line = body_text
-            .lines()
-            .find(|l| l.starts_with("data: "))
-            .map(|l| &l["data: ".len()..])
-            .unwrap_or("");
-        if json_line.is_empty() {
-            return write_error(
-                output_dir,
-                step_name,
-                step_input,
-                step_description,
-                &created_at,
-                &url,
-                &tool,
-                "MCP tools/call returned SSE stream with no data event",
-            );
+        // Parse all SSE data lines and find the JSON-RPC response matching our request id.
+        // SSE streams may contain notifications/progress events before the final result.
+        let mut result_msg: Option<serde_json::Value> = None;
+        for line in body_text.lines() {
+            if let Some(data) = line.strip_prefix("data: ") {
+                if let Ok(msg) = serde_json::from_str::<serde_json::Value>(data) {
+                    // Match by request id (we sent id: 2 for tools/call)
+                    if msg.get("id").and_then(|v| v.as_u64()) == Some(2) {
+                        result_msg = Some(msg);
+                        break;
+                    }
+                }
+            }
         }
-        serde_json::from_str(json_line).map_err(|e| {
-            format!("MCP tools/call SSE data is not valid JSON: {}", e)
-        })?
+        match result_msg {
+            Some(msg) => msg,
+            None => {
+                return write_error(
+                    output_dir,
+                    step_name,
+                    step_input,
+                    step_description,
+                    &created_at,
+                    &url,
+                    &tool,
+                    "MCP tools/call SSE stream contained no response matching request id",
+                );
+            }
+        }
     } else {
         serde_json::from_str(&body_text).map_err(|e| {
             format!("MCP tools/call response is not valid JSON: {}", e)
@@ -220,6 +249,21 @@ pub async fn execute(
             &url,
             &tool,
             &format!("MCP error: {}", msg),
+        );
+    }
+
+    // Check for MCP tool-level error (result.isError = true)
+    if rpc.pointer("/result/isError").and_then(|v| v.as_bool()) == Some(true) {
+        let error_text = extract_result_text(&rpc);
+        return write_error(
+            output_dir,
+            step_name,
+            step_input,
+            step_description,
+            &created_at,
+            &url,
+            &tool,
+            &format!("MCP tool error: {}", if error_text.is_empty() { "unknown error" } else { &error_text }),
         );
     }
 
