@@ -3,6 +3,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use futures_util::{SinkExt, StreamExt};
 use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::Emitter;
@@ -376,5 +377,238 @@ fn handle_server_event(app_handle: &tauri::AppHandle, text: &str) {
             }
         }
         _ => {}
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Local Whisper sliding-window transcriber
+// ---------------------------------------------------------------------------
+
+/// Sliding window: 5 seconds at 16 kHz
+const LOCAL_WINDOW_SAMPLES: usize = 16000 * 5;
+/// Step size: 1 second at 16 kHz
+const LOCAL_STEP_SAMPLES: usize = 16000;
+/// Energy-based VAD threshold (RMS below this is treated as silence)
+const VAD_RMS_THRESHOLD: f32 = 0.005;
+
+/// Handle to a running local Whisper transcription session.
+/// Spawns a dedicated OS thread for CPU-bound inference.
+pub struct LocalTranscriber {
+    should_stop: Arc<AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl LocalTranscriber {
+    /// Start local real-time transcription.
+    ///
+    /// Loads the Whisper model at `model_path`, then continuously reads audio from
+    /// `TRANSCRIPTION_BUFFER`, runs inference on a 5 s sliding window (1 s step),
+    /// and emits `realtime_transcript_delta` Tauri events.
+    pub fn start(
+        app_handle: tauri::AppHandle,
+        model_path: PathBuf,
+    ) -> Result<Self, String> {
+        if !model_path.exists() {
+            return Err(format!("Whisper model not found: {}", model_path.display()));
+        }
+
+        let should_stop = Arc::new(AtomicBool::new(false));
+        let stop_flag = should_stop.clone();
+
+        let handle = std::thread::spawn(move || {
+            if let Err(e) = run_local_transcription(app_handle.clone(), &model_path, stop_flag) {
+                eprintln!("Local transcription error: {}", e);
+                let _ = app_handle.emit(EVENT_TRANSCRIPTION_ERROR, e);
+            }
+        });
+
+        Ok(Self {
+            should_stop,
+            handle: Some(handle),
+        })
+    }
+
+    pub fn stop(&mut self) {
+        self.should_stop.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+impl Drop for LocalTranscriber {
+    fn drop(&mut self) {
+        self.should_stop.store(true, Ordering::Relaxed);
+    }
+}
+
+fn run_local_transcription(
+    app_handle: tauri::AppHandle,
+    model_path: &std::path::Path,
+    should_stop: Arc<AtomicBool>,
+) -> Result<(), String> {
+    use std::os::raw::c_int;
+    use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+
+    let ctx = WhisperContext::new_with_params(
+        model_path.to_str().ok_or("Invalid model path")?,
+        WhisperContextParameters::default(),
+    )
+    .map_err(|e| format!("Failed to load Whisper model: {}", e))?;
+
+    let mut state = ctx
+        .create_state()
+        .map_err(|e| format!("Failed to create Whisper state: {}", e))?;
+
+    let mut window: Vec<f32> = Vec::with_capacity(LOCAL_WINDOW_SAMPLES);
+    let mut prompt_tokens: Vec<c_int> = Vec::new();
+    let mut segment_counter: u64 = 0;
+    let mut was_speaking = false;
+    let mut last_text = String::new();
+
+    let step_interval = std::time::Duration::from_secs(1);
+
+    // Accumulate at least one step worth of audio before first inference
+    while !should_stop.load(Ordering::Relaxed) {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let available = TRANSCRIPTION_BUFFER.available();
+        if available > 0 {
+            window.extend_from_slice(&TRANSCRIPTION_BUFFER.pop(available));
+        }
+        if window.len() >= LOCAL_STEP_SAMPLES {
+            break;
+        }
+    }
+
+    while !should_stop.load(Ordering::Relaxed) {
+        let step_start = std::time::Instant::now();
+
+        // Drain new samples from the shared buffer
+        let available = TRANSCRIPTION_BUFFER.available();
+        if available > 0 {
+            window.extend_from_slice(&TRANSCRIPTION_BUFFER.pop(available));
+        }
+
+        // Slide: keep only the last WINDOW_SAMPLES
+        if window.len() > LOCAL_WINDOW_SAMPLES {
+            let excess = window.len() - LOCAL_WINDOW_SAMPLES;
+            window.drain(..excess);
+        }
+
+        let is_speaking = compute_rms(&window) > VAD_RMS_THRESHOLD;
+
+        if is_speaking {
+            let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+            params.set_language(None);
+            params.set_translate(false);
+            params.set_print_progress(false);
+            params.set_print_realtime(false);
+
+            if !prompt_tokens.is_empty() {
+                params.set_tokens(&prompt_tokens);
+            }
+
+            if let Err(e) = state.full(params, &window) {
+                eprintln!("Whisper inference error: {}", e);
+                sleep_remaining(step_start, step_interval, &should_stop);
+                continue;
+            }
+
+            let mut text = String::new();
+            let n_segments = state.full_n_segments().unwrap_or(0);
+            for i in 0..n_segments {
+                if let Ok(seg_text) = state.full_get_segment_text(i) {
+                    text.push_str(&seg_text);
+                }
+            }
+            let text = text.trim().to_string();
+
+            // Harvest tokens from last segment for context continuity
+            if n_segments > 0 {
+                let last_seg = n_segments - 1;
+                let n_tokens = state.full_n_tokens(last_seg).unwrap_or(0);
+                prompt_tokens.clear();
+                for t in 0..n_tokens {
+                    if let Ok(tid) = state.full_get_token_id(last_seg, t) {
+                        prompt_tokens.push(tid);
+                    }
+                }
+            }
+
+            if !text.is_empty() && text != last_text {
+                segment_counter += 1;
+                let _ = app_handle.emit(
+                    EVENT_TRANSCRIPT_DELTA,
+                    TranscriptDelta {
+                        text: text.clone(),
+                        is_final: false,
+                        item_id: format!("local-{}", segment_counter),
+                    },
+                );
+                last_text = text;
+            }
+
+            was_speaking = true;
+        } else if was_speaking {
+            // Speech → silence transition: commit final text
+            if !last_text.is_empty() {
+                let _ = app_handle.emit(
+                    EVENT_TRANSCRIPT_DELTA,
+                    TranscriptDelta {
+                        text: last_text.clone(),
+                        is_final: true,
+                        item_id: format!("local-{}", segment_counter),
+                    },
+                );
+                last_text.clear();
+                prompt_tokens.clear();
+            }
+            was_speaking = false;
+        }
+
+        sleep_remaining(step_start, step_interval, &should_stop);
+    }
+
+    // Emit final for any remaining uncommitted text
+    if !last_text.is_empty() {
+        let _ = app_handle.emit(
+            EVENT_TRANSCRIPT_DELTA,
+            TranscriptDelta {
+                text: last_text,
+                is_final: true,
+                item_id: format!("local-{}", segment_counter),
+            },
+        );
+    }
+
+    Ok(())
+}
+
+/// Compute RMS energy of a sample buffer
+fn compute_rms(samples: &[f32]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let sum_sq: f64 = samples.iter().map(|&s| (s as f64) * (s as f64)).sum();
+    (sum_sq / samples.len() as f64).sqrt() as f32
+}
+
+/// Sleep for the remainder of `interval` since `start`, checking the stop flag every 100 ms
+fn sleep_remaining(
+    start: std::time::Instant,
+    interval: std::time::Duration,
+    should_stop: &AtomicBool,
+) {
+    let elapsed = start.elapsed();
+    if elapsed >= interval {
+        return;
+    }
+    let remaining = interval - elapsed;
+    let check = std::time::Duration::from_millis(100);
+    let mut slept = std::time::Duration::ZERO;
+    while slept < remaining && !should_stop.load(Ordering::Relaxed) {
+        let chunk = check.min(remaining - slept);
+        std::thread::sleep(chunk);
+        slept += chunk;
     }
 }
