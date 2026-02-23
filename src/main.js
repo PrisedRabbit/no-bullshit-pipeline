@@ -1016,6 +1016,14 @@ window.showDetailView = async (id) => {
       prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Mixing Audio...</span>';
     } else {
       prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Transcribe</span>';
+      // Check backend lock to prevent duplicate transcription after navigate-away-and-back
+      const checkId = id;
+      invoke('is_transcribing', { recordingId: checkId }).then(active => {
+        if (active && selectedRecordingId === checkId && prBtn && !prBtn.disabled) {
+          prBtn.disabled = true;
+          prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Processing...</span>';
+        }
+      }).catch(() => {});
     }
   }
 

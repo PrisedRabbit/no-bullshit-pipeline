@@ -1,10 +1,32 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::sync::Mutex;
 use crate::config::{WhisperModelSize, TranscriptionProvider, get_models_dir, load_settings};
 use crate::storage::{get_data_dir, read_metadata};
 use crate::cloud_ai;
 use crate::transcript_migration::{TranscriptMetadata, TranscriptSource};
 use tauri::Emitter;
 use tauri_plugin_shell::ShellExt;
+
+pub struct TranscriptionState {
+    pub active_ids: Mutex<HashSet<String>>,
+}
+
+impl TranscriptionState {
+    pub fn new() -> Self {
+        Self {
+            active_ids: Mutex::new(HashSet::new()),
+        }
+    }
+}
+
+#[tauri::command]
+pub fn is_transcribing(
+    recording_id: String,
+    state: tauri::State<'_, TranscriptionState>,
+) -> bool {
+    state.active_ids.lock().unwrap_or_else(|e| e.into_inner()).contains(&recording_id)
+}
 
 const BASE_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
 
@@ -173,8 +195,32 @@ pub async fn delete_whisper_model(size: WhisperModelSize) -> Result<(), String> 
 #[tauri::command]
 pub async fn transcribe_recording(
     app_handle: tauri::AppHandle,
-    recording_id: String
+    recording_id: String,
+    transcription_state: tauri::State<'_, TranscriptionState>,
 ) -> Result<String, String> {
+    {
+        let mut active = transcription_state.active_ids.lock().unwrap_or_else(|e| e.into_inner());
+        if active.contains(&recording_id) {
+            return Err("Transcription already in progress for this recording".to_string());
+        }
+        active.insert(recording_id.clone());
+    }
+
+    let result = transcribe_recording_inner(&app_handle, &recording_id).await;
+
+    {
+        let mut active = transcription_state.active_ids.lock().unwrap_or_else(|e| e.into_inner());
+        active.remove(&recording_id);
+    }
+
+    result
+}
+
+async fn transcribe_recording_inner(
+    app_handle: &tauri::AppHandle,
+    recording_id: &str,
+) -> Result<String, String> {
+    let recording_id = recording_id.to_string();
     let settings = load_settings();
     if !settings.transcription.enabled {
         return Err("Transcription is disabled in settings".to_string());
