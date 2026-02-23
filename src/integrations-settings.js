@@ -298,7 +298,7 @@ async function renderLocalLlmModels() {
     const sizeStr = m.size_mb >= 1000 ? `${(m.size_mb / 1000).toFixed(1)} GB` : `${m.size_mb} MB`;
 
     return `
-      <div class="provider-card${isSelected ? ' llm-selected' : ''}" data-llm-id="${escapeHtml(m.id)}" style="cursor:pointer;">
+      <div class="provider-card${isSelected ? ' llm-selected' : ''}" data-llm-id="${escapeHtml(m.id)}" style="cursor:pointer;flex-wrap:wrap;">
         <div class="provider-card-icon" style="background:rgba(139,92,246,0.15);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:var(--accent-color);">
           ${escapeHtml(m.params)}
         </div>
@@ -323,12 +323,12 @@ async function renderLocalLlmModels() {
             : `<button class="mini-action-btn llm-download-btn" data-llm-id="${escapeHtml(m.id)}" style="font-size:0.75rem;">Download</button>`
           }
         </div>
-      </div>
-      <div id="llm-progress-${escapeHtml(m.id)}" style="display:none;padding:0 12px 8px;">
-        <div style="height:4px;background:var(--border-color);border-radius:2px;overflow:hidden;">
-          <div class="llm-progress-fill" style="height:100%;width:0%;background:var(--accent-color);transition:width 0.2s;border-radius:2px;"></div>
+        <div id="llm-progress-${escapeHtml(m.id)}" style="display:none;flex-basis:100%;padding:8px 0 0;">
+          <div style="height:4px;background:var(--border-color);border-radius:2px;overflow:hidden;">
+            <div class="llm-progress-fill" style="height:100%;width:0%;background:var(--accent-color);transition:width 0.2s;border-radius:2px;"></div>
+          </div>
+          <div class="llm-progress-text" style="font-size:0.7rem;color:var(--text-secondary);margin-top:4px;"></div>
         </div>
-        <div class="llm-progress-text" style="font-size:0.7rem;color:var(--text-secondary);margin-top:4px;"></div>
       </div>
     `;
   }).join('');
@@ -338,8 +338,7 @@ async function renderLocalLlmModels() {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const modelId = btn.dataset.llmId;
-      btn.disabled = true;
-      btn.textContent = 'Starting...';
+      btn.style.display = 'none';
 
       const progressEl = document.getElementById(`llm-progress-${modelId}`);
       if (progressEl) progressEl.style.display = 'block';
@@ -349,8 +348,7 @@ async function renderLocalLlmModels() {
         await renderLocalLlmModels();
       } catch (err) {
         showToast('Download failed: ' + err, 'error');
-        btn.disabled = false;
-        btn.textContent = 'Download';
+        btn.style.display = '';
         if (progressEl) progressEl.style.display = 'none';
       }
     });
@@ -378,7 +376,8 @@ async function renderLocalLlmModels() {
       const ok = await showConfirm('Re-download Model?', `Re-download ${model?.name || modelId}? This will replace the current file.`);
       if (!ok) return;
 
-      btn.disabled = true;
+      const card = btn.closest('.provider-card');
+      if (card) card.querySelectorAll('.provider-card-input button').forEach(b => { b.style.display = 'none'; });
       const progressEl = document.getElementById(`llm-progress-${modelId}`);
       if (progressEl) progressEl.style.display = 'block';
 
