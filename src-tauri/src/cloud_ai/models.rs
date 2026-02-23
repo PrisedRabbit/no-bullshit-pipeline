@@ -69,7 +69,11 @@ async fn fetch_openai_models(api_key: &str) -> Result<Vec<ProviderModel>, String
         .into_iter()
         .filter(|m| !m.owned_by.starts_with("user-"))
         .filter_map(|m| {
-            openai_capabilities(&m.id).map(|caps| ProviderModel {
+            let caps = openai_capabilities(&m.id)?;
+            if !caps.iter().any(|c| c == "chat" || c == "transcription") {
+                return None;
+            }
+            Some(ProviderModel {
                 name: m.id.clone(),
                 id: m.id,
                 capabilities: caps,
