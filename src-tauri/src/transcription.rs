@@ -201,7 +201,7 @@ pub async fn transcribe_recording(
     {
         let mut active = transcription_state.active_ids.lock().unwrap_or_else(|e| e.into_inner());
         if active.contains(&recording_id) {
-            return Err("Transcription already in progress for this recording".to_string());
+            return Ok("__already_running__".to_string());
         }
         active.insert(recording_id.clone());
     }
