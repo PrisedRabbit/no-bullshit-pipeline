@@ -975,8 +975,8 @@ async function renderRecordingPipelineCards(container, recordingId) {
     card.dataset.pipeline = p.name;
     card.style.cursor = 'pointer';
 
-    const badgeSvg = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-    card.innerHTML = `${flowHtml}<div class="pipeline-card-name">${escapeHtml(p.name)}</div>${isAssigned ? `<div class="pipeline-assigned-badge">${badgeSvg}</div>` : ''}`;
+    const checkSvg = `<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+    card.innerHTML = `${flowHtml}<div class="pipeline-card-name">${escapeHtml(p.name)}</div><div class="rpp-toggle">${isAssigned ? checkSvg : ''}</div>`;
 
     card.addEventListener('click', async () => {
       const pipelineName = p.name;
