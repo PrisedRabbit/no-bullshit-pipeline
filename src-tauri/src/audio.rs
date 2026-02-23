@@ -55,10 +55,7 @@ pub fn start_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState
     check_disk_space(&data_dir)?;
 
     let metadata = storage::create_recording(String::new(), vec![])?;
-    let mix_only = save_mix_only;
-    eprintln!("DEBUG: start_recording received save_mix_only={}", mix_only);
-
-    *state.save_mix_only.lock().map_err(|e| e.to_string())? = mix_only;
+    *state.save_mix_only.lock().map_err(|e| e.to_string())? = save_mix_only;
 
     // --- Real-time Mixer FIRST (so it's ready before capture threads push data) ---
     let mix_path = storage::get_recording_dir(&metadata.id).join("audio_mix.ogg");
@@ -73,7 +70,7 @@ pub fn start_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState
 
     // --- Microphone Capture ---
     let mic_path = storage::get_recording_dir(&metadata.id).join("raw_mic.ogg");
-    match crate::mic_audio::start_mic_capture(mic_path, None, mix_only) {
+    match crate::mic_audio::start_mic_capture(mic_path, None, save_mix_only) {
         Ok(recorder) => {
             *state.mic_recorder.lock().map_err(|e| e.to_string())? = Some(recorder);
         },
@@ -84,10 +81,8 @@ pub fn start_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState
 
     // --- System Audio ---
     let system_path = storage::get_recording_dir(&metadata.id).join("raw_system.ogg");
-    eprintln!("DEBUG: Starting system audio capture to {:?}", system_path);
-    match crate::system_audio::start_system_capture(system_path, mix_only) {
+    match crate::system_audio::start_system_capture(system_path, save_mix_only) {
         Ok(recorder) => {
-            eprintln!("DEBUG: System audio capture started successfully");
             *state.system_recorder.lock().map_err(|e| e.to_string())? = Some(recorder);
         },
         Err(e) => {
@@ -210,18 +205,20 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<(), String> {
             };
 
             metadata.status = "processing".to_string();
-            metadata.audio.mic = Some(storage::AudioInfo {
-                file: "raw_mic.ogg".to_string(),
-                duration_sec,
-                sample_rate: 48000,
-                channels: 2,
-            });
-            metadata.audio.system = Some(storage::AudioInfo {
-                file: "raw_system.ogg".to_string(),
-                duration_sec,
-                sample_rate: 48000,
-                channels: 2,
-            });
+            if !save_mix_only {
+                metadata.audio.mic = Some(storage::AudioInfo {
+                    file: "raw_mic.ogg".to_string(),
+                    duration_sec,
+                    sample_rate: 48000,
+                    channels: 2,
+                });
+                metadata.audio.system = Some(storage::AudioInfo {
+                    file: "raw_system.ogg".to_string(),
+                    duration_sec,
+                    sample_rate: 48000,
+                    channels: 2,
+                });
+            }
 
             if let Err(e) = storage::write_metadata(&metadata) {
                 eprintln!("Failed to write initial metadata: {}", e);
