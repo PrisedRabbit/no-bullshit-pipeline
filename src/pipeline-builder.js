@@ -549,6 +549,13 @@ function showCustomPromptForm() {
 async function loadPipelineDefs() {
   try {
     allPipelineDefs = await invoke('list_pipelines');
+    // Prune assigned pipelines that no longer exist (e.g. deleted mid-recording)
+    if (typeof currentAssignedPipelines !== 'undefined' && currentAssignedPipelines.size > 0) {
+      const existingNames = new Set(allPipelineDefs.map(p => p.name));
+      for (const name of [...currentAssignedPipelines]) {
+        if (!existingNames.has(name)) currentAssignedPipelines.delete(name);
+      }
+    }
     renderPipelineDefsList();
     if (typeof renderPipelineChips === 'function') renderPipelineChips();
     if (typeof populateDefaultPipelineSelect === 'function') populateDefaultPipelineSelect();
