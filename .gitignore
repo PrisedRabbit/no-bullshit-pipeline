@@ -57,11 +57,9 @@ __pycache__/
 *.pyc
 
 # HLTM agent
-.hltm/
+.hltm
 .hltm-loop
-_hltm/
-.hltm/logs
-.hltm/human.md
+_hltm
 
 # Cargo home (created by agent builds)
 .cargo-home/
