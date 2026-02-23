@@ -755,14 +755,6 @@ function showStepEditor(index) {
       : providerModels.map(m =>
           `<option value="${escapeHtml(m)}" ${currentModel === m ? 'selected' : ''}>${escapeHtml(m)}</option>`
         ).join('');
-    const currentInput = step.input || 'transcript';
-    let inputRow = '';
-    if (index > 0) {
-      const inputOptions = ['transcript', ...pipelineEditorSteps.slice(0, index).map(s => s.name).filter(Boolean)]
-        .map(v => `<option value="${escapeHtml(v)}" ${currentInput === v ? 'selected' : ''}>${escapeHtml(v === 'transcript' ? 'Transcript' : v)}</option>`)
-        .join('');
-      inputRow = `<div class="step-editor-row"><label>Input</label><select class="step-input-select">${inputOptions}</select></div>`;
-    }
     configFields = `
       ${promptField}
       <div class="step-editor-row"><label>Provider</label><select data-field="provider" class="llm-provider-select">
@@ -774,7 +766,6 @@ function showStepEditor(index) {
       <div class="step-editor-row"><label>Model</label><select data-field="model" class="llm-model-select">
         ${modelOptions}
       </select></div>
-      ${inputRow}
     `;
   } else if (step.connector === 'save') {
     const savePaths = (typeof savePathIntegrations !== 'undefined') ? savePathIntegrations : [];
@@ -906,6 +897,13 @@ function showStepEditor(index) {
     <div id="step-config-fields">
       <div class="step-editor-row"><label>Step Name</label><input class="step-name-input" value="${escapeHtml(step.name || '')}" placeholder="Step name" /></div>
       ${configFields}
+      ${index > 0 ? (() => {
+        const currentInput = step.input || 'transcript';
+        const inputOptions = ['transcript', ...pipelineEditorSteps.slice(0, index).map(s => s.name).filter(Boolean)]
+          .map(v => `<option value="${escapeHtml(v)}" ${currentInput === v ? 'selected' : ''}>${escapeHtml(v === 'transcript' ? 'Transcript' : v)}</option>`)
+          .join('');
+        return `<div class="step-editor-row"><label>Input</label><select class="step-input-select">${inputOptions}</select></div>`;
+      })() : ''}
     </div>
     <div class="step-editor-actions">
       <button class="step-editor-done">Done</button>
