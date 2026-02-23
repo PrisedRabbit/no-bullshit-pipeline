@@ -2071,6 +2071,8 @@ function switchSettingsTab(tabName) {
   document.querySelectorAll('.settings-tab-content').forEach(c => {
     c.classList.toggle('active', c.dataset.tab === tabName);
   });
+  const scroller = document.querySelector('#settings-view .detail-scroller');
+  if (scroller) scroller.scrollTop = 0;
 }
 
 const settingsTabs = document.getElementById('settings-tabs');
