@@ -172,6 +172,10 @@ fn default_providers() -> HashMap<String, ProviderConfig> {
         &["Processing"],
         &[],
     ));
+    map.insert("ollama".to_string(), ProviderConfig::new(
+        &["Processing"],
+        &[],
+    ));
     map
 }
 

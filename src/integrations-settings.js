@@ -28,6 +28,7 @@ async function loadAllIntegrations() {
   ]);
   renderProcessingProviders();
   renderLocalLlmModels();
+  renderOllamaCard();
   renderConnectedIntegrations();
   renderAvailableIntegrations();
 }
@@ -59,6 +60,7 @@ async function refreshAllProviderModels() {
   fetches.push(fetchProviderModels('ollama'));
   await Promise.all(fetches);
   renderProcessingProviders();
+  renderOllamaCard();
   providerModelsFetching = false;
 }
 
@@ -102,6 +104,24 @@ function renderProviderModelsList(providerId) {
   </div>`;
 }
 
+function renderOllamaCard() {
+  const el = document.getElementById('ollama-provider-container');
+  if (!el) return;
+  const modelsHtml = renderProviderModelsList('ollama');
+  el.innerHTML = `
+    <div class="provider-card-wrapper">
+      <div class="provider-card" data-provider="ollama">
+        <div class="provider-card-icon ollama" style="background:rgba(139,92,246,0.15);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:var(--accent-color);">O</div>
+        <div class="provider-card-info">
+          <div class="provider-card-name">Ollama</div>
+          <div class="provider-card-detail">Local models via Ollama</div>
+        </div>
+      </div>
+      ${modelsHtml}
+    </div>
+  `;
+}
+
 // ===== RENDER PROCESSING PROVIDERS =====
 async function validateApiKey(provider, key) {
   try {
@@ -140,21 +160,6 @@ function renderProcessingProviders() {
     { id: 'google', name: 'Google AI', desc: 'Gemini long-context processing', placeholder: 'AIza...' },
     { id: 'anthropic', name: 'Anthropic', desc: 'Claude structured extraction', placeholder: 'sk-ant-...' },
   ];
-
-  // Ollama card (local — no API key)
-  const ollamaModelsHtml = renderProviderModelsList('ollama');
-  const ollamaCard = `
-    <div class="provider-card-wrapper">
-      <div class="provider-card" data-provider="ollama">
-        <div class="provider-card-icon ollama" style="background:rgba(139,92,246,0.15);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:var(--accent-color);">O</div>
-        <div class="provider-card-info">
-          <div class="provider-card-name">Ollama</div>
-          <div class="provider-card-detail">Local models via Ollama</div>
-        </div>
-      </div>
-      ${ollamaModelsHtml}
-    </div>
-  `;
 
   el.innerHTML = providers.map(p => {
     const key = apiKeys[p.id] || '';
@@ -197,7 +202,7 @@ function renderProcessingProviders() {
         ${modelsHtml}
       </div>
     `;
-  }).join('') + ollamaCard + `<button class="mini-action-btn refresh-provider-models-btn" style="align-self:flex-start;margin-top:4px;font-size:0.75rem;">Refresh Models</button>`;
+  }).join('') + `<button class="mini-action-btn refresh-provider-models-btn" style="align-self:flex-start;margin-top:4px;font-size:0.75rem;">Refresh Models</button>`;
 
   // Wire Refresh Models button
   const refreshBtn = el.querySelector('.refresh-provider-models-btn');
