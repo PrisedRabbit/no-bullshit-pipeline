@@ -894,7 +894,10 @@ function showStepEditor(index) {
       <span class="step-editor-title">Step ${index + 1} — ${escapeHtml(step.name || 'Unnamed')}</span>
       <button class="step-editor-close" title="Close editor">×</button>
     </div>
-    <div id="step-config-fields">${configFields}</div>
+    <div id="step-config-fields">
+      <div class="step-editor-row"><label>Step Name</label><input class="step-name-input" value="${escapeHtml(step.name || '')}" placeholder="Step name" /></div>
+      ${configFields}
+    </div>
     <div class="step-editor-actions">
       <button class="step-editor-done">Done</button>
     </div>
@@ -1168,8 +1171,12 @@ function showStepEditor(index) {
     if (step.connector === 'slack' && !step.config.target && prevTarget) {
       step.config.target = prevTarget;
     }
-    // Auto-derive step name from selected template
-    if (step.connector === 'llm' && step.config.prompt_template) {
+    // Use explicit step name from input, fall back to auto-derive for llm steps
+    const nameInput = editorEl.querySelector('.step-name-input');
+    const nameVal = nameInput ? nameInput.value.trim() : '';
+    if (nameVal) {
+      step.name = nameVal;
+    } else if (step.connector === 'llm' && step.config.prompt_template) {
       step.name = step.config.prompt_template;
     }
 
