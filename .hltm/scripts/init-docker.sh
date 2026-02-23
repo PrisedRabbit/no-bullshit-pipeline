@@ -24,4 +24,18 @@ if [ -d /mnt/codex ]; then
     cp -rL /mnt/codex/* "$HOME/.codex/" 2>/dev/null || true
 fi
 
+# host-builder bridge check
+if [ -d /tmp/hltm-bridge ]; then
+    echo "ping" > /tmp/hltm-bridge/request
+    sleep 1
+    if [ -f /tmp/hltm-bridge/exit_code ]; then
+        rm -f /tmp/hltm-bridge/response /tmp/hltm-bridge/exit_code
+        echo "✓ host-builder connected"
+    else
+        echo "⚠ host-builder not responding (bridge mounted but no listener)"
+    fi
+else
+    echo "– host-builder not mounted (cargo runs locally)"
+fi
+
 exec "$@"

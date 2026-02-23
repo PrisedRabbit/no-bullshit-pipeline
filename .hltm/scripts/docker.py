@@ -40,10 +40,17 @@ def ensure_image(image, build):
     if build:
         cmd.append("--no-cache")
     cmd.append(str(PROJECT_ROOT))
-    rc = subprocess.run(cmd, check=False).returncode
-    if rc != 0:
+    proc = subprocess.Popen(cmd)
+    try:
+        proc.wait()
+    except KeyboardInterrupt:
+        print("\n  ⏹ build interrupted", file=sys.stderr, flush=True)
+        proc.kill()
+        proc.wait()
+        return 130
+    if proc.returncode != 0:
         print("docker build failed", file=sys.stderr)
-    return rc
+    return proc.returncode
 
 
 def keychain_service_name(claude_home):
@@ -122,11 +129,16 @@ def build_volumes(creds_temp, claude_home):
     if gitconfig.exists():
         add(gitconfig.resolve(), "/home/hltm/.gitconfig", ro=True)
 
+    # host-builder bridge for macOS native builds
+    bridge = Path(os.environ.get("TMPDIR", "/tmp")) / "hltm-bridge"
+    if bridge.is_dir():
+        add(bridge, "/tmp/hltm-bridge")
+
     return vols
 
 
 def run_docker(image, volumes, args):
-    cmd = ["docker", "run", "-t"]
+    cmd = ["docker", "run", "--init", "-t"]
     if sys.stdin.isatty():
         cmd.append("-i")
     cmd.append("--rm")
@@ -141,16 +153,18 @@ def run_docker(image, volumes, args):
     cmd.extend([image, "/workspace/.hltm/hltm-loop.sh"])
     cmd.extend(args)
 
-    proc = subprocess.Popen(cmd)
-    try:
-        proc.wait()
-    except KeyboardInterrupt:
+    def sigint_handler(signum, frame):
+        print("\n  ⏹ ctrl+c caught (docker.py)", file=sys.stderr, flush=True)
         try:
-            proc.terminate()
-        except ProcessLookupError:
+            proc.send_signal(signal.SIGINT)
+        except (ProcessLookupError, OSError):
             pass
-        proc.wait()
-    return proc.returncode
+
+    proc = subprocess.Popen(cmd)
+    prev = signal.signal(signal.SIGINT, sigint_handler)
+    rc = proc.wait()
+    signal.signal(signal.SIGINT, prev)
+    return rc
 
 
 def main():

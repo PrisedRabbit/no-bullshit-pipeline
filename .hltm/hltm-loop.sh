@@ -35,6 +35,7 @@ PROMPTS=()
 MAX=""
 VERBOSE=0
 HUMAN_BLOCK=0
+BASE_BRANCH=""
 declare -A STAGE_EXEC STAGE_MODEL
 
 # ── parse args ────────────────────────────────────────────────────────
@@ -51,6 +52,7 @@ required:
   -n, --max-rounds <n>      max iterations (0 = unlimited)
 
 options:
+  -b, --base-branch         lock current branch as base (auto-checkout before each round)
   --docker                  run inside Docker container
   -v, --verbose             stream agent output live
   --human-block             stop on <loop:human> signals
@@ -66,6 +68,7 @@ EOF
     -p|--prompt) PROMPTS+=("$2"); shift 2 ;;
     -e|--executor) EXECUTOR="$2"; shift 2 ;;
     -n|--max-rounds) MAX="$2"; shift 2 ;;
+    -b|--base-branch) BASE_BRANCH="__auto__"; shift ;;
     -v|--verbose) VERBOSE=1; shift ;;
     --human-block) HUMAN_BLOCK=1; shift ;;
     --stage)
@@ -98,6 +101,14 @@ case "$EXECUTOR" in
   claude-code|codex) ;;
   *) printf "${C_RED}error:${C_RESET} unknown executor '%s' (claude-code, codex)\n" "$EXECUTOR" >&2; exit 1 ;;
 esac
+
+# resolve base branch
+if [ "$BASE_BRANCH" = "__auto__" ]; then
+  BASE_BRANCH=$(git branch --show-current 2>/dev/null || echo "")
+  if [ -z "$BASE_BRANCH" ]; then
+    printf "${C_RED}error:${C_RESET} -b used but not on any branch\n" >&2; exit 1
+  fi
+fi
 
 # ── prompt display ────────────────────────────────────────────────────
 PROMPT_DISPLAY=""
@@ -135,7 +146,6 @@ Emit XML signals during your work:
 Rules:
 - <loop:done> = ENTIRE project finished. Not one step. If more work remains — do NOT emit.
 - If unsure — just finish your step and exit. Loop brings you back.
-- Do exactly ONE step per round. Read state → do one thing → update state → exit.
 '
 
 # ── helpers ───────────────────────────────────────────────────────────
@@ -185,6 +195,10 @@ build_prompt() {
 }
 
 # ── executors ─────────────────────────────────────────────────────────
+# Pipelines run in a subshell background so bash can process trap immediately.
+# EXECUTOR_PID is used by cleanup() to kill the subshell.
+EXECUTOR_PID=""
+
 run_claude() {
   local prompt="$1" mdl="$2" logfile="$3"
   local txtfile
@@ -195,24 +209,33 @@ run_claude() {
 
   if [ "$VERBOSE" = "1" ]; then
     printf "  ${C_DIM}┄┄┄${C_RESET}\n"
-    claude -p --dangerously-skip-permissions \
-      "${model_args[@]}" --verbose \
-      --output-format stream-json \
-      "$prompt" 2>&1 | tee "$logfile" | \
-      jq --unbuffered -r "$JQ_STREAM" 2>/dev/null
+    (
+      claude -p --dangerously-skip-permissions \
+        "${model_args[@]}" --verbose \
+        --output-format stream-json \
+        "$prompt" 2>&1 | tee "$logfile" | \
+        jq --unbuffered -r "$JQ_STREAM" 2>/dev/null
+    ) &
+    EXECUTOR_PID=$!
+    wait $EXECUTOR_PID 2>/dev/null
+    EXECUTOR_PID=""
     echo ""
     printf "  ${C_DIM}┄┄┄${C_RESET}\n"
   else
-    claude -p --dangerously-skip-permissions \
-      "${model_args[@]}" --verbose \
-      --output-format stream-json \
-      "$prompt" 2>&1 | tee "$logfile" | \
-      jq --unbuffered -r "$JQ_STREAM" 2>/dev/null | \
-      while IFS= read -r line; do
-        local sig
-        sig=$(echo "$line" | sed -n 's/.*<loop:update>\(.*\)<\/loop:update>.*/\1/p')
-        [ -n "$sig" ] && printf "$(ts)  ${C_CYAN}▸${C_RESET} %s\n" "$sig"
-      done
+    (
+      claude -p --dangerously-skip-permissions \
+        "${model_args[@]}" --verbose \
+        --output-format stream-json \
+        "$prompt" 2>&1 | tee "$logfile" | \
+        jq --unbuffered -r "$JQ_STREAM" 2>/dev/null | \
+        while IFS= read -r line; do
+          sig=$(echo "$line" | sed -n 's/.*<loop:update>\(.*\)<\/loop:update>.*/\1/p')
+          [ -n "$sig" ] && printf "$(ts)  ${C_CYAN}▸${C_RESET} %s\n" "$sig"
+        done
+    ) &
+    EXECUTOR_PID=$!
+    wait $EXECUTOR_PID 2>/dev/null
+    EXECUTOR_PID=""
   fi
 
   # extract text output from raw stream log
@@ -230,33 +253,42 @@ run_codex() {
 
   if [ "$VERBOSE" = "1" ]; then
     printf "  ${C_DIM}┄┄┄${C_RESET}\n"
-    codex exec \
-      --sandbox "$sandbox" \
-      --skip-git-repo-check \
-      "${model_args[@]}" \
-      -c model_reasoning_effort=xhigh \
-      -c stream_idle_timeout_ms=3600000 \
-      "$prompt" 2>&1 | tee "$tmpfile"
+    (
+      codex exec \
+        --sandbox "$sandbox" \
+        --skip-git-repo-check \
+        "${model_args[@]}" \
+        -c model_reasoning_effort=xhigh \
+        -c stream_idle_timeout_ms=3600000 \
+        "$prompt" 2>&1 | tee "$tmpfile"
+    ) &
+    EXECUTOR_PID=$!
+    wait $EXECUTOR_PID 2>/dev/null
+    EXECUTOR_PID=""
     echo ""
     printf "  ${C_DIM}┄┄┄${C_RESET}\n"
   else
-    codex exec \
-      --sandbox "$sandbox" \
-      --skip-git-repo-check \
-      "${model_args[@]}" \
-      -c model_reasoning_effort=xhigh \
-      -c stream_idle_timeout_ms=3600000 \
-      "$prompt" 2>&1 | tee "$tmpfile" | \
-      while IFS= read -r line; do
-        case "$line" in
-          codex) in_agent=1; continue ;;
-          user*|thinking*|exec*|"tokens used"*|"mcp startup"*|--------*) in_agent=0; continue ;;
-        esac
-        [ "${in_agent:-0}" = "1" ] || continue
-        local sig
-        sig=$(echo "$line" | sed -n 's/.*<loop:update>\(.*\)<\/loop:update>.*/\1/p')
-        [ -n "$sig" ] && printf "$(ts)  ${C_CYAN}▸${C_RESET} %s\n" "$sig"
-      done
+    (
+      codex exec \
+        --sandbox "$sandbox" \
+        --skip-git-repo-check \
+        "${model_args[@]}" \
+        -c model_reasoning_effort=xhigh \
+        -c stream_idle_timeout_ms=3600000 \
+        "$prompt" 2>&1 | tee "$tmpfile" | \
+        while IFS= read -r line; do
+          case "$line" in
+            codex) in_agent=1; continue ;;
+            user*|thinking*|exec*|"tokens used"*|"mcp startup"*|--------*) in_agent=0; continue ;;
+          esac
+          [ "${in_agent:-0}" = "1" ] || continue
+          sig=$(echo "$line" | sed -n 's/.*<loop:update>\(.*\)<\/loop:update>.*/\1/p')
+          [ -n "$sig" ] && printf "$(ts)  ${C_CYAN}▸${C_RESET} %s\n" "$sig"
+        done
+    ) &
+    EXECUTOR_PID=$!
+    wait $EXECUTOR_PID 2>/dev/null
+    EXECUTOR_PID=""
   fi
 
   # extract only agent output (codex sections), strip prompt echo / thinking / exec
@@ -275,6 +307,16 @@ printf "  ${C_DIM}prompt${C_RESET}    %s\n" "$PROMPT_DISPLAY"
 printf "  ${C_DIM}max${C_RESET}       %s\n" "$([ "$MAX" -gt 0 ] 2>/dev/null && echo "$MAX" || echo "unlimited")"
 printf "  ${C_DIM}human${C_RESET}     %s\n" "$([ "$HUMAN_BLOCK" = "1" ] && echo "block" || echo "defer")"
 [ -n "$STAGE_DISPLAY" ] && printf "  ${C_DIM}stages${C_RESET}    %s\n" "$STAGE_DISPLAY"
+
+# ── environment ──────────────────────────────────────────────────────
+printf "\n  ${C_DIM}env${C_RESET}\n"
+[ -n "$BASE_BRANCH" ] && printf "  ${C_GREEN}✓${C_RESET} base: ${C_DIM}%s${C_RESET}\n" "$BASE_BRANCH"
+for tool in cargo go python3 node rustc gcc cmake; do
+  if command -v "$tool" >/dev/null 2>&1; then
+    ver=$("$tool" --version 2>/dev/null | head -1)
+    printf "  ${C_GREEN}✓${C_RESET} ${tool}: ${C_DIM}${ver}${C_RESET}\n"
+  fi
+done
 printf "\n"
 
 # ── session logs ──────────────────────────────────────────────────────
@@ -284,7 +326,15 @@ mkdir -p "$LOG_DIR"
 printf "  ${C_DIM}logs${C_RESET}      %s/\n\n" "$LOG_DIR"
 
 # ── signals ──────────────────────────────────────────────────────────
-trap 'printf "\n  ${C_YELLOW}⏹ interrupted${C_RESET}\n\n"; exit 130' INT TERM
+cleanup() {
+  trap - INT TERM
+  printf "\n  ${C_YELLOW}⏹ ctrl+c — stopping${C_RESET}\n\n"
+  [ -n "${EXECUTOR_PID:-}" ] && kill -TERM "$EXECUTOR_PID" 2>/dev/null
+  kill 0 2>/dev/null
+  wait 2>/dev/null
+  exit 130
+}
+trap cleanup INT TERM
 
 # ── main loop ─────────────────────────────────────────────────────────
 ROUND=0
@@ -307,6 +357,14 @@ while true; do
   fi
   printf "$(ts)${C_DIM}━━━${C_RESET} ${C_BOLD}round %d${C_RESET}%b ${C_DIM}%s${C_RESET}\n" \
     "$ROUND" "$STAGE_TAG" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # ensure we're on base branch before every round
+  if [ -n "$BASE_BRANCH" ]; then
+    CUR_BRANCH=$(git branch --show-current 2>/dev/null)
+    if [ "$CUR_BRANCH" != "$BASE_BRANCH" ]; then
+      git checkout "$BASE_BRANCH" --quiet 2>/dev/null || true
+    fi
+  fi
 
   START=$(date +%s)
   FULL_PROMPT=$(build_prompt)

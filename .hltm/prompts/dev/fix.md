@@ -1,22 +1,23 @@
 # Stage: fix
 
-Review failed. Fix everything the reviewer reported. No excuses.
+Review failed. Fix everything reported.
 
 ## Procedure
 
-1. The task ID is in the stage name (e.g. `Current stage: fix:nbp-14s` → task is `nbp-14s`). If no ID → `<loop:stage>develop</loop:stage>`. Do NOT guess.
-2. `bd show <id>` — read the task description.
-3. `bd comments list <id>` — read ALL review comments, understand the full history. The latest "REVIEW FAIL" comment tells you what's wrong NOW, but older comments give context on what was already attempted.
-4. Fix ALL issues listed in the latest review comment. Every single one. Zero issues left behind. No extras, no "while I'm here".
-5. `bd update <id> --status=in_progress`
-6. **Commit the fix**: `git add` changed files, then `git commit --author="hltm-loop <hltm-loop@local>" -m "<task-id>: fix review issues"`.
-7. Emit `<loop:stage>review:<id></loop:stage>` — always pass the task ID.
+1. Task ID from stage name (`fix:nbp-14s` → `nbp-14s`). No ID → `<loop:stage>develop</loop:stage>`.
+2. `<loop:update>fix: <id></loop:update>`
+3. `bd show <id>` — task description.
+3. `bd comments <id>` — ALL comments. Latest "REVIEW FAIL" = current issues. Older = context.
+4. `git checkout feat/<task-id>`
+5. Fix ALL issues from latest review. Every one. No extras.
+6. `bd update <id> --status=in_progress`
+7. `git add` + `git commit --author="hltm-loop <hltm-loop@local>" -m "<task-id>: fix review issues"`
+8. `<loop:stage>review:<id></loop:stage>`
 
 ## Rules
 
-- Fix ONLY what the reviewer flagged. Do not touch anything else.
-- If the reviewer said "file:line — issue" — go to that exact file and line.
-- Do NOT re-implement the whole task. Surgical fixes only.
-- Do NOT argue with the review. Fix it.
-- Do NOT explain why something is hard. Do NOT describe what you can't do. Fix it.
-- If the review comment is unclear or unfixable — `bd update <id> --status=blocked`, add a comment explaining what's unclear, then `<loop:stage>develop</loop:stage>`.
+- Fix ONLY what reviewer flagged. Nothing else.
+- `file:line — issue` → go to that exact location.
+- No re-implementation. Surgical fixes.
+- Don't argue with review. Fix it.
+- Unclear/unfixable → `bd update <id> --status=blocked`, comment, `<loop:stage>develop</loop:stage>`.

@@ -90,7 +90,9 @@
       "Bash(echo bd not available:*)",
       "Bash(echo === $branch ===:*)",
       "Bash(bd list:*)",
-      "Bash(git merge:*)"
+      "Bash(git merge:*)",
+      "Bash(bd:*)",
+      "Bash(git stash:*)"
     ]
   }
 }

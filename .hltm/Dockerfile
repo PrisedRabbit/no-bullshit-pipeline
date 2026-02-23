@@ -18,13 +18,34 @@ RUN BEADS_VERSION="0.55.4" && \
     curl -fsSL "https://github.com/steveyegge/beads/releases/download/v${BEADS_VERSION}/beads_${BEADS_VERSION}_linux_${TARGETARCH}.tar.gz" \
       | tar -xz -C /usr/local/bin bd
 
+# Rust (system-wide)
+ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+ENV PATH="/usr/local/cargo/bin:${PATH}"
+
+# Cargo shim — delegates check/clippy/build to host Mac via bridge
+# Symlinks in /usr/local/bin/ ensure tools are found even if /usr/local/cargo/bin not in PATH
+COPY --chmod=755 scripts/cargo-shim.sh /usr/local/bin/cargo-shim
+RUN mv /usr/local/cargo/bin/cargo /usr/local/cargo/bin/cargo-real \
+    && ln -s /usr/local/bin/cargo-shim /usr/local/cargo/bin/cargo \
+    && ln -s /usr/local/bin/cargo-shim /usr/local/bin/cargo \
+    && ln -s /usr/local/cargo/bin/rustc /usr/local/bin/rustc \
+    && ln -s /usr/local/cargo/bin/rustup /usr/local/bin/rustup
+
+# Bun (system-wide)
+ENV BUN_INSTALL="/usr/local"
+RUN curl -fsSL https://bun.sh/install | bash
+
 # AI tools
 RUN npm install -g @anthropic-ai/claude-code @openai/codex
 
-# Non-root user with configurable UID
+# Non-root user with configurable UID + sudo
 ARG USER_UID=1000
-RUN useradd -m -u ${USER_UID} -s /bin/bash hltm
+RUN apt-get update && apt-get install -y --no-install-recommends sudo && rm -rf /var/lib/apt/lists/* \
+    && useradd -m -u ${USER_UID} -s /bin/bash hltm \
+    && echo "hltm ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/hltm
 USER hltm
+RUN echo 'export PATH="/usr/local/cargo/bin:$PATH"' >> ~/.bashrc
 
 # Docker env marker (codex uses danger-full-access sandbox)
 ENV HLTM_DOCKER=1
