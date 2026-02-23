@@ -728,21 +728,9 @@ function fixStepInputs() {
   }
 }
 
-function getInputOptions(stepIndex) {
-  const options = ['transcript'];
-  for (let i = 0; i < stepIndex; i++) {
-    if (pipelineEditorSteps[i].name) options.push(pipelineEditorSteps[i].name);
-  }
-  return options;
-}
-
 function showStepEditor(index) {
   const step = pipelineEditorSteps[index];
   if (!step) return;
-
-  const inputOptions = getInputOptions(index).map(o =>
-    `<option value="${escapeHtml(o)}" ${step.input === o ? 'selected' : ''}>${escapeHtml(o)}</option>`
-  ).join('');
 
   const promptTemplateOptions = allPromptTemplates.map(t =>
     `<option value="${escapeHtml(t.name)}" ${step.config?.prompt_template === t.name ? 'selected' : ''}>${escapeHtml(t.name)}</option>`
@@ -768,6 +756,7 @@ function showStepEditor(index) {
           `<option value="${escapeHtml(m)}" ${currentModel === m ? 'selected' : ''}>${escapeHtml(m)}</option>`
         ).join('');
     configFields = `
+      ${promptField}
       <div class="step-editor-row"><label>Provider</label><select data-field="provider" class="llm-provider-select">
         <option value="openai" ${currentProvider === 'openai' ? 'selected' : ''}>OpenAI</option>
         <option value="google" ${currentProvider === 'google' ? 'selected' : ''}>Google</option>
@@ -777,7 +766,6 @@ function showStepEditor(index) {
       <div class="step-editor-row"><label>Model</label><select data-field="model" class="llm-model-select">
         ${modelOptions}
       </select></div>
-      ${promptField}
     `;
   } else if (step.connector === 'save') {
     const savePaths = (typeof savePathIntegrations !== 'undefined') ? savePathIntegrations : [];
@@ -906,22 +894,17 @@ function showStepEditor(index) {
       <span class="step-editor-title">Step ${index + 1} — ${escapeHtml(step.name || 'Unnamed')}</span>
       <button class="step-editor-close" title="Close editor">×</button>
     </div>
-    <div class="step-editor-row"><label>Input</label><select data-field="input">${inputOptions}</select></div>
-    <div id="step-config-fields">${configFields}</div>
-    <details class="step-editor-advanced">
-      <summary>Advanced</summary>
-      <div class="step-editor-row"><label>Name</label><input data-field="name" value="${escapeHtml(step.name)}" placeholder="step name" /></div>
-      <div class="step-editor-row"><label>Connector</label><select data-field="connector">
-        <option value="llm" ${step.connector === 'llm' ? 'selected' : ''}>LLM</option>
-        <option value="save" ${step.connector === 'save' ? 'selected' : ''}>Save</option>
-        <option value="webhook" ${step.connector === 'webhook' ? 'selected' : ''}>Webhook</option>
-        <option value="slack" ${step.connector === 'slack' ? 'selected' : ''}>Slack</option>
-        <option value="mcp" ${step.connector === 'mcp' ? 'selected' : ''}>MCP</option>
-        <option value="notion" ${step.connector === 'notion' ? 'selected' : ''}>Notion</option>
-        <option value="linear" ${step.connector === 'linear' ? 'selected' : ''}>Linear</option>
-      </select></div>
-      <div class="step-editor-row"><label>Description</label><input data-field="description" value="${escapeHtml(step.description || '')}" placeholder="What this step does..." /></div>
-    </details>
+    <div id="step-config-fields">
+      <div class="step-editor-row"><label>Step Name</label><input class="step-name-input" value="${escapeHtml(step.name || '')}" placeholder="Step name" /></div>
+      ${configFields}
+      ${index > 0 ? (() => {
+        const currentInput = step.input || 'transcript';
+        const inputOptions = ['transcript', ...pipelineEditorSteps.slice(0, index).map(s => s.name).filter(Boolean)]
+          .map(v => `<option value="${escapeHtml(v)}" ${currentInput === v ? 'selected' : ''}>${escapeHtml(v === 'transcript' ? 'Transcript' : v)}</option>`)
+          .join('');
+        return `<div class="step-editor-row"><label>Input</label><select class="step-input-select">${inputOptions}</select></div>`;
+      })() : ''}
+    </div>
     <div class="step-editor-actions">
       <button class="step-editor-done">Done</button>
     </div>
@@ -1168,21 +1151,8 @@ function showStepEditor(index) {
     });
   }
 
-  // Connector change → re-render config fields
-  const connectorSelect = editorEl.querySelector('[data-field="connector"]');
-  connectorSelect.addEventListener('change', () => {
-    step.connector = connectorSelect.value;
-    step.config = {};
-    showStepEditor(index);
-  });
-
   // Done button — save and collapse panel
   editorEl.querySelector('.step-editor-done').addEventListener('click', () => {
-    step.name = editorEl.querySelector('[data-field="name"]').value.trim();
-    step.connector = editorEl.querySelector('[data-field="connector"]').value;
-    step.input = editorEl.querySelector('[data-field="input"]').value;
-    step.description = editorEl.querySelector('[data-field="description"]').value.trim() || null;
-
     const configFieldsEl = editorEl.querySelector('#step-config-fields');
     const prevTarget = step.config?.target; // preserve for Slack async-load case
     step.config = {};
@@ -1208,7 +1178,21 @@ function showStepEditor(index) {
     if (step.connector === 'slack' && !step.config.target && prevTarget) {
       step.config.target = prevTarget;
     }
+    // Use explicit step name from input, fall back to auto-derive for llm steps
+    const nameInput = editorEl.querySelector('.step-name-input');
+    const nameVal = nameInput ? nameInput.value.trim() : '';
+    if (nameVal) {
+      step.name = nameVal;
+    } else if (step.connector === 'llm' && step.config.prompt_template) {
+      step.name = step.config.prompt_template;
+    }
+    // Persist user-selected input source (transcript or previous step name)
+    const inputSelect = editorEl.querySelector('.step-input-select');
+    if (inputSelect) {
+      step.input = inputSelect.value || 'transcript';
+    }
 
+    fixStepInputs();
     editingStepIndex = null;
     closeStepEditorPanel();
     renderPipelineSteps();
