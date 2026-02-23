@@ -78,6 +78,13 @@ let appSettings = null;
 let currentAssignedPipelines = new Set(); // pipelines assigned to the current/last recording
 let pipelineProgressUnlisten = null;
 
+// ===== LIVE TRANSCRIPT STATE =====
+let liveTranscriptGeneration = 0;
+let liveTranscriptUnlisten = null;
+let liveTranscriptFinals = '';
+let liveTranscriptPartial = '';
+let liveTranscriptCurrentItemId = '';
+
 // ===== DOM ELEMENTS =====
 const statusIndicator = document.getElementById("status-indicator");
 const timerDisplay = document.getElementById("timer");
@@ -232,6 +239,95 @@ function drawSpectrum() {
   }
 }
 
+// ===== LIVE TRANSCRIPT =====
+function renderLiveTranscript() {
+  const content = document.getElementById('live-transcript-content');
+  if (!content) return;
+  if (!liveTranscriptFinals && !liveTranscriptPartial) {
+    content.innerHTML = '<span style="color: var(--text-secondary); opacity: 0.5; font-style: italic; font-size: 0.85rem;">Listening...</span>';
+    return;
+  }
+  const finalHtml = liveTranscriptFinals ? escapeHtml(liveTranscriptFinals) : '';
+  const partialHtml = liveTranscriptPartial
+    ? `<span class="live-transcript-partial">${escapeHtml(liveTranscriptPartial)}</span>`
+    : '';
+  content.innerHTML = finalHtml + (finalHtml && partialHtml ? ' ' : '') + partialHtml;
+  content.scrollTop = content.scrollHeight;
+}
+
+function clearLiveTranscript() {
+  liveTranscriptFinals = '';
+  liveTranscriptPartial = '';
+  liveTranscriptCurrentItemId = '';
+}
+
+async function startLiveTranscript(recordingId) {
+  const generation = ++liveTranscriptGeneration;
+  clearLiveTranscript();
+
+  if (!appSettings?.transcription?.realtime_enabled) return;
+
+  const panel = document.getElementById('live-transcript-panel');
+  if (panel) panel.style.display = '';
+  renderLiveTranscript();
+
+  if (liveTranscriptUnlisten) {
+    liveTranscriptUnlisten();
+    liveTranscriptUnlisten = null;
+  }
+
+  const unlisten = await window.__TAURI__.event.listen('realtime_transcript_delta', (event) => {
+    if (liveTranscriptGeneration !== generation) return;
+    const { text, is_final, item_id } = event.payload;
+    if (is_final) {
+      liveTranscriptFinals += (liveTranscriptFinals ? ' ' : '') + text;
+      if (item_id === liveTranscriptCurrentItemId) {
+        liveTranscriptPartial = '';
+        liveTranscriptCurrentItemId = '';
+      }
+    } else {
+      if (item_id !== liveTranscriptCurrentItemId) {
+        liveTranscriptCurrentItemId = item_id;
+        liveTranscriptPartial = text;
+      } else if (item_id.startsWith('local-')) {
+        liveTranscriptPartial = text; // local: full replacement each step
+      } else {
+        liveTranscriptPartial += text; // cloud: incremental append
+      }
+    }
+    renderLiveTranscript();
+  });
+
+  if (liveTranscriptGeneration !== generation) {
+    unlisten();
+    return;
+  }
+  liveTranscriptUnlisten = unlisten;
+
+  try {
+    await invoke('start_realtime_transcription', { recordingId });
+  } catch (err) {
+    if (liveTranscriptGeneration !== generation) return;
+    console.error('Failed to start realtime transcription:', err);
+    if (panel) panel.style.display = 'none';
+    if (liveTranscriptUnlisten) {
+      liveTranscriptUnlisten();
+      liveTranscriptUnlisten = null;
+    }
+  }
+}
+
+function stopLiveTranscript() {
+  liveTranscriptGeneration++;
+  if (liveTranscriptUnlisten) {
+    liveTranscriptUnlisten();
+    liveTranscriptUnlisten = null;
+  }
+  clearLiveTranscript();
+  const panel = document.getElementById('live-transcript-panel');
+  if (panel) panel.style.display = 'none';
+}
+
 // ===== RECORDING CONTROLS =====
 async function toggleRecording() {
   if (isRecordingBusy) return; // Prevent double-click during async operations
@@ -314,6 +410,7 @@ async function startRecording() {
     startTimer();
     startWaveformAnimation();
     showDetailView(metadata.id);
+    startLiveTranscript(metadata.id);
 
     // Send recording notification
     if (appSettings?.show_recording_notification !== false) {
@@ -362,6 +459,7 @@ async function stopRecording() {
 
     stopTimer();
     stopWaveformAnimation();
+    stopLiveTranscript();
     setRecordingUI(false);
     renderPipelineChips(); // Reset chip visual state after recording stops
 
@@ -383,6 +481,7 @@ async function stopRecording() {
     currentAssignedPipelines = new Set();
     stopTimer();
     stopWaveformAnimation();
+    stopLiveTranscript();
     setRecordingUI(false);
     renderPipelineChips();
     console.error("Failed to stop:", error);
@@ -2017,6 +2116,7 @@ async function startRecordingWithPipeline(pipelineName) {
     startWaveformAnimation();
     showDetailView(metadata.id);
     renderPipelineChips(); // Update chip visual state (show assigned chip)
+    startLiveTranscript(metadata.id);
 
     // Send recording notification
     if (appSettings?.show_recording_notification !== false) {
