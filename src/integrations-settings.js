@@ -420,6 +420,11 @@ function renderLocalLlmModelsInner() {
   el.innerHTML = llmModelsData.map(m => {
     const isSelected = m.id === selectedId;
     const sizeStr = m.size_mb >= 1000 ? `${(m.size_mb / 1000).toFixed(1)} GB` : `${m.size_mb} MB`;
+    const freshness = llmFreshnessData[m.id];
+    const hasUpdate = freshness?.status === 'update_available';
+    const statusBadge = m.downloaded
+      ? `<span class="llm-status-badge llm-status-downloaded">Downloaded</span>`
+      : `<span class="llm-status-badge llm-status-not-downloaded">Not downloaded</span>`;
 
     return `
       <div class="provider-card${isSelected ? ' llm-selected' : ''}" data-llm-id="${escapeHtml(m.id)}" style="cursor:pointer;flex-wrap:wrap;">
@@ -429,8 +434,9 @@ function renderLocalLlmModelsInner() {
         <div class="provider-card-info" style="flex:1;">
           <div class="provider-card-name">
             ${escapeHtml(m.name)}
-            ${isSelected ? '<span style="font-size:0.7rem;color:var(--accent-color);margin-left:6px;">ACTIVE</span>' : ''}
-            ${llmFreshnessData[m.id]?.status === 'update_available' ? '<span style="font-size:0.6rem;color:#e6a700;background:rgba(230,167,0,0.12);padding:1px 6px;border-radius:3px;margin-left:6px;font-weight:600;">UPDATE AVAILABLE</span>' : ''}
+            ${statusBadge}
+            ${isSelected ? '<span class="llm-status-badge llm-status-active">Active</span>' : ''}
+            ${hasUpdate ? '<span class="llm-status-badge llm-status-update">Update available</span>' : ''}
           </div>
           <div class="provider-card-detail">${escapeHtml(m.desc)}</div>
           <div class="provider-card-detail" style="opacity:0.6;font-size:0.65rem;">${sizeStr} • Q4_K_M</div>
@@ -438,7 +444,7 @@ function renderLocalLlmModelsInner() {
         <div class="provider-card-input" style="gap:6px;">
           ${m.downloaded
             ? `<button class="mini-action-btn llm-select-btn${isSelected ? ' active' : ''}" data-llm-id="${escapeHtml(m.id)}" style="font-size:0.75rem;">${isSelected ? 'Active' : 'Select'}</button>
-               <button class="mini-action-btn llm-update-btn" data-llm-id="${escapeHtml(m.id)}" title="Re-download latest version" style="width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;">
+               <button class="mini-action-btn llm-update-btn${hasUpdate ? ' update-available' : ''}" data-llm-id="${escapeHtml(m.id)}" title="${hasUpdate ? 'Update available — download latest version' : 'Re-download latest version'}" style="width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;">
                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
                </button>
                <button class="mini-action-btn llm-delete-btn" data-llm-id="${escapeHtml(m.id)}" title="Delete model" style="width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;">
@@ -497,7 +503,12 @@ function renderLocalLlmModelsInner() {
       e.stopPropagation();
       const modelId = btn.dataset.llmId;
       const model = llmModelsData.find(m => m.id === modelId);
-      const ok = await showConfirm('Re-download Model?', `Re-download ${model?.name || modelId}? This will replace the current file.`);
+      const hasUpdate = llmFreshnessData[modelId]?.status === 'update_available';
+      const title = hasUpdate ? 'Update Model?' : 'Re-download Model?';
+      const msg = hasUpdate
+        ? `A newer version of ${model?.name || modelId} is available. Download it now?`
+        : `Re-download ${model?.name || modelId}? This will replace the current file.`;
+      const ok = await showConfirm(title, msg);
       if (!ok) return;
 
       const card = btn.closest('.provider-card');

@@ -3725,6 +3725,51 @@ body.light .provider-models-section {
   opacity: 0.85;
 }
 
+/* ===== LOCAL LLM MODEL STATUS BADGES ===== */
+.llm-status-badge {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.llm-status-downloaded {
+  color: var(--success);
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.llm-status-not-downloaded {
+  color: var(--text-secondary);
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.llm-status-active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.llm-status-update {
+  color: #e6a700;
+  background: rgba(230, 167, 0, 0.12);
+}
+
+.llm-selected {
+  border-color: var(--accent);
+}
+
+.llm-update-btn.update-available {
+  border-color: #e6a700;
+  color: #e6a700;
+  background: rgba(230, 167, 0, 0.1);
+}
+
+.llm-update-btn.update-available:hover {
+  background: rgba(230, 167, 0, 0.2);
+}
+
 /* ===== PIPELINE CARDS (base) ===== */
 .pipeline-cards { display: flex; gap: 10px; flex-wrap: wrap; }
 .pipeline-card { cursor: pointer; padding: 10px 16px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-card); display: flex; flex-direction: column; align-items: center; gap: 6px; transition: transform 0.15s, opacity 0.15s, border-color 0.15s, background 0.15s; min-width: 100px; position: relative; }
