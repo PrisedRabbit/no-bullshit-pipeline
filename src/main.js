@@ -473,7 +473,7 @@ async function stopRecording() {
     }
 
     // Auto-transcribe + auto-execute (EXEC-01) — fire and forget
-    if (stoppedPipelines.length > 0 && appSettings?.transcription?.enabled) {
+    if (appSettings?.transcription?.enabled) {
       autoTranscribeAndExecute(currentId, stoppedPipelines);
     }
 
@@ -506,7 +506,13 @@ async function autoTranscribeAndExecute(recordingId, pipelineNames) {
     await loadRecordings();
     if (selectedRecordingId === recordingId) showDetailView(recordingId);
     return; // Do not proceed to pipeline execution if transcription failed
+  } finally {
+    if (window.__NBP_setTranscribingId) window.__NBP_setTranscribingId(null);
   }
+
+  // Refresh UI after transcription completes
+  await loadRecordings();
+  if (selectedRecordingId === recordingId) showDetailView(recordingId);
 
   // Step 2: Execute each assigned pipeline sequentially, refreshing UI after each
   for (const pipelineName of pipelineNames) {
