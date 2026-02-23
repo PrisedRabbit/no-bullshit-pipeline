@@ -236,6 +236,10 @@ async fn transcribe_recording_inner(
         return Err("Audio file not found".to_string());
     }
 
+    // Clear existing transcript before re-transcription so stale data is never visible
+    let _ = std::fs::remove_file(recording_dir.join("transcript.json"));
+    let _ = std::fs::remove_file(recording_dir.join("transcript.md"));
+
     let provider = settings.transcription.provider.clone();
     let whisper_model_ref = settings.transcription.whisper_model.clone();
 

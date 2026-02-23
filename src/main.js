@@ -1430,6 +1430,7 @@ if (prBtn) {
         detailTranscriptEl.textContent = '';
         detailTranscriptEl.classList.remove('empty');
       }
+      if (saveTranscriptBtn) saveTranscriptBtn.style.display = 'none';
 
       // Set which recording is being transcribed so listener is scoped
       if (window.__NBP_setTranscribingId) window.__NBP_setTranscribingId(selectedRecordingId);
