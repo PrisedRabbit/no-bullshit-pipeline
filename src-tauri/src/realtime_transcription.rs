@@ -269,7 +269,11 @@ async fn run_cloud_transcription(
                     Some(Ok(tungstenite::Message::Text(text))) => {
                         handle_server_event(&app_handle, &text);
                     }
-                    Some(Ok(tungstenite::Message::Close(_))) => {
+                    Some(Ok(tungstenite::Message::Close(frame))) => {
+                        let reason = frame
+                            .map(|f| format!("code={}, reason={}", f.code, f.reason))
+                            .unwrap_or_else(|| "no close frame".to_string());
+                        loop_error = Some(format!("Server closed connection: {}", reason));
                         break;
                     }
                     Some(Err(e)) => {
