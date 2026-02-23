@@ -3178,12 +3178,21 @@ body.is-recording-active .record-btn .stop-icon {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 0;
+  padding: 5px 0;
+}
+
+/* Separator between pipeline runs */
+.pipeline-run-flow + .pipeline-status-row,
+.pipeline-steps-detail + .pipeline-status-row,
+.pipeline-status-row + .pipeline-status-row {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
 }
 
 .pipeline-status-name {
-  font-size: 0.85rem;
-  font-weight: 500;
+  font-size: 0.82rem;
+  font-weight: 600;
   color: var(--text-primary);
 }
 
@@ -3649,18 +3658,16 @@ body.light .provider-models-section {
 }
 
 /* ===== PIPELINE CARDS (detail view) ===== */
-.pipeline-cards { display: flex; gap: 10px; flex-wrap: wrap; }
-.pipeline-card { cursor: pointer; padding: 10px 16px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-card); display: flex; flex-direction: column; align-items: center; gap: 6px; transition: transform 0.15s, opacity 0.15s, border-color 0.15s, background 0.15s; min-width: 100px; position: relative; }
-.pipeline-card::after { content: '+'; position: absolute; inset: 0; border-radius: inherit; background: rgba(0,0,0,0.45); color: #fff; font-size: 5rem; font-weight: 300; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.15s; pointer-events: none; }
-.pipeline-card:hover { border-color: var(--accent); }
-.pipeline-card:hover::after { opacity: 1; }
-.pipeline-card-icons { display: flex; gap: 4px; }
-.pipeline-card-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 800; flex-shrink: 0; }
-.pipeline-card-icon svg { width: 16px; height: 16px; }
-.pipeline-card-name { font-size: 0.78rem; font-weight: 600; color: var(--text-primary); text-align: center; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pipeline-cards { display: flex; gap: 5px; flex-wrap: wrap; }
+.pipeline-card { cursor: pointer; padding: 3px 8px 3px 4px; border-radius: 7px; border: 1px solid var(--border); background: transparent; display: flex; flex-direction: row; align-items: center; gap: 5px; transition: border-color 0.2s, background 0.2s; position: relative; }
+.pipeline-card:hover { border-color: var(--accent); background: var(--accent-soft); }
+.pipeline-card-icons { display: flex; gap: 3px; }
+.pipeline-card-icon { width: 20px; height: 20px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 800; flex-shrink: 0; }
+.pipeline-card-icon svg { width: 11px; height: 11px; }
+.pipeline-card-name { font-size: 0.73rem; font-weight: 500; color: var(--text-secondary); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Pipeline card: hide hover overlay during fly */
-.pipeline-card.is-flying::after { opacity: 0 !important; }
+/* Pipeline card: no-op during fly animation */
+.pipeline-card.is-flying { pointer-events: none; }
 
 /* Recording: two-column layout — left=info, right=pipeline panel */
 body.is-recording-active #detail-view .detail-container {
@@ -3693,26 +3700,22 @@ body.is-recording-active .recording-pipeline-panel {
 /* Assigned pipeline card state */
 .pipeline-card.is-assigned {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
-.pipeline-card.is-assigned::after {
-  content: '−';
-  font-size: 4rem;
-  font-weight: 300;
+.pipeline-card.is-assigned .pipeline-card-name {
+  color: var(--text-primary);
 }
 
-.pipeline-card.is-assigned:hover::after {
-  opacity: 1;
+.pipeline-card.is-assigned:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 /* Small persistent checkmark badge on assigned cards */
 .pipeline-assigned-badge {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  width: 18px;
-  height: 18px;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
   background: var(--accent);
   border-radius: 50%;
   display: flex;
@@ -3721,6 +3724,9 @@ body.is-recording-active .recording-pipeline-panel {
   pointer-events: none;
 }
 
+
+/* Tighter padding for status run list */
+#pipeline-status-content { padding: 1rem 1.25rem; }
 
 /* Flash on pipeline runs block when a new run lands */
 .pipeline-status-flash { animation: statusFlash 1.2s ease-out forwards; border-radius: 12px; }
