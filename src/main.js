@@ -1680,8 +1680,8 @@ async function loadSettings() {
         whisperModelSelect.value = appSettings.transcription.whisper_model || "Base";
       }
 
-      // Render Processing provider cards (API keys shown there)
-      if (typeof renderProcessingProviders === 'function') renderProcessingProviders();
+      // Render provider-first Models UI (API keys, capabilities, models)
+      if (typeof renderModelsProviders === 'function') renderModelsProviders();
 
       updateProviderVisibility();
     }

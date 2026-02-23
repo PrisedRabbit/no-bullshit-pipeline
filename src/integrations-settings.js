@@ -26,9 +26,8 @@ async function loadAllIntegrations() {
     loadSavePathIntegrations(),
     loadWebhookProfiles(),
   ]);
-  renderProcessingProviders();
+  renderModelsProviders();
   renderLocalLlmModels();
-  renderOllamaCard();
   renderConnectedIntegrations();
   renderAvailableIntegrations();
 }
@@ -59,17 +58,50 @@ async function refreshAllProviderModels() {
   // Ollama is local — no API key needed
   fetches.push(fetchProviderModels('ollama'));
   await Promise.all(fetches);
-  renderProcessingProviders();
-  renderOllamaCard();
+  renderModelsProviders();
   providerModelsFetching = false;
 }
 
 function renderProviderModelsList(providerId) {
   const data = providerModels[providerId];
-  if (!data) return '';
-  if (data.error) {
-    return `<div class="provider-models-section"><span class="provider-models-error">Failed to load models</span></div>`;
+
+  // Fallback to hardcoded models from appSettings when no fetch data exists
+  if (!data) {
+    const storedModels = (appSettings && appSettings.providers && appSettings.providers[providerId] && appSettings.providers[providerId].models) || [];
+    if (storedModels.length === 0) return '';
+    const chips = storedModels.map(id => {
+      return `<div class="provider-model-item">
+      <span class="provider-model-id">${escapeHtml(id)}</span>
+    </div>`;
+    }).join('');
+    return `<div class="provider-models-section">
+    <div class="provider-models-header">
+      <span class="provider-models-count">${storedModels.length} model${storedModels.length !== 1 ? 's' : ''} available</span>
+    </div>
+    <div class="provider-models-list">${chips}</div>
+  </div>`;
   }
+
+  if (data.error) {
+    // Show error but still fall back to stored models below the error
+    const storedModels = (appSettings && appSettings.providers && appSettings.providers[providerId] && appSettings.providers[providerId].models) || [];
+    if (storedModels.length === 0) {
+      return `<div class="provider-models-section"><span class="provider-models-error">Failed to load models</span></div>`;
+    }
+    const chips = storedModels.map(id => {
+      return `<div class="provider-model-item">
+      <span class="provider-model-id">${escapeHtml(id)}</span>
+    </div>`;
+    }).join('');
+    return `<div class="provider-models-section">
+    <span class="provider-models-error">Failed to load models</span>
+    <div class="provider-models-header">
+      <span class="provider-models-count">${storedModels.length} model${storedModels.length !== 1 ? 's' : ''} available</span>
+    </div>
+    <div class="provider-models-list">${chips}</div>
+  </div>`;
+  }
+
   if (data.models.length === 0) return '';
 
   const CAP_COLORS = {
@@ -105,21 +137,8 @@ function renderProviderModelsList(providerId) {
 }
 
 function renderOllamaCard() {
-  const el = document.getElementById('ollama-provider-container');
-  if (!el) return;
-  const modelsHtml = renderProviderModelsList('ollama');
-  el.innerHTML = `
-    <div class="provider-card-wrapper">
-      <div class="provider-card" data-provider="ollama">
-        <div class="provider-card-icon ollama" style="background:rgba(139,92,246,0.15);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:var(--accent-color);">O</div>
-        <div class="provider-card-info">
-          <div class="provider-card-name">Ollama</div>
-          <div class="provider-card-detail">Local models via Ollama</div>
-        </div>
-      </div>
-      ${modelsHtml}
-    </div>
-  `;
+  // Kept for backward compat — actual rendering handled by renderModelsProviders
+  renderModelsProviders();
 }
 
 // ===== RENDER PROCESSING PROVIDERS =====
@@ -143,50 +162,61 @@ async function validateApiKey(provider, key) {
   return false;
 }
 
-function renderProcessingProviders() {
-  const el = document.getElementById('processing-providers-list');
+// ===== PROVIDER-FIRST MODELS UI =====
+
+const CLOUD_PROVIDERS = [
+  { id: 'openai',    name: 'OpenAI',    desc: 'GPT-4o, Whisper, real-time transcription', placeholder: 'sk-...',     icon: { img: 'assets/openai.svg',    filter: 'invert(1)',                                                bg: 'rgba(142,142,160,0.15)' } },
+  { id: 'google',    name: 'Google AI',  desc: 'Gemini long-context processing',           placeholder: 'AIza...',    icon: { img: 'assets/gemini.svg',    filter: 'invert(48%) sepia(90%) saturate(400%) hue-rotate(190deg)', bg: 'rgba(66,133,244,0.15)'  } },
+  { id: 'anthropic', name: 'Anthropic',  desc: 'Claude structured extraction',             placeholder: 'sk-ant-...', icon: { img: 'assets/anthropic.svg', filter: 'invert(55%) sepia(80%) saturate(500%) hue-rotate(10deg)',  bg: 'rgba(217,119,6,0.15)'  } },
+];
+
+const CAP_BADGE_COLORS = {
+  'Transcription': 'rgba(16,185,129,0.18)',
+  'Processing':    'rgba(59,130,246,0.18)',
+  'Embedding':     'rgba(168,85,247,0.18)',
+};
+
+function renderCapBadges(capabilities) {
+  return capabilities.map(c => {
+    const bg = CAP_BADGE_COLORS[c] || 'rgba(148,163,184,0.15)';
+    return `<span class="provider-cap-badge" style="background:${bg}">${escapeHtml(c)}</span>`;
+  }).join('');
+}
+
+function renderModelsProviders() {
+  const el = document.getElementById('models-providers-list');
   if (!el) return;
 
   const apiKeys = (appSettings && appSettings.transcription && appSettings.transcription.api_keys) || {};
+  const providerConfigs = (appSettings && appSettings.providers) || {};
 
-  const PROVIDER_ICONS = {
-    openai:    { img: 'assets/openai.svg',    filter: 'invert(1)',                                                 bg: 'rgba(142,142,160,0.15)' },
-    google:    { img: 'assets/gemini.svg',    filter: 'invert(48%) sepia(90%) saturate(400%) hue-rotate(190deg)', bg: 'rgba(66,133,244,0.15)' },
-    anthropic: { img: 'assets/anthropic.svg', filter: 'invert(55%) sepia(80%) saturate(500%) hue-rotate(10deg)',  bg: 'rgba(217,119,6,0.15)'  },
-  };
+  const sections = [];
 
-  const providers = [
-    { id: 'openai', name: 'OpenAI', desc: 'GPT-4o, Whisper-1 transcription', placeholder: 'sk-...' },
-    { id: 'google', name: 'Google AI', desc: 'Gemini long-context processing', placeholder: 'AIza...' },
-    { id: 'anthropic', name: 'Anthropic', desc: 'Claude structured extraction', placeholder: 'sk-ant-...' },
-  ];
-
-  el.innerHTML = providers.map(p => {
+  // Cloud provider sections
+  for (const p of CLOUD_PROVIDERS) {
+    const config = providerConfigs[p.id] || {};
+    const caps = config.capabilities || [];
     const key = apiKeys[p.id] || '';
     const hasKey = !!key;
     const displayValue = hasKey ? maskApiKey(key) : '';
     const validatedKeys = window.__nbpValidatedKeys || {};
     const isValidated = validatedKeys[p.id] === key && !!key;
     const dotClass = !hasKey ? 'key-missing' : isValidated ? 'key-valid' : 'key-set';
-    const icon = PROVIDER_ICONS[p.id];
-    const iconHtml = icon
-      ? `<div class="provider-card-icon ${escapeHtml(p.id)}" style="background:${icon.bg};display:flex;align-items:center;justify-content:center;"><img src="${escapeHtml(icon.img)}" style="width:20px;height:20px;filter:${icon.filter}" /></div>`
-      : `<div class="provider-card-icon ${escapeHtml(p.id)}">${escapeHtml(p.name[0])}</div>`;
-
     const modelsHtml = renderProviderModelsList(p.id);
 
-    return `
-      <div class="provider-card-wrapper">
-        <div class="provider-card" data-provider="${escapeHtml(p.id)}">
-          ${iconHtml}
-          <div class="provider-card-info">
-            <div class="provider-card-name">
-              ${escapeHtml(p.name)}
-              <span class="provider-key-status-dot ${dotClass}" id="key-dot-${escapeHtml(p.id)}"></span>
-            </div>
-            <div class="provider-card-detail">${escapeHtml(p.desc)}</div>
+    sections.push(`
+      <div class="connections-group" data-provider-section="${escapeHtml(p.id)}">
+        <div class="connections-group-header">
+          <div class="provider-card-icon ${escapeHtml(p.id)}" style="background:${p.icon.bg};display:flex;align-items:center;justify-content:center;">
+            <img src="${escapeHtml(p.icon.img)}" style="width:20px;height:20px;filter:${p.icon.filter}" />
           </div>
-          <div class="provider-card-input">
+          <div class="group-info">
+            <div class="group-label">${escapeHtml(p.name)} ${renderCapBadges(caps)}</div>
+            <div class="group-desc">${escapeHtml(p.desc)}</div>
+          </div>
+        </div>
+        <div class="provider-card" data-provider="${escapeHtml(p.id)}" style="border:none;padding:0;background:none;">
+          <div class="provider-card-input" style="width:100%;justify-content:flex-start;gap:8px;">
             <input
               id="settings-api-key-${escapeHtml(p.id)}"
               type="password"
@@ -194,30 +224,75 @@ function renderProcessingProviders() {
               class="settings-input-text"
               value="${escapeHtml(displayValue)}"
               data-original-key="${escapeHtml(key)}"
-              style="width: 200px;"
+              style="width:200px;"
             />
             <button class="mini-action-btn provider-save-btn" data-provider="${escapeHtml(p.id)}">Save</button>
+            <span class="provider-key-status-dot ${dotClass}" id="key-dot-${escapeHtml(p.id)}"></span>
           </div>
         </div>
-        ${modelsHtml}
+        ${modelsHtml ? `<div class="provider-card-wrapper">${modelsHtml}</div>` : ''}
+        <button class="mini-action-btn refresh-provider-btn" data-provider="${escapeHtml(p.id)}" style="align-self:flex-start;margin-top:4px;font-size:0.75rem;">Refresh Models</button>
       </div>
-    `;
-  }).join('') + `<button class="mini-action-btn refresh-provider-models-btn" style="align-self:flex-start;margin-top:4px;font-size:0.75rem;">Refresh Models</button>`;
+    `);
+  }
 
-  // Wire Refresh Models button
-  const refreshBtn = el.querySelector('.refresh-provider-models-btn');
-  if (refreshBtn) {
-    refreshBtn.addEventListener('click', async () => {
-      refreshBtn.disabled = true;
-      refreshBtn.textContent = 'Refreshing...';
+  // Local / Ollama section
+  const localConfig = providerConfigs['local'] || {};
+  const ollamaConfig = providerConfigs['ollama'] || {};
+  const localCaps = [...new Set([...(localConfig.capabilities || []), ...(ollamaConfig.capabilities || [])])];
+  const ollamaModelsHtml = renderProviderModelsList('ollama');
+
+  sections.push(`
+    <div class="connections-group" data-provider-section="local">
+      <div class="connections-group-header">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+          <rect x="9" y="9" width="6" height="6"></rect>
+          <line x1="9" y1="1" x2="9" y2="4"></line>
+          <line x1="15" y1="1" x2="15" y2="4"></line>
+          <line x1="9" y1="20" x2="9" y2="23"></line>
+          <line x1="15" y1="20" x2="15" y2="23"></line>
+          <line x1="20" y1="9" x2="23" y2="9"></line>
+          <line x1="20" y1="14" x2="23" y2="14"></line>
+          <line x1="1" y1="9" x2="4" y2="9"></line>
+          <line x1="1" y1="14" x2="4" y2="14"></line>
+        </svg>
+        <div class="group-info">
+          <div class="group-label">Local / Ollama ${renderCapBadges(localCaps)}</div>
+          <div class="group-desc">On-device AI processing — no API keys needed</div>
+        </div>
+      </div>
+      ${ollamaModelsHtml ? `<div id="ollama-provider-container"><div class="provider-card-wrapper">${ollamaModelsHtml}</div></div>` : '<div id="ollama-provider-container"></div>'}
+      <div id="local-llm-models-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+      <div id="llm-freshness-actions" style="margin-top:6px;display:flex;align-items:center;gap:8px;">
+        <button id="llm-check-freshness-btn" class="mini-action-btn" style="font-size:0.75rem;">Check for Updates</button>
+        <span id="llm-freshness-status" style="font-size:0.7rem;color:var(--text-secondary);"></span>
+      </div>
+      <div style="margin-top:4px;">
+        <p style="font-size:0.75rem;color:var(--text-secondary);opacity:0.7;margin:0;">
+          Location: <span class="mono-font">~/.nbp/models/llm/</span>
+        </p>
+      </div>
+    </div>
+  `);
+
+  el.innerHTML = sections.join('');
+
+  // Wire per-provider Refresh buttons
+  el.querySelectorAll('.refresh-provider-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const providerId = btn.dataset.provider;
+      btn.disabled = true;
+      btn.textContent = 'Refreshing...';
       try {
-        await refreshAllProviderModels();
+        await fetchProviderModels(providerId);
+        renderModelsProviders();
       } finally {
-        refreshBtn.disabled = false;
-        refreshBtn.textContent = 'Refresh Models';
+        btn.disabled = false;
+        btn.textContent = 'Refresh Models';
       }
     });
-  }
+  });
 
   // Wire Save buttons
   el.querySelectorAll('.provider-save-btn').forEach(btn => {
@@ -227,17 +302,15 @@ function renderProcessingProviders() {
       if (!input) return;
 
       const value = input.value.trim();
-      if (isKeyMasked(value)) return; // No change — masked value
+      if (isKeyMasked(value)) return;
 
       if (!appSettings.transcription) appSettings.transcription = {};
       if (!appSettings.transcription.api_keys) appSettings.transcription.api_keys = {};
       appSettings.transcription.api_keys[providerId] = value || null;
-      // Also write to provider-first storage so the persisted schema stays in sync
       if (!appSettings.providers) appSettings.providers = {};
       if (!appSettings.providers[providerId]) appSettings.providers[providerId] = {};
       appSettings.providers[providerId].api_key = value || null;
 
-      // Clear cached models when key is removed
       if (!value) {
         delete providerModels[providerId];
       }
@@ -248,7 +321,6 @@ function renderProcessingProviders() {
         await window.__TAURI__.core.invoke('save_settings', { settings: appSettings });
         if (typeof updateTranscriptionKeyStatusDot === 'function') updateTranscriptionKeyStatusDot();
 
-        // Validate key and update dot
         if (value) {
           const dot = document.getElementById(`key-dot-${providerId}`);
           if (dot) { dot.className = 'provider-key-status-dot key-checking'; }
@@ -257,14 +329,13 @@ function renderProcessingProviders() {
           if (!window.__nbpValidatedKeys) window.__nbpValidatedKeys = {};
           if (valid) {
             window.__nbpValidatedKeys[providerId] = value;
-            // Auto-fetch models after successful validation
-            fetchProviderModels(providerId).then(() => renderProcessingProviders());
+            fetchProviderModels(providerId).then(() => renderModelsProviders());
           } else {
             delete window.__nbpValidatedKeys[providerId];
             delete providerModels[providerId];
           }
         }
-        renderProcessingProviders();
+        renderModelsProviders();
       } catch (err) {
         showToast('Failed to save: ' + err, 'error');
       } finally {
@@ -273,16 +344,62 @@ function renderProcessingProviders() {
       }
     });
   });
+
+  // Wire freshness check button
+  const freshnessBtn = el.querySelector('#llm-check-freshness-btn');
+  if (freshnessBtn) {
+    freshnessBtn.addEventListener('click', async () => {
+      const invoke = window.__TAURI__.core.invoke;
+      const statusEl = document.getElementById('llm-freshness-status');
+      freshnessBtn.disabled = true;
+      freshnessBtn.innerHTML = '<span class="btn-spinner"></span> Checking…';
+      freshnessCheckRunning = true;
+      if (statusEl) statusEl.textContent = '';
+      try {
+        const report = await invoke('check_all_llm_freshness');
+        llmFreshnessData = report.models || {};
+        const updateCount = Object.values(llmFreshnessData).filter(v => v.status === 'update_available').length;
+        if (report.failed > 0 && report.checked === 0) {
+          showToast('Could not check for updates — network error', 'error');
+          if (statusEl) statusEl.textContent = `${report.failed} model(s) could not be checked`;
+        } else if (report.failed > 0) {
+          const msg = updateCount > 0
+            ? `${updateCount} update(s) available, ${report.failed} could not be checked`
+            : `${report.checked} checked, ${report.failed} could not be checked`;
+          if (statusEl) statusEl.textContent = msg;
+        } else if (updateCount > 0) {
+          if (statusEl) statusEl.textContent = `${updateCount} update(s) available`;
+        } else {
+          showToast('All models are up to date', 'success');
+          if (statusEl) statusEl.textContent = 'All up to date';
+        }
+        await renderLocalLlmModels();
+      } catch (err) {
+        if (String(err).includes('cancelled')) {
+          if (statusEl) statusEl.textContent = '';
+        } else {
+          showToast('Freshness check failed: ' + err, 'error');
+        }
+      } finally {
+        freshnessCheckRunning = false;
+        freshnessBtn.disabled = false;
+        freshnessBtn.textContent = 'Check for Updates';
+      }
+    });
+  }
+
+  // Fill local LLM models
+  renderLocalLlmModelsInner();
 }
+
+// Backward-compat aliases
+function renderProcessingProviders() { renderModelsProviders(); }
 
 // ===== LOCAL LLM MODELS =====
 var llmModelsData = [];
 var llmFreshnessData = {};
 
 async function renderLocalLlmModels() {
-  const el = document.getElementById('local-llm-models-list');
-  if (!el) return;
-
   const invoke = window.__TAURI__.core.invoke;
   try {
     llmModelsData = await invoke('get_llm_models_info');
@@ -290,7 +407,14 @@ async function renderLocalLlmModels() {
     console.error('Failed to load LLM models:', err);
     llmModelsData = [];
   }
+  renderLocalLlmModelsInner();
+}
 
+function renderLocalLlmModelsInner() {
+  const el = document.getElementById('local-llm-models-list');
+  if (!el) return;
+
+  const invoke = window.__TAURI__.core.invoke;
   const selectedId = appSettings?.local_llm?.model_id || null;
 
   el.innerHTML = llmModelsData.map(m => {
@@ -453,48 +577,7 @@ new MutationObserver(() => {
   }
 }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 
-document.addEventListener('DOMContentLoaded', () => {
-  const btn = document.getElementById('llm-check-freshness-btn');
-  if (!btn) return;
-  btn.addEventListener('click', async () => {
-    const invoke = window.__TAURI__.core.invoke;
-    const statusEl = document.getElementById('llm-freshness-status');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="btn-spinner"></span> Checking…';
-    freshnessCheckRunning = true;
-    if (statusEl) statusEl.textContent = '';
-    try {
-      const report = await invoke('check_all_llm_freshness');
-      llmFreshnessData = report.models || {};
-      const updateCount = Object.values(llmFreshnessData).filter(v => v.status === 'update_available').length;
-      if (report.failed > 0 && report.checked === 0) {
-        showToast('Could not check for updates — network error', 'error');
-        if (statusEl) statusEl.textContent = `${report.failed} model(s) could not be checked`;
-      } else if (report.failed > 0) {
-        const msg = updateCount > 0
-          ? `${updateCount} update(s) available, ${report.failed} could not be checked`
-          : `${report.checked} checked, ${report.failed} could not be checked`;
-        if (statusEl) statusEl.textContent = msg;
-      } else if (updateCount > 0) {
-        if (statusEl) statusEl.textContent = `${updateCount} update(s) available`;
-      } else {
-        showToast('All models are up to date', 'success');
-        if (statusEl) statusEl.textContent = 'All up to date';
-      }
-      await renderLocalLlmModels();
-    } catch (err) {
-      if (String(err).includes('cancelled')) {
-        if (statusEl) statusEl.textContent = '';
-      } else {
-        showToast('Freshness check failed: ' + err, 'error');
-      }
-    } finally {
-      freshnessCheckRunning = false;
-      btn.disabled = false;
-      btn.textContent = 'Check for Updates';
-    }
-  });
-});
+// Freshness check button wired inside renderModelsProviders()
 
 async function loadNotionProfiles() {
   try {
