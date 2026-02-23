@@ -3249,6 +3249,11 @@ body.is-recording-active .record-btn .stop-icon {
   color: var(--danger);
 }
 
+.pipeline-status-badge.status-skipped {
+  background: rgba(163, 163, 163, 0.15);
+  color: var(--text-muted);
+}
+
 .pipeline-step-error {
   font-size: 0.75rem;
   color: var(--danger);
@@ -3299,6 +3304,13 @@ body.is-recording-active .record-btn .stop-icon {
 .step-skipped .step-status-icon,
 .step-pending .step-status-icon {
   color: #9e9e9e;
+}
+
+.pipeline-state-error {
+  color: #f44336;
+  font-size: 0.75rem;
+  margin-top: 4px;
+  opacity: 0.85;
 }
 
 .step-error {

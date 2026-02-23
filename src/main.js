@@ -566,19 +566,24 @@ async function renderPipelineStatus(recordingId) {
     let html = '';
     for (let ai = 0; ai < states.length; ai++) {
       const state = states[ai];
-      const displayText = PIPELINE_STATUS_DISPLAY[state.status] || state.status;
+      const isDeletedPipeline = state.status === 'partial' && state.error && state.error.includes('deleted');
+      const displayText = isDeletedPipeline ? 'Skipped' : (PIPELINE_STATUS_DISPLAY[state.status] || state.status);
+      const badgeStatus = isDeletedPipeline ? 'skipped' : state.status;
       const runBtn = state.status === 'waiting'
         ? `<button class="pipeline-run-btn" data-pipeline="${escapeHtml(state.name)}" data-run-index="${state.run_index || 0}">Run</button>`
         : '';
       const deleteBtn = state.status !== 'running'
         ? `<button class="pipeline-run-delete" data-run-id="${escapeHtml(state.id)}" title="Delete run">&times;</button>`
         : '';
+      const pipelineErrorHtml = isDeletedPipeline
+        ? `<div class="pipeline-state-error">Pipeline was deleted before execution</div>`
+        : '';
       html += `<div class="pipeline-status-row">
   <span class="pipeline-status-name">${escapeHtml(state.name)}</span>
-  <span class="pipeline-status-badge status-${escapeHtml(state.status)}">${escapeHtml(displayText)}</span>
+  <span class="pipeline-status-badge status-${escapeHtml(badgeStatus)}">${escapeHtml(displayText)}</span>
   ${runBtn}
   ${deleteBtn}
-</div>`;
+</div>${pipelineErrorHtml}`;
 
       // Show pipeline flow visualization + per-step detail
       const pipelineDef = typeof allPipelineDefs !== 'undefined' && allPipelineDefs.find(d => d.name === state.name);

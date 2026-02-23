@@ -491,12 +491,23 @@ pub async fn execute_pipeline_internal(
     };
     let _exec_guard = lock.lock().await;
 
-    // Load pipeline definition
+    // Load pipeline definition — if deleted since assignment, mark as Partial and bail
     let pipelines = load_pipelines()?;
-    let pipeline = pipelines
-        .get(pipeline_name)
-        .ok_or_else(|| format!("Pipeline '{}' not found", pipeline_name))?
-        .clone();
+    let pipeline = match pipelines.get(pipeline_name) {
+        Some(p) => p.clone(),
+        None => {
+            let error_msg = format!("Pipeline '{}' was deleted before execution", pipeline_name);
+            eprintln!("[pipeline] {}", error_msg);
+            update_pipeline_state(
+                recording_id,
+                pipeline_name,
+                PipelineStatus::Partial,
+                None,
+                Some(&error_msg),
+            )?;
+            return Ok(PipelineStatus::Partial);
+        }
+    };
 
     validate_pipeline(&pipeline)?;
 
@@ -1328,10 +1339,11 @@ pub fn get_step_outputs(
     }
 
     // Load pipeline definition to get step order
+    // If pipeline was deleted, return empty — the pipeline state error field tells the story
     let pipelines = load_pipelines()?;
-    let pipeline = pipelines
-        .get(&pipeline_name)
-        .ok_or_else(|| format!("Pipeline '{}' not found", pipeline_name))?;
+    let Some(pipeline) = pipelines.get(&pipeline_name) else {
+        return Ok(Vec::new());
+    };
 
     let mut statuses = Vec::new();
 
