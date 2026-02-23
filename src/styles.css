@@ -3178,12 +3178,21 @@ body.is-recording-active .record-btn .stop-icon {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 0;
+  padding: 5px 0;
+}
+
+/* Separator between pipeline runs */
+.pipeline-run-flow + .pipeline-status-row,
+.pipeline-steps-detail + .pipeline-status-row,
+.pipeline-status-row + .pipeline-status-row {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
 }
 
 .pipeline-status-name {
-  font-size: 0.85rem;
-  font-weight: 500;
+  font-size: 0.82rem;
+  font-weight: 600;
   color: var(--text-primary);
 }
 
@@ -3648,7 +3657,7 @@ body.light .provider-models-section {
   border-color: #e2e8f0;
 }
 
-/* ===== PIPELINE CARDS (detail view) ===== */
+/* ===== PIPELINE CARDS (base) ===== */
 .pipeline-cards { display: flex; gap: 10px; flex-wrap: wrap; }
 .pipeline-card { cursor: pointer; padding: 10px 16px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-card); display: flex; flex-direction: column; align-items: center; gap: 6px; transition: transform 0.15s, opacity 0.15s, border-color 0.15s, background 0.15s; min-width: 100px; position: relative; }
 .pipeline-card::after { content: '+'; position: absolute; inset: 0; border-radius: inherit; background: rgba(0,0,0,0.45); color: #fff; font-size: 5rem; font-weight: 300; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.15s; pointer-events: none; }
@@ -3661,6 +3670,16 @@ body.light .provider-models-section {
 
 /* Pipeline card: hide hover overlay during fly */
 .pipeline-card.is-flying::after { opacity: 0 !important; }
+
+/* Compact pipeline cards — available-pipelines panel in detail view (post-recording) */
+#pipeline-cards.pipeline-cards { gap: 5px; }
+#pipeline-cards .pipeline-card { padding: 3px 8px 3px 4px; border-radius: 7px; background: transparent; flex-direction: row; align-items: center; gap: 5px; min-width: unset; transition: border-color 0.2s, background 0.2s; }
+#pipeline-cards .pipeline-card::after { display: none; }
+#pipeline-cards .pipeline-card:hover { border-color: var(--accent); background: var(--accent-soft); }
+#pipeline-cards .pipeline-card-icons { gap: 3px; }
+#pipeline-cards .pipeline-card-icon { width: 20px; height: 20px; border-radius: 5px; font-size: 0.65rem; }
+#pipeline-cards .pipeline-card-icon svg { width: 11px; height: 11px; }
+#pipeline-cards .pipeline-card-name { font-size: 0.73rem; font-weight: 500; color: var(--text-secondary); text-align: left; max-width: 140px; }
 
 /* Recording: two-column layout — left=info, right=pipeline panel */
 body.is-recording-active #detail-view .detail-container {
@@ -3721,6 +3740,9 @@ body.is-recording-active .recording-pipeline-panel {
   pointer-events: none;
 }
 
+
+/* Tighter padding for status run list */
+#pipeline-status-content { padding: 1rem 1.25rem; }
 
 /* Flash on pipeline runs block when a new run lands */
 .pipeline-status-flash { animation: statusFlash 1.2s ease-out forwards; border-radius: 12px; }
