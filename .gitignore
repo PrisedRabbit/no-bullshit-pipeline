@@ -63,3 +63,5 @@ _hltm
 
 # Cargo home (created by agent builds)
 .cargo-home/
+.hltm/logs
+.hltm/human.md
