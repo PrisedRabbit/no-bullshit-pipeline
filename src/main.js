@@ -77,6 +77,8 @@ let permissions = { mic: false, system_audio: false };
 let appSettings = null;
 let currentAssignedPipelines = new Set(); // pipelines assigned to the current/last recording
 let pipelineProgressUnlisten = null;
+let pipelineRunningSteps = {}; // key: "recordingId:pipelineName" -> { step_name, start_time }
+let stepElapsedTimer = null;
 
 // ===== LIVE TRANSCRIPT STATE =====
 let liveTranscriptGeneration = 0;
@@ -524,11 +526,18 @@ async function subscribeToProgress(recordingId) {
     pipelineProgressUnlisten();
     pipelineProgressUnlisten = null;
   }
+  pipelineRunningSteps = {};
+  if (stepElapsedTimer) { clearInterval(stepElapsedTimer); stepElapsedTimer = null; }
 
   pipelineProgressUnlisten = await window.__TAURI__.event.listen('pipeline-progress', (event) => {
     const payload = event.payload;
     if (payload.recording_id !== recordingId) return;
-    // Re-render pipeline status section on any progress event
+    const key = `${payload.recording_id}:${payload.pipeline_name}`;
+    if (payload.status === 'running') {
+      pipelineRunningSteps[key] = { step_name: payload.step_name, start_time: Date.now() };
+    } else {
+      delete pipelineRunningSteps[key];
+    }
     renderPipelineStatus(recordingId);
   });
 }
@@ -575,13 +584,22 @@ async function renderPipelineStatus(recordingId) {
       const pipelineDef = typeof allPipelineDefs !== 'undefined' && allPipelineDefs.find(d => d.name === state.name);
       const canRenderFlow = pipelineDef && typeof renderPipelineFlowHTML !== 'undefined';
 
+      const runningKey = `${recordingId}:${state.name}`;
+      const runningInfo = (state.status === 'running') ? pipelineRunningSteps[runningKey] : null;
+
       if (state.status === 'running' || state.status === 'partial' || state.status === 'done') {
         try {
           const steps = await invoke('get_step_outputs', { recordingId, pipelineName: state.name, runIndex: state.run_index || 0 });
           if (steps && steps.length > 0) {
             // Build step status map for flow visualization
             const stepStatuses = {};
-            for (const step of steps) stepStatuses[step.name] = step.status;
+            for (const step of steps) {
+              if (runningInfo && step.name === runningInfo.step_name && step.status === 'pending') {
+                stepStatuses[step.name] = 'running';
+              } else {
+                stepStatuses[step.name] = step.status;
+              }
+            }
 
             if (canRenderFlow) {
               html += `<div class="pipeline-run-flow">${renderPipelineFlowHTML(pipelineDef.steps, { compact: false, statuses: stepStatuses })}</div>`;
@@ -592,6 +610,7 @@ async function renderPipelineStatus(recordingId) {
               let rowClass = 'pipeline-step-row';
               let iconHtml = '';
               let extraHtml = '';
+              let progressBarHtml = '';
 
               if (step.status === 'done') {
                 rowClass += ' step-done';
@@ -607,8 +626,15 @@ async function renderPipelineStatus(recordingId) {
                 rowClass += ' step-skipped';
                 iconHtml = '<span class="step-status-icon">&#9675;</span>';
                 extraHtml = '<span class="step-skipped-label">(skipped)</span>';
+              } else if (runningInfo && step.name === runningInfo.step_name) {
+                // Actively running step: animated progress bar + elapsed time
+                rowClass += ' step-running';
+                iconHtml = '<span class="step-status-icon">&#9679;</span>';
+                const elapsedSecs = Math.round((Date.now() - runningInfo.start_time) / 1000);
+                extraHtml = `<span class="step-elapsed" data-start="${runningInfo.start_time}">${elapsedSecs}s</span>`;
+                progressBarHtml = '<div class="step-progress-bar-container"><div class="step-progress-bar-inner"></div></div>';
               } else {
-                // pending or running
+                // Not yet reached
                 rowClass += ' step-pending';
                 iconHtml = '<span class="step-status-icon">&#9675;</span>';
               }
@@ -637,7 +663,7 @@ async function renderPipelineStatus(recordingId) {
   ${durationHtml}
   ${extraHtml}
   <span class="step-toggles">${togglesHtml}</span>
-</div>`;
+</div>${progressBarHtml}`;
 
               // Collapsible output panel (hidden by default)
               if (step.output) {
@@ -662,6 +688,17 @@ async function renderPipelineStatus(recordingId) {
     }
 
     content.innerHTML = html;
+
+    // Manage elapsed time ticker for running steps
+    if (stepElapsedTimer) { clearInterval(stepElapsedTimer); stepElapsedTimer = null; }
+    if (Object.keys(pipelineRunningSteps).length > 0) {
+      stepElapsedTimer = setInterval(() => {
+        content.querySelectorAll('.step-elapsed[data-start]').forEach(el => {
+          const start = parseInt(el.dataset.start, 10);
+          el.textContent = Math.round((Date.now() - start) / 1000) + 's';
+        });
+      }, 1000);
+    }
 
     // Wire "Run" buttons for waiting pipelines
     content.querySelectorAll('.pipeline-run-btn').forEach(btn => {
@@ -1212,6 +1249,8 @@ function hideDetailView() {
     pipelineProgressUnlisten();
     pipelineProgressUnlisten = null;
   }
+  pipelineRunningSteps = {};
+  if (stepElapsedTimer) { clearInterval(stepElapsedTimer); stepElapsedTimer = null; }
 }
 
 // ===== EVENT LISTENERS =====

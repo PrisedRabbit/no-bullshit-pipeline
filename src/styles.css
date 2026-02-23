@@ -3325,6 +3325,49 @@ body.is-recording-active .record-btn .stop-icon {
   font-variant-numeric: tabular-nums;
 }
 
+/* Running step: pulsing icon + elapsed time + indeterminate progress bar */
+.step-running .step-status-icon {
+  color: var(--accent);
+  animation: step-icon-pulse 1s ease-in-out infinite;
+}
+
+@keyframes step-icon-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.step-elapsed {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  margin-left: 8px;
+}
+
+.step-progress-bar-container {
+  margin-left: 20px;
+  height: 3px;
+  background: var(--accent-soft);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+  margin-bottom: 2px;
+}
+
+.step-progress-bar-inner {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 40%;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: step-progress-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes step-progress-slide {
+  0% { left: -40%; }
+  100% { left: 100%; }
+}
+
 /* Inline step toggles (Output / Prompt pills on step row) */
 .step-toggles { margin-left: auto; display: flex; gap: 4px; }
 .step-inline-toggle { background: none; border: 1px solid var(--border); color: var(--text-secondary); font-size: 0.65rem; font-weight: 500; cursor: pointer; padding: 1px 6px; border-radius: 4px; font-family: inherit; opacity: 0.5; transition: opacity 0.15s, border-color 0.15s, color 0.15s; }
