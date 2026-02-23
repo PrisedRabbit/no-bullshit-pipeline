@@ -3831,3 +3831,57 @@ body.is-recording-active .recording-pipeline-panel {
 
 /* Flow visualization inside pipeline list items */
 .pipeline-def-flow { margin: 4px 0 2px; pointer-events: none; }
+
+/* ===== LIVE TRANSCRIPT PANEL ===== */
+.live-transcript-panel {
+  margin-top: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+  padding: 0.9rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 180px;
+  overflow: hidden;
+}
+
+.live-transcript-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--recording);
+  animation: live-dot-pulse 1.5s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes live-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.live-transcript-content {
+  font-size: 0.92rem;
+  line-height: 1.65;
+  color: var(--text-primary);
+  overflow-y: auto;
+  flex: 1;
+  min-height: 2.5rem;
+}
+
+.live-transcript-partial {
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
