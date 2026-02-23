@@ -216,10 +216,10 @@ fn validate_step_config(step: &PipelineStep) -> Result<(), String> {
             }
             // Validate provider if specified
             if let Some(provider) = step.config.get("provider").and_then(|v| v.as_str())
-                && !["openai", "google", "anthropic", "local"].contains(&provider)
+                && !["openai", "google", "anthropic", "local", "ollama"].contains(&provider)
             {
                 return Err(format!(
-                    "Step '{}': Unknown LLM provider '{}'. Must be openai, google, anthropic, or local",
+                    "Step '{}': Unknown LLM provider '{}'. Must be openai, google, anthropic, local, or ollama",
                     step.name, provider
                 ));
             }

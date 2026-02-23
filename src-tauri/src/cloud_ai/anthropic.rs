@@ -42,15 +42,17 @@ struct ClaudeErrorResponse {
     error: ClaudeError,
 }
 
-/// Process text with Claude Sonnet (200K token context)
+/// Process text with a Claude model (200K token context)
 /// Best for nuanced extraction and structured data
-pub async fn process_with_claude(api_key: &str, prompt: &str, text: &str) -> Result<String, String> {
+pub async fn process_with_claude(api_key: &str, prompt: &str, text: &str, model: &str) -> Result<String, String> {
     let client = reqwest::Client::new();
 
     let full_prompt = prompt.replace("{transcript}", text);
 
+    let model_id = if model.is_empty() { "claude-sonnet-4-20250514" } else { model };
+
     let request = ClaudeRequest {
-        model: "claude-sonnet-4-20250514".to_string(),
+        model: model_id.to_string(),
         max_tokens: 4096,
         messages: vec![ClaudeMessage {
             role: "user".to_string(),
@@ -94,7 +96,7 @@ pub async fn process_with_claude(api_key: &str, prompt: &str, text: &str) -> Res
                 .filter(|b| b.block_type == "text")
                 .find_map(|b| b.text)
         })
-        .ok_or_else(|| "No response from Claude".to_string())
+        .ok_or_else(|| format!("No response from Anthropic model '{}'", model_id))
 }
 
 /// Extract structured data using Claude (Meeting Notes format)
@@ -115,7 +117,7 @@ If you cannot identify a section, use "Not identified" for strings or empty arra
 Transcript:
 {transcript}"#;
 
-    process_with_claude(api_key, prompt, transcript).await
+    process_with_claude(api_key, prompt, transcript, "").await
 }
 
 /// Extract structured data using Claude (Brainstorm format)
@@ -140,7 +142,7 @@ Any action items or follow-ups mentioned.
 Transcript:
 {transcript}"#;
 
-    process_with_claude(api_key, prompt, transcript).await
+    process_with_claude(api_key, prompt, transcript, "").await
 }
 
 /// Extract structured data using Claude (Journal format)
@@ -165,5 +167,5 @@ Things expressed thanks for (if any, otherwise omit this section).
 Transcript:
 {transcript}"#;
 
-    process_with_claude(api_key, prompt, transcript).await
+    process_with_claude(api_key, prompt, transcript, "").await
 }

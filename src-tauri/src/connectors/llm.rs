@@ -55,11 +55,12 @@ impl LlmConfig {
 
 fn default_model_for_provider(provider: &str) -> &str {
     match provider {
-        "openai" => "gpt-5.2",
+        "openai" => "gpt-4o",
         "google" => "gemini-1.5-flash",
         "anthropic" => "claude-sonnet-4-20250514",
         "local" => "local",
-        _ => "gpt-5.2",
+        "ollama" => "llama3.2",
+        _ => "gpt-4o",
     }
 }
 
@@ -85,6 +86,7 @@ pub fn context_limit_for_provider(provider: &str) -> usize {
             let settings = load_settings();
             settings.local_llm.context_size as usize
         }
+        "ollama" => 128_000,
         _ => 120_000,
     }
 }
@@ -218,22 +220,22 @@ pub async fn execute(
     // Get API key from settings
     let settings = load_settings();
 
-    // Execute with appropriate provider
+    // Execute with appropriate provider, passing the user-selected model
     let result = match llm_config.provider.as_str() {
         "openai" => {
             let api_key = crate::config::get_api_key_for_provider(&settings, "openai")
                 .ok_or("OpenAI API key not configured. Set it in Settings.")?;
-            cloud_ai::process_with_gpt4o(&api_key, &prompt_to_send, "").await
+            cloud_ai::process_with_gpt4o(&api_key, &prompt_to_send, "", &llm_config.model).await
         }
         "google" => {
             let api_key = crate::config::get_api_key_for_provider(&settings, "google")
                 .ok_or("Google API key not configured. Set it in Settings.")?;
-            cloud_ai::process_with_gemini(&api_key, &prompt_to_send, "").await
+            cloud_ai::process_with_gemini(&api_key, &prompt_to_send, "", &llm_config.model).await
         }
         "anthropic" => {
             let api_key = crate::config::get_api_key_for_provider(&settings, "anthropic")
                 .ok_or("Anthropic API key not configured. Set it in Settings.")?;
-            cloud_ai::process_with_claude(&api_key, &prompt_to_send, "").await
+            cloud_ai::process_with_claude(&api_key, &prompt_to_send, "", &llm_config.model).await
         }
         "local" => {
             // Run local inference on a blocking thread (it's CPU/GPU bound)
@@ -243,6 +245,17 @@ pub async fn execute(
             })
             .await
             .map_err(|e| format!("Local LLM task failed: {}", e))?
+        }
+        "ollama" => {
+            let model = llm_config.model.clone();
+            cloud_ai::process_with_openai_compat(
+                "http://localhost:11434",
+                None,
+                &model,
+                &prompt_to_send,
+                "",
+            )
+            .await
         }
         other => Err(format!("Unknown LLM provider: '{}'", other)),
     };
@@ -398,17 +411,17 @@ pub async fn execute_retry(
         "openai" => {
             let api_key = crate::config::get_api_key_for_provider(&settings, "openai")
                 .ok_or("OpenAI API key not configured. Set it in Settings.")?;
-            cloud_ai::process_with_gpt4o(&api_key, &corrective_prompt, "").await
+            cloud_ai::process_with_gpt4o(&api_key, &corrective_prompt, "", &llm_config.model).await
         }
         "google" => {
             let api_key = crate::config::get_api_key_for_provider(&settings, "google")
                 .ok_or("Google API key not configured. Set it in Settings.")?;
-            cloud_ai::process_with_gemini(&api_key, &corrective_prompt, "").await
+            cloud_ai::process_with_gemini(&api_key, &corrective_prompt, "", &llm_config.model).await
         }
         "anthropic" => {
             let api_key = crate::config::get_api_key_for_provider(&settings, "anthropic")
                 .ok_or("Anthropic API key not configured. Set it in Settings.")?;
-            cloud_ai::process_with_claude(&api_key, &corrective_prompt, "").await
+            cloud_ai::process_with_claude(&api_key, &corrective_prompt, "", &llm_config.model).await
         }
         "local" => {
             let prompt_clone = corrective_prompt.clone();
@@ -417,6 +430,17 @@ pub async fn execute_retry(
             })
             .await
             .map_err(|e| format!("Local LLM task failed: {}", e))?
+        }
+        "ollama" => {
+            let model = llm_config.model.clone();
+            cloud_ai::process_with_openai_compat(
+                "http://localhost:11434",
+                None,
+                &model,
+                &corrective_prompt,
+                "",
+            )
+            .await
         }
         other => Err(format!("Unknown LLM provider: '{}'", other)),
     };

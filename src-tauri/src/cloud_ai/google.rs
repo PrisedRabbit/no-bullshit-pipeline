@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-const GEMINI_API_URL: &str = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
+const GEMINI_API_BASE: &str = "https://generativelanguage.googleapis.com/v1beta/models";
 
 #[derive(Debug, Serialize)]
 struct GeminiPart {
@@ -45,10 +45,12 @@ struct GeminiError {
     code: Option<i32>,
 }
 
-/// Process text with Google Gemini Flash 1.5 (1M token context)
+/// Process text with a Google Gemini model (1M+ token context)
 /// Ideal for very long transcripts (hour+ recordings)
-pub async fn process_with_gemini(api_key: &str, prompt: &str, text: &str) -> Result<String, String> {
+pub async fn process_with_gemini(api_key: &str, prompt: &str, text: &str, model: &str) -> Result<String, String> {
     let client = reqwest::Client::new();
+
+    let model_id = if model.is_empty() { "gemini-1.5-flash" } else { model };
 
     let full_prompt = prompt.replace("{transcript}", text);
 
@@ -58,7 +60,7 @@ pub async fn process_with_gemini(api_key: &str, prompt: &str, text: &str) -> Res
         }],
     };
 
-    let url = format!("{}?key={}", GEMINI_API_URL, api_key);
+    let url = format!("{}/{}:generateContent?key={}", GEMINI_API_BASE, model_id, api_key);
 
     let response = client
         .post(&url)
@@ -93,7 +95,7 @@ pub async fn process_with_gemini(api_key: &str, prompt: &str, text: &str) -> Res
         .and_then(|c| c.first().cloned())
         .and_then(|c| c.content.parts.first().cloned())
         .and_then(|p| p.text)
-        .ok_or_else(|| "No response from Gemini".to_string())
+        .ok_or_else(|| format!("No response from Google model '{}'", model_id))
 }
 
 /// Summarize text with Gemini (optimized for long transcripts)
@@ -105,5 +107,5 @@ pub async fn summarize_with_gemini(api_key: &str, text: &str) -> Result<String, 
         - Important quotes or statements\n\n\
         Transcript:\n{transcript}";
 
-    process_with_gemini(api_key, prompt, text).await
+    process_with_gemini(api_key, prompt, text, "").await
 }

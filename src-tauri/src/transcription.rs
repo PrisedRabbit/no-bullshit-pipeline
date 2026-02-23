@@ -504,7 +504,8 @@ pub async fn summarize_recording(
                 .ok_or("Anthropic API key not configured")?;
             cloud_ai::process_with_claude(&api_key,
                 "Create a comprehensive summary of this transcript. Include main topics, key points, decisions, and action items.\n\nTranscript:\n{transcript}",
-                &transcript
+                &transcript,
+                ""
             ).await?
         },
         TranscriptionProvider::LocalWhisper | TranscriptionProvider::FluidAudio | TranscriptionProvider::Unknown => {
@@ -558,17 +559,17 @@ pub async fn process_with_template(
         TranscriptionProvider::OpenAI => {
             let api_key = crate::config::get_api_key_for_provider(&settings, "openai")
                 .ok_or("OpenAI API key not configured")?;
-            cloud_ai::process_with_gpt4o(&api_key, &template.prompt, &transcript).await?
+            cloud_ai::process_with_gpt4o(&api_key, &template.prompt, &transcript, "").await?
         },
         TranscriptionProvider::Google => {
             let api_key = crate::config::get_api_key_for_provider(&settings, "google")
                 .ok_or("Google API key not configured")?;
-            cloud_ai::process_with_gemini(&api_key, &template.prompt, &transcript).await?
+            cloud_ai::process_with_gemini(&api_key, &template.prompt, &transcript, "").await?
         },
         TranscriptionProvider::Anthropic => {
             let api_key = crate::config::get_api_key_for_provider(&settings, "anthropic")
                 .ok_or("Anthropic API key not configured")?;
-            cloud_ai::process_with_claude(&api_key, &template.prompt, &transcript).await?
+            cloud_ai::process_with_claude(&api_key, &template.prompt, &transcript, "").await?
         },
         TranscriptionProvider::LocalWhisper | TranscriptionProvider::FluidAudio | TranscriptionProvider::Unknown => {
             // Try local LLM if enabled

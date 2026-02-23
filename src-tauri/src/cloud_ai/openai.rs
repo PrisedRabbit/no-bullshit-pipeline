@@ -158,15 +158,71 @@ pub async fn summarize_with_gpt4o(api_key: &str, text: &str, custom_prompt: Opti
         .choices
         .first()
         .map(|c| c.message.content.clone())
-        .ok_or_else(|| "No response from GPT-4o".to_string())
+        .ok_or_else(|| "No response from GPT-4o (summarize)".to_string())
 }
 
-/// Process text with GPT-4o using a custom prompt (for templates)
-pub async fn process_with_gpt4o(api_key: &str, prompt: &str, text: &str) -> Result<String, String> {
+/// Process text with an OpenAI-compatible chat API using a given model.
+/// Used by the Ollama connector (OpenAI-compatible endpoint at localhost:11434).
+pub async fn process_with_openai_compat(
+    base_url: &str,
+    api_key: Option<&str>,
+    model: &str,
+    prompt: &str,
+    text: &str,
+) -> Result<String, String> {
     let client = reqwest::Client::new();
 
     let request = ChatRequest {
-        model: "gpt-4o".to_string(),
+        model: model.to_string(),
+        messages: vec![ChatMessage {
+            role: "user".to_string(),
+            content: prompt.replace("{transcript}", text),
+        }],
+        max_tokens: 4096,
+    };
+
+    let url = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
+    let mut req = client
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .json(&request);
+    if let Some(key) = api_key {
+        req = req.header("Authorization", format!("Bearer {}", key));
+    }
+
+    let response = req
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {}", e))?;
+
+    let status = response.status();
+    let body = response.text().await.map_err(|e| format!("Failed to read response: {}", e))?;
+
+    if !status.is_success() {
+        if let Ok(error) = serde_json::from_str::<OpenAIError>(&body) {
+            return Err(format!("API error: {}", error.error.message));
+        }
+        return Err(format!("API request failed ({}): {}", status, body));
+    }
+
+    let result: ChatResponse = serde_json::from_str(&body)
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    result
+        .choices
+        .first()
+        .map(|c| c.message.content.clone())
+        .ok_or_else(|| format!("No response from model '{}'", model))
+}
+
+/// Process text with an OpenAI chat model using a custom prompt (for templates)
+pub async fn process_with_gpt4o(api_key: &str, prompt: &str, text: &str, model: &str) -> Result<String, String> {
+    let client = reqwest::Client::new();
+
+    let model_id = if model.is_empty() { "gpt-4o" } else { model };
+
+    let request = ChatRequest {
+        model: model_id.to_string(),
         messages: vec![
             ChatMessage {
                 role: "user".to_string(),
@@ -202,5 +258,5 @@ pub async fn process_with_gpt4o(api_key: &str, prompt: &str, text: &str) -> Resu
         .choices
         .first()
         .map(|c| c.message.content.clone())
-        .ok_or_else(|| "No response from GPT-4o".to_string())
+        .ok_or_else(|| format!("No response from OpenAI model '{}'", model_id))
 }

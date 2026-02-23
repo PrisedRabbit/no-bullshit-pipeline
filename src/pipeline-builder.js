@@ -21,13 +21,58 @@ const PROVIDER_META = {
   google:    { img: 'assets/gemini.svg',    filter: 'invert(48%) sepia(90%) saturate(400%) hue-rotate(190deg)',           bgColor: 'rgba(66,133,244,0.15)' },
   anthropic: { img: 'assets/anthropic.svg', filter: 'invert(55%) sepia(80%) saturate(500%) hue-rotate(10deg)',            bgColor: 'rgba(217,119,6,0.15)'  },
   local:     { img: 'assets/local-llm.svg', filter: 'invert(68%) sepia(60%) saturate(400%) hue-rotate(220deg)',           bgColor: 'rgba(139,92,246,0.15)' },
+  ollama:    { img: 'assets/local-llm.svg', filter: 'invert(48%) sepia(70%) saturate(300%) hue-rotate(150deg)',           bgColor: 'rgba(45,160,120,0.15)' },
 };
 
-const CLOUD_MODELS = {
-  openai:    ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4o', 'gpt-4o-mini', 'o3-mini'],
-  google:    ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
-  anthropic: ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5-20251001'],
-};
+// Heuristic: filter out known non-chat model IDs (transcription, embedding, tts, image).
+// Mirrors capability logic in src-tauri/src/cloud_ai/models.rs.
+function isChatCapableModel(modelId) {
+  if (!modelId) return false;
+  const id = modelId.toLowerCase();
+  if (id.startsWith('whisper-') || id.includes('-transcribe')) return false;
+  if (id.startsWith('text-embedding-')) return false;
+  if (id.startsWith('tts-')) return false;
+  if (id.startsWith('dall-e-')) return false;
+  return true;
+}
+
+// Model lists read from appSettings.providers (provider-first config).
+// Falls back to fetched providerModels when available (more up-to-date).
+function getModelsForProvider(providerId) {
+  // Check live-fetched models first (from integrations-settings.js)
+  if (typeof providerModels !== 'undefined' && providerModels[providerId] && providerModels[providerId].models && providerModels[providerId].models.length > 0) {
+    return providerModels[providerId].models
+      .filter(m => typeof m === 'string' ? isChatCapableModel(m) : (m.capabilities && m.capabilities.includes('chat')))
+      .map(m => typeof m === 'string' ? m : m.id);
+  }
+  // Fall back to settings-stored models (plain strings, no capability metadata)
+  if (typeof appSettings !== 'undefined' && appSettings.providers && appSettings.providers[providerId]) {
+    return (appSettings.providers[providerId].models || []).filter(isChatCapableModel);
+  }
+  return [];
+}
+
+function buildModelOptions(providerId, currentModel) {
+  if (providerId === 'local') {
+    const models = (typeof llmModelsData !== 'undefined') ? llmModelsData.filter(m => m.downloaded) : [];
+    if (models.length === 0) return '<option value="" disabled>No local models downloaded</option>';
+    return models.map(m =>
+      `<option value="${escapeHtml(m.id)}" ${currentModel === m.id ? 'selected' : ''}>${escapeHtml(m.name)} (${escapeHtml(m.params)})</option>`
+    ).join('');
+  }
+  if (providerId === 'ollama') {
+    const models = getModelsForProvider('ollama');
+    if (models.length === 0) return '<option value="" disabled>No Ollama models found (is Ollama running?)</option>';
+    return models.map(m =>
+      `<option value="${escapeHtml(m)}" ${currentModel === m ? 'selected' : ''}>${escapeHtml(m)}</option>`
+    ).join('');
+  }
+  const models = getModelsForProvider(providerId);
+  if (models.length === 0) return '<option value="" disabled>No models available</option>';
+  return models.map(m =>
+    `<option value="${escapeHtml(m)}" ${currentModel === m ? 'selected' : ''}>${escapeHtml(m)}</option>`
+  ).join('');
+}
 
 function trimModelName(model, provider) {
   if (!model) return '';
@@ -747,14 +792,7 @@ function showStepEditor(index) {
     }
     const currentProvider = step.config?.provider || 'openai';
     const currentModel = step.config?.model || '';
-    const providerModels = CLOUD_MODELS[currentProvider] || [];
-    const modelOptions = currentProvider === 'local'
-      ? (typeof llmModelsData !== 'undefined' ? llmModelsData.filter(m => m.downloaded).map(m =>
-          `<option value="${escapeHtml(m.id)}" ${currentModel === m.id ? 'selected' : ''}>${escapeHtml(m.name)} (${escapeHtml(m.params)})</option>`
-        ).join('') : '')
-      : providerModels.map(m =>
-          `<option value="${escapeHtml(m)}" ${currentModel === m ? 'selected' : ''}>${escapeHtml(m)}</option>`
-        ).join('');
+    const modelOptions = buildModelOptions(currentProvider, currentModel);
     configFields = `
       ${promptField}
       <div class="step-editor-row"><label>Provider</label><select data-field="provider" class="llm-provider-select">
@@ -762,6 +800,7 @@ function showStepEditor(index) {
         <option value="google" ${currentProvider === 'google' ? 'selected' : ''}>Google</option>
         <option value="anthropic" ${currentProvider === 'anthropic' ? 'selected' : ''}>Anthropic</option>
         <option value="local" ${currentProvider === 'local' ? 'selected' : ''}>Local LLM</option>
+        <option value="ollama" ${currentProvider === 'ollama' ? 'selected' : ''}>Ollama</option>
       </select></div>
       <div class="step-editor-row"><label>Model</label><select data-field="model" class="llm-model-select">
         ${modelOptions}
@@ -1134,20 +1173,7 @@ function showStepEditor(index) {
       const newProvider = llmProviderSelect.value;
       const modelSelect = editorEl.querySelector('.llm-model-select');
       if (!modelSelect) return;
-      let opts = '';
-      if (newProvider === 'local') {
-        const models = (typeof llmModelsData !== 'undefined') ? llmModelsData.filter(m => m.downloaded) : [];
-        opts = models.map(m =>
-          `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)} (${escapeHtml(m.params)})</option>`
-        ).join('');
-        if (models.length === 0) {
-          opts = '<option value="" disabled>No local models downloaded</option>';
-        }
-      } else {
-        const models = CLOUD_MODELS[newProvider] || [];
-        opts = models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
-      }
-      modelSelect.innerHTML = opts;
+      modelSelect.innerHTML = buildModelOptions(newProvider, '');
     });
   }
 
