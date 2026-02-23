@@ -4,7 +4,7 @@
   "version": "0.4.0",
   "type": "module",
   "scripts": {
-    "check": "cd src-tauri && cargo check",
+    "check": "cargo check --manifest-path src-tauri/Cargo.toml",
     "dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "build": "tauri build",
     "tauri": "tauri",

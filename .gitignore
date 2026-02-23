@@ -55,6 +55,13 @@ fluidaudio-sidecar/.swiftpm/
 # Python cache
 __pycache__/
 *.pyc
+
+# HLTM agent
+.hltm/
+.hltm-loop
+_hltm/
 .hltm/logs
 .hltm/human.md
-.hltm-loop
+
+# Cargo home (created by agent builds)
+.cargo-home/

@@ -1,17 +1,18 @@
 {
   "folders": [
     {
-      "path": "."
-    }
+      "path": ".",
+    },
   ],
   "settings": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.formatOnSave": true,
     "[json]": {
-      "editor.defaultFormatter": "vscode.json-language-features"
+      "editor.defaultFormatter": "vscode.json-language-features",
     },
     "[javascript]": {
-      "editor.defaultFormatter": "vscode.typescript-language-features"
-    }
-  }
+      "editor.defaultFormatter": "vscode.typescript-language-features",
+    },
+    "git.ignoreLimitWarning": true,
+  },
 }
