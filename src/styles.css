@@ -3560,7 +3560,7 @@ body.is-recording-active .record-btn .stop-icon {
   color: #fff;
 }
 
-.provider-card-icon.openai { background: #412991; }
+.provider-card-icon.openai { background: #000; }
 .provider-card-icon.google { background: #4285F4; }
 .provider-card-icon.anthropic { background: #cc785c; }
 

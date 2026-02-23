@@ -150,7 +150,7 @@ function renderProcessingProviders() {
   const apiKeys = (appSettings && appSettings.transcription && appSettings.transcription.api_keys) || {};
 
   const PROVIDER_ICONS = {
-    openai:    { img: 'assets/openai.svg',    filter: 'invert(1)',                                                 bg: 'rgba(16,163,127,0.15)' },
+    openai:    { img: 'assets/openai.svg',    filter: 'invert(1)',                                                 bg: 'rgba(142,142,160,0.15)' },
     google:    { img: 'assets/gemini.svg',    filter: 'invert(48%) sepia(90%) saturate(400%) hue-rotate(190deg)', bg: 'rgba(66,133,244,0.15)' },
     anthropic: { img: 'assets/anthropic.svg', filter: 'invert(55%) sepia(80%) saturate(500%) hue-rotate(10deg)',  bg: 'rgba(217,119,6,0.15)'  },
   };
