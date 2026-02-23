@@ -3657,17 +3657,29 @@ body.light .provider-models-section {
   border-color: #e2e8f0;
 }
 
-/* ===== PIPELINE CARDS (detail view) ===== */
-.pipeline-cards { display: flex; gap: 5px; flex-wrap: wrap; }
-.pipeline-card { cursor: pointer; padding: 3px 8px 3px 4px; border-radius: 7px; border: 1px solid var(--border); background: transparent; display: flex; flex-direction: row; align-items: center; gap: 5px; transition: border-color 0.2s, background 0.2s; position: relative; }
-.pipeline-card:hover { border-color: var(--accent); background: var(--accent-soft); }
-.pipeline-card-icons { display: flex; gap: 3px; }
-.pipeline-card-icon { width: 20px; height: 20px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 800; flex-shrink: 0; }
-.pipeline-card-icon svg { width: 11px; height: 11px; }
-.pipeline-card-name { font-size: 0.73rem; font-weight: 500; color: var(--text-secondary); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ===== PIPELINE CARDS (base) ===== */
+.pipeline-cards { display: flex; gap: 10px; flex-wrap: wrap; }
+.pipeline-card { cursor: pointer; padding: 10px 16px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-card); display: flex; flex-direction: column; align-items: center; gap: 6px; transition: transform 0.15s, opacity 0.15s, border-color 0.15s, background 0.15s; min-width: 100px; position: relative; }
+.pipeline-card::after { content: '+'; position: absolute; inset: 0; border-radius: inherit; background: rgba(0,0,0,0.45); color: #fff; font-size: 5rem; font-weight: 300; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+.pipeline-card:hover { border-color: var(--accent); }
+.pipeline-card:hover::after { opacity: 1; }
+.pipeline-card-icons { display: flex; gap: 4px; }
+.pipeline-card-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 800; flex-shrink: 0; }
+.pipeline-card-icon svg { width: 16px; height: 16px; }
+.pipeline-card-name { font-size: 0.78rem; font-weight: 600; color: var(--text-primary); text-align: center; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Pipeline card: no-op during fly animation */
-.pipeline-card.is-flying { pointer-events: none; }
+/* Pipeline card: hide hover overlay during fly */
+.pipeline-card.is-flying::after { opacity: 0 !important; }
+
+/* Compact pipeline cards — available-pipelines panel in detail view (post-recording) */
+#pipeline-cards.pipeline-cards { gap: 5px; }
+#pipeline-cards .pipeline-card { padding: 3px 8px 3px 4px; border-radius: 7px; background: transparent; flex-direction: row; align-items: center; gap: 5px; min-width: unset; transition: border-color 0.2s, background 0.2s; }
+#pipeline-cards .pipeline-card::after { display: none; }
+#pipeline-cards .pipeline-card:hover { border-color: var(--accent); background: var(--accent-soft); }
+#pipeline-cards .pipeline-card-icons { gap: 3px; }
+#pipeline-cards .pipeline-card-icon { width: 20px; height: 20px; border-radius: 5px; font-size: 0.65rem; }
+#pipeline-cards .pipeline-card-icon svg { width: 11px; height: 11px; }
+#pipeline-cards .pipeline-card-name { font-size: 0.73rem; font-weight: 500; color: var(--text-secondary); text-align: left; max-width: 140px; }
 
 /* Recording: two-column layout — left=info, right=pipeline panel */
 body.is-recording-active #detail-view .detail-container {
@@ -3700,22 +3712,26 @@ body.is-recording-active .recording-pipeline-panel {
 /* Assigned pipeline card state */
 .pipeline-card.is-assigned {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
-.pipeline-card.is-assigned .pipeline-card-name {
-  color: var(--text-primary);
+.pipeline-card.is-assigned::after {
+  content: '−';
+  font-size: 4rem;
+  font-weight: 300;
 }
 
-.pipeline-card.is-assigned:hover {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
+.pipeline-card.is-assigned:hover::after {
+  opacity: 1;
 }
 
 /* Small persistent checkmark badge on assigned cards */
 .pipeline-assigned-badge {
-  flex-shrink: 0;
-  width: 14px;
-  height: 14px;
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 18px;
+  height: 18px;
   background: var(--accent);
   border-radius: 50%;
   display: flex;
