@@ -79,6 +79,7 @@ let currentAssignedPipelines = new Set(); // pipelines assigned to the current/l
 let pipelineProgressUnlisten = null;
 
 // ===== LIVE TRANSCRIPT STATE =====
+let liveTranscriptGeneration = 0;
 let liveTranscriptUnlisten = null;
 let liveTranscriptFinals = '';
 let liveTranscriptPartial = '';
@@ -261,6 +262,7 @@ function clearLiveTranscript() {
 }
 
 async function startLiveTranscript(recordingId) {
+  const generation = ++liveTranscriptGeneration;
   clearLiveTranscript();
 
   if (!appSettings?.transcription?.realtime_enabled) return;
@@ -274,7 +276,8 @@ async function startLiveTranscript(recordingId) {
     liveTranscriptUnlisten = null;
   }
 
-  liveTranscriptUnlisten = await window.__TAURI__.event.listen('realtime_transcript_delta', (event) => {
+  const unlisten = await window.__TAURI__.event.listen('realtime_transcript_delta', (event) => {
+    if (liveTranscriptGeneration !== generation) return;
     const { text, is_final, item_id } = event.payload;
     if (is_final) {
       liveTranscriptFinals += (liveTranscriptFinals ? ' ' : '') + text;
@@ -295,9 +298,16 @@ async function startLiveTranscript(recordingId) {
     renderLiveTranscript();
   });
 
+  if (liveTranscriptGeneration !== generation) {
+    unlisten();
+    return;
+  }
+  liveTranscriptUnlisten = unlisten;
+
   try {
     await invoke('start_realtime_transcription', { recordingId });
   } catch (err) {
+    if (liveTranscriptGeneration !== generation) return;
     console.error('Failed to start realtime transcription:', err);
     if (panel) panel.style.display = 'none';
     if (liveTranscriptUnlisten) {
@@ -308,6 +318,7 @@ async function startLiveTranscript(recordingId) {
 }
 
 function stopLiveTranscript() {
+  liveTranscriptGeneration++;
   if (liveTranscriptUnlisten) {
     liveTranscriptUnlisten();
     liveTranscriptUnlisten = null;
