@@ -143,7 +143,7 @@ const savePipelineDefBtn = document.getElementById('save-pipeline-def-btn');
 const deletePipelineDefBtn = document.getElementById('delete-pipeline-def-btn');
 const closePipelineEditorBtn = document.getElementById('close-pipeline-editor');
 
-const PROCESSING_PRESETS = [
+const PROMPT_PRESETS = [
   {
     label: 'Meeting Notes',
     icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>',
@@ -189,6 +189,14 @@ const PROCESSING_PRESETS = [
     }
   },
   {
+    label: 'Custom Prompt',
+    icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+    step: null  // handled specially in Plan 05-03
+  }
+];
+
+const TOOL_PRESETS = [
+  {
     label: 'MCP Tool',
     icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>',
     step: {
@@ -198,11 +206,6 @@ const PROCESSING_PRESETS = [
       config: { url: '', tool: '' },
       description: 'Call an MCP tool'
     }
-  },
-  {
-    label: 'Custom Prompt',
-    icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
-    step: null  // handled specially in Plan 05-03
   }
 ];
 
@@ -301,9 +304,9 @@ function showPicker() {
   picker.id = 'step-picker';
   picker.className = 'step-picker';
 
-  // Processing section
-  let html = '<div class="step-picker-section"><div class="step-picker-section-title">Processing</div>';
-  for (const preset of PROCESSING_PRESETS) {
+  // Prompt section
+  let html = '<div class="step-picker-section"><div class="step-picker-section-title">Prompt</div>';
+  for (const preset of PROMPT_PRESETS) {
     html += `<button class="step-picker-option" data-preset-label="${escapeHtml(preset.label)}">
       <span class="step-picker-icon">${preset.icon}</span>
       <span class="step-picker-label">${escapeHtml(preset.label)}</span>
@@ -311,11 +314,21 @@ function showPicker() {
   }
   html += '</div>';
 
-  // Delivery section
+  // Tool section
+  html += '<div class="step-picker-section"><div class="step-picker-section-title">Tool</div>';
+  for (const preset of TOOL_PRESETS) {
+    html += `<button class="step-picker-option" data-preset-label="${escapeHtml(preset.label)}">
+      <span class="step-picker-icon">${preset.icon}</span>
+      <span class="step-picker-label">${escapeHtml(preset.label)}</span>
+    </button>`;
+  }
+  html += '</div>';
+
+  // Output section
   const deliveryOptions = buildDeliveryOptions();
-  html += '<div class="step-picker-section"><div class="step-picker-section-title">Delivery</div>';
+  html += '<div class="step-picker-section"><div class="step-picker-section-title">Output</div>';
   if (deliveryOptions.length === 0) {
-    html += '<div class="step-picker-empty">Connect integrations in Settings &gt; Integrations to enable delivery steps.</div>';
+    html += '<div class="step-picker-empty">Connect integrations in Settings &gt; Integrations to enable output steps.</div>';
   } else {
     for (let i = 0; i < deliveryOptions.length; i++) {
       const opt = deliveryOptions[i];
@@ -338,7 +351,7 @@ function showPicker() {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const label = btn.dataset.presetLabel;
-      const preset = PROCESSING_PRESETS.find(p => p.label === label);
+      const preset = PROMPT_PRESETS.find(p => p.label === label) || TOOL_PRESETS.find(p => p.label === label);
       if (!preset) return;
       if (preset.step === null) {
         closePicker();
@@ -406,7 +419,7 @@ function suggestPipelineName() {
   const processing = [];
   const delivery = [];
   for (const step of pipelineEditorSteps) {
-    if (step.connector === 'llm') {
+    if (step.connector === 'llm' || step.connector === 'mcp') {
       // Title-case the step name: "meeting-notes" → "Meeting Notes"
       const titleCased = (step.name || 'Untitled')
         .replace(/[-_]/g, ' ')
