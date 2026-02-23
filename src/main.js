@@ -1000,7 +1000,11 @@ async function renderRecordingPipelineCards(container, recordingId) {
       } catch (err) {
         console.error('Failed to toggle pipeline assignment:', err);
       }
-      renderRecordingPipelineCards(container, recordingId);
+      // Update card in-place instead of full re-render for smooth transitions
+      const isNowAssigned = currentAssignedPipelines.has(pipelineName);
+      card.classList.toggle('is-assigned', isNowAssigned);
+      const toggle = card.querySelector('.rpp-toggle');
+      if (toggle) toggle.innerHTML = isNowAssigned ? checkSvg : '';
       if (typeof renderPipelineChips === 'function') renderPipelineChips();
       renderPipelineStatus(recordingId);
     });
@@ -1131,16 +1135,33 @@ window.showDetailView = async (id) => {
           const dx = targetX - cardRect.left;
           const dy = targetY - cardRect.top;
 
-          card.style.transition = 'none';
-          card.style.position = 'relative';
-          card.style.zIndex = '100';
-          void card.offsetWidth;
-          card.style.transition = 'transform 0.45s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease-in';
-          card.style.transform = `translate(${dx}px, ${dy}px) scale(0.4)`;
-          card.style.opacity = '0';
+          // Clone card for the visual fly effect (out of flow)
+          const clone = card.cloneNode(true);
+          clone.classList.add('is-flying');
+          clone.style.cssText = `position:fixed;left:${cardRect.left}px;top:${cardRect.top}px;width:${cardRect.width}px;height:${cardRect.height}px;z-index:10000;pointer-events:none;margin:0;`;
+          document.body.appendChild(clone);
+
+          void clone.offsetWidth;
+          clone.style.transition = 'transform 0.45s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease-in';
+          clone.style.transform = `translate(${dx}px, ${dy}px) scale(0.4)`;
+          clone.style.opacity = '0';
+
+          // Collapse original card in flow so siblings reflow smoothly
+          const cardWidth = card.offsetWidth;
+          card.style.maxWidth = cardWidth + 'px';
+          card.style.minWidth = '0';
+          card.style.overflow = 'hidden';
           card.style.pointerEvents = 'none';
+          void card.offsetWidth;
+          card.style.transition = 'max-width 0.35s ease, padding 0.35s ease, border-width 0.35s ease, opacity 0.15s ease, margin 0.35s ease';
+          card.style.maxWidth = '0';
+          card.style.padding = '0';
+          card.style.borderWidth = '0';
+          card.style.margin = '0';
+          card.style.opacity = '0';
 
           setTimeout(async () => {
+            clone.remove();
             // Flash the pipeline status content area (not the header)
             if (statusSection) statusSection.style.display = '';
             const flashTarget = document.getElementById('pipeline-status-content');

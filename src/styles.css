@@ -3711,8 +3711,13 @@ body.light .provider-models-section {
 .pipeline-card-icon svg { width: 16px; height: 16px; }
 .pipeline-card-name { font-size: 0.78rem; font-weight: 600; color: var(--text-primary); text-align: center; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Pipeline card: hide hover overlay during fly */
+/* Pipeline card: hide hover overlay during fly and preserve compact layout when clone is in body */
 .pipeline-card.is-flying::after { opacity: 0 !important; }
+.pipeline-card.is-flying { padding: 3px 8px 3px 4px; border-radius: 7px; background: transparent; flex-direction: row; align-items: center; gap: 5px; min-width: unset; }
+.pipeline-card.is-flying .pipeline-card-icons { gap: 3px; }
+.pipeline-card.is-flying .pipeline-card-icon { width: 20px; height: 20px; border-radius: 5px; font-size: 0.65rem; }
+.pipeline-card.is-flying .pipeline-card-icon svg { width: 11px; height: 11px; }
+.pipeline-card.is-flying .pipeline-card-name { font-size: 0.73rem; font-weight: 500; color: var(--text-secondary); text-align: left; max-width: 140px; }
 
 /* Compact pipeline cards — available-pipelines panel in detail view (post-recording) */
 #pipeline-cards.pipeline-cards { gap: 5px; }
@@ -3797,7 +3802,7 @@ body.is-recording-active .recording-pipeline-panel {
 .recording-pipeline-cards .pipeline-card .pipeline-card-icons { gap: 3px; flex-shrink: 0; }
 .recording-pipeline-cards .pipeline-card .pipeline-card-icon { width: 20px; height: 20px; border-radius: 5px; font-size: 0.65rem; }
 .recording-pipeline-cards .pipeline-card .pipeline-card-icon svg { width: 11px; height: 11px; }
-.recording-pipeline-cards .pipeline-card .pipeline-card-name { font-size: 0.75rem; font-weight: 500; color: var(--text-secondary); text-align: left; flex: 1; max-width: none; }
+.recording-pipeline-cards .pipeline-card .pipeline-card-name { font-size: 0.75rem; font-weight: 500; color: var(--text-secondary); text-align: left; flex: 1; max-width: none; transition: color 0.15s; }
 
 /* Assigned state */
 .recording-pipeline-cards .pipeline-card.is-assigned {
