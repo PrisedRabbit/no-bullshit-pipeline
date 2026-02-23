@@ -14,6 +14,8 @@ pub struct AudioState {
     pub save_mix_only: Mutex<bool>,
     /// Handle to the background finalization thread — joined on next stop or app shutdown
     pub finalization_handle: Mutex<Option<JoinHandle<()>>>,
+    /// Handle to the active real-time transcription session (if any)
+    pub realtime_transcriber: Mutex<Option<crate::realtime_transcription::RealtimeTranscriberHandle>>,
 }
 
 impl AudioState {
@@ -27,6 +29,7 @@ impl AudioState {
             start_timestamp: Mutex::new(None),
             save_mix_only: Mutex::new(true),
             finalization_handle: Mutex::new(None),
+            realtime_transcriber: Mutex::new(None),
         }
     }
 
@@ -158,7 +161,15 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<(), String> {
         }
     }
 
-    // 3. Stop Real-time Mixer LAST — it drains remaining buffer samples before finishing
+    // 3. Stop Real-time Transcriber (before mixer, so no more samples are needed)
+    {
+        let mut rt_guard = state.realtime_transcriber.lock().map_err(|e| e.to_string())?;
+        if let Some(mut handle) = rt_guard.take() {
+            handle.stop();
+        }
+    }
+
+    // 4. Stop Real-time Mixer LAST — it drains remaining buffer samples before finishing
     {
         let mut mixer_guard = state.realtime_mixer.lock().map_err(|e| e.to_string())?;
         if let Some(mut mixer) = mixer_guard.take() {
@@ -317,6 +328,106 @@ fn finalize_recording(id: &str, duration_sec: f64, save_mix_only: bool) {
         },
         Err(e) => eprintln!("Failed to reload metadata for {}: {}", id, e),
     }
+}
+
+/// Start real-time transcription for the given recording.
+///
+/// Validates that `recording_id` matches the currently active session to prevent
+/// stale IDs from hijacking a running transcription. Reads `transcription.realtime_*`
+/// settings from config to choose the provider (Local Whisper or OpenAI cloud) and
+/// model. No-ops if real-time transcription is disabled in settings.
+#[tauri::command]
+pub async fn start_realtime_transcription(
+    recording_id: String,
+    app_handle: tauri::AppHandle,
+    state: State<'_, AudioState>,
+) -> Result<(), String> {
+    // 1. Must be actively recording
+    {
+        let is_recording = state.is_recording.lock().map_err(|e| e.to_string())?;
+        if !*is_recording {
+            return Err("No active recording".to_string());
+        }
+    }
+
+    // 2. Validate recording_id matches the current session
+    {
+        let session = state.current_session.lock().map_err(|e| e.to_string())?;
+        let current_id = session.as_ref().map(|s| s.id.as_str());
+        if current_id != Some(recording_id.as_str()) {
+            return Err(format!(
+                "recording_id '{}' does not match current recording '{}'",
+                recording_id,
+                current_id.unwrap_or("<none>")
+            ));
+        }
+    }
+
+    // 3. Load config — bail early if real-time transcription is disabled
+    let settings = crate::config::load_settings();
+    let rt_config = &settings.transcription;
+    if !rt_config.realtime_enabled {
+        return Ok(()); // silently skip; caller checked settings
+    }
+
+    // 4. Stop any previous transcriber that was left running
+    {
+        let mut guard = state.realtime_transcriber.lock().map_err(|e| e.to_string())?;
+        if let Some(mut existing) = guard.take() {
+            existing.stop();
+        }
+    }
+
+    // 5. Start the appropriate transcriber
+    use crate::realtime_transcription::{CloudTranscriber, LocalTranscriber, RealtimeTranscriberHandle};
+    let handle = match rt_config.realtime_provider {
+        crate::config::RealtimeTranscriptionProvider::OpenAI => {
+            let api_key = settings
+                .providers
+                .get("openai")
+                .and_then(|p| p.api_key.clone())
+                .or_else(|| rt_config.api_keys.openai.clone())
+                .ok_or_else(|| "OpenAI API key not configured for real-time transcription".to_string())?;
+            let model = rt_config
+                .realtime_model
+                .clone()
+                .unwrap_or_else(|| "gpt-4o-mini-transcribe".to_string());
+            let transcriber = CloudTranscriber::start(app_handle, api_key, model, None)?;
+            RealtimeTranscriberHandle::Cloud(transcriber)
+        }
+        _ => {
+            use crate::config::{WhisperModelSize, get_models_dir};
+            use crate::transcription::get_model_url;
+            let model_name = rt_config.realtime_model.as_deref().unwrap_or("base");
+            let model_size = match model_name {
+                "tiny" => WhisperModelSize::Tiny,
+                "small" => WhisperModelSize::Small,
+                "medium" => WhisperModelSize::Medium,
+                "large" => WhisperModelSize::Large,
+                _ => WhisperModelSize::Base,
+            };
+            let url = get_model_url(&model_size);
+            let filename = url.split('/').last().unwrap_or("ggml-base.bin");
+            let model_path = get_models_dir().join(filename);
+            let transcriber = LocalTranscriber::start(app_handle, model_path)?;
+            RealtimeTranscriberHandle::Local(transcriber)
+        }
+    };
+
+    // 6. Store handle for later stop
+    *state.realtime_transcriber.lock().map_err(|e| e.to_string())? = Some(handle);
+
+    Ok(())
+}
+
+/// Stop the active real-time transcription session (if any).
+#[tauri::command]
+pub fn stop_realtime_transcription(state: State<'_, AudioState>) -> Result<(), String> {
+    let mut guard = state.realtime_transcriber.lock().map_err(|e| e.to_string())?;
+    if let Some(mut handle) = guard.take() {
+        handle.stop();
+    }
+    Ok(())
 }
 
 #[cfg(test)]

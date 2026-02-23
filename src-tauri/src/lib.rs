@@ -244,6 +244,9 @@ pub fn run() {
             local_llm::cancel_llm_freshness,
             // Provider models
             cloud_ai::models::fetch_provider_models,
+            // Real-time transcription
+            audio::start_realtime_transcription,
+            audio::stop_realtime_transcription,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
@@ -258,6 +261,8 @@ pub fn run() {
                         if let Some(mut r) = mic.take() { r.stop(); }
                         let mut sys = state.system_recorder.lock().unwrap_or_else(|e| e.into_inner());
                         if let Some(mut r) = sys.take() { r.stop(); }
+                        let mut rt = state.realtime_transcriber.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Some(mut h) = rt.take() { h.stop(); }
                         let mut mix = state.realtime_mixer.lock().unwrap_or_else(|e| e.into_inner());
                         if let Some(mut m) = mix.take() { m.stop(); }
                     }

@@ -586,6 +586,25 @@ fn run_local_transcription(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Unified handle
+// ---------------------------------------------------------------------------
+
+/// Wraps either a local Whisper or cloud OpenAI transcriber behind a single interface.
+pub enum RealtimeTranscriberHandle {
+    Local(LocalTranscriber),
+    Cloud(CloudTranscriber),
+}
+
+impl RealtimeTranscriberHandle {
+    pub fn stop(&mut self) {
+        match self {
+            RealtimeTranscriberHandle::Local(t) => t.stop(),
+            RealtimeTranscriberHandle::Cloud(t) => t.stop(),
+        }
+    }
+}
+
 /// Compute RMS energy of a sample buffer
 fn compute_rms(samples: &[f32]) -> f32 {
     if samples.is_empty() {
