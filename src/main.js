@@ -1731,8 +1731,6 @@ async function saveSettings() {
     }
 
     await invoke("save_settings", { settings: appSettings });
-    ViewManager.showRecordings();
-    await loadRecordings();
   } catch (err) {
     console.error("Failed to save settings:", err);
   }
