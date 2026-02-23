@@ -54,6 +54,7 @@ mod integrations;
 pub mod local_llm;
 pub mod realtime_transcription;
 use audio::AudioState;
+use transcription::TranscriptionState;
 use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
 use tauri::Manager;
 
@@ -93,6 +94,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .manage(AudioState::new())
+        .manage(TranscriptionState::new())
         .manage(permissions::PermissionsStateCache(std::sync::Arc::new(std::sync::Mutex::new(
             permissions::PermissionsState::default()
         ))))
@@ -169,6 +171,7 @@ pub fn run() {
             transcription::download_whisper_model,
             transcription::delete_whisper_model,
             transcription::transcribe_recording,
+            transcription::is_transcribing,
             transcription::get_transcript,
             transcription::export_transcript_md,
             transcription::summarize_recording,

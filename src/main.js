@@ -1015,7 +1015,23 @@ window.showDetailView = async (id) => {
     if (isProcessing) {
       prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Mixing Audio...</span>';
     } else {
+      prBtn.disabled = true;
       prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Transcribe</span>';
+      // Check backend lock before enabling — prevents click during async window
+      const checkId = id;
+      invoke('is_transcribing', { recordingId: checkId }).then(active => {
+        if (selectedRecordingId === checkId && prBtn) {
+          if (active) {
+            prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Processing...</span>';
+          } else {
+            prBtn.disabled = false;
+          }
+        }
+      }).catch(() => {
+        if (selectedRecordingId === checkId && prBtn) {
+          prBtn.disabled = false;
+        }
+      });
     }
   }
 
@@ -1380,6 +1396,12 @@ if (prBtn) {
       if (window.__NBP_setTranscribingId) window.__NBP_setTranscribingId(selectedRecordingId);
 
       const transcript = await invoke('transcribe_recording', { recordingId: selectedRecordingId });
+
+      // Backend no-op: transcription was already running (safety net for any race)
+      if (transcript === '__already_running__') {
+        prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Processing...</span>';
+        return;
+      }
 
       // Final update to ensure everything is matched correctly
       if (detailTranscriptEl) {
