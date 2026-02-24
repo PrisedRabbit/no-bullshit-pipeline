@@ -1180,18 +1180,36 @@ window.showDetailView = async (id) => {
               void flashTarget.offsetWidth;
               flashTarget.classList.add('pipeline-status-flash');
             }
+            let assigned = false;
             try {
               await invoke('assign_pipeline', { recordingId: id, pipelineName });
-              // Only execute if transcript exists; otherwise stays in "waiting"
-              const hasTranscript = detailTranscriptEl && !detailTranscriptEl.classList.contains('empty');
-              if (hasTranscript) {
-                await invoke('execute_pipeline', { recordingId: id, pipelineName });
-              }
+              assigned = true;
+              card.style.display = 'none';
             } catch (err) {
-              console.error('Failed to run pipeline from detail view:', err);
+              console.error('Failed to assign pipeline:', err);
+              card.style.display = '';
+              card.style.maxWidth = '';
+              card.style.minWidth = '';
+              card.style.padding = '';
+              card.style.borderWidth = '';
+              card.style.margin = '';
+              card.style.opacity = '';
+              card.style.overflow = '';
+              card.style.pointerEvents = '';
+              card.style.transition = '';
+            }
+            if (assigned) {
+              try {
+                const hasTranscript = detailTranscriptEl && !detailTranscriptEl.classList.contains('empty');
+                if (hasTranscript) {
+                  await invoke('execute_pipeline', { recordingId: id, pipelineName });
+                }
+              } catch (err) {
+                console.error('Failed to execute pipeline:', err);
+              }
             }
             await loadRecordings();
-            if (selectedRecordingId === id) showDetailView(id);
+            if (selectedRecordingId === id) renderPipelineStatus(id);
           }, 450);
         });
       });
