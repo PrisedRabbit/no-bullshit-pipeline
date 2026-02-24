@@ -875,3 +875,34 @@ pub async fn check_model_freshness() -> Result<Vec<ModelFreshnessInfo>, String> 
 
     Ok(results)
 }
+
+#[tauri::command]
+pub fn get_cached_freshness_results() -> std::collections::HashMap<String, bool> {
+    crate::config::load_settings().cached_freshness_results
+}
+
+/// Run model freshness check on app launch if >24h since last check.
+/// Emits `model_freshness_auto_result` event with Vec<ModelFreshnessInfo> payload.
+/// Updates `last_model_freshness_check` timestamp in settings on completion.
+pub async fn auto_check_model_freshness(app_handle: tauri::AppHandle) {
+    use tauri::Emitter;
+
+    let results = match check_model_freshness().await {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Auto freshness check failed: {}", e);
+            return;
+        }
+    };
+
+    let _ = app_handle.emit("model_freshness_auto_result", &results);
+
+    // Persist results and timestamp in settings
+    let mut settings = crate::config::load_settings();
+    settings.last_model_freshness_check = Some(chrono::Utc::now().timestamp());
+    settings.cached_freshness_results = results
+        .iter()
+        .map(|r| (r.model_id.clone(), r.update_available))
+        .collect();
+    let _ = crate::config::save_settings(settings);
+}

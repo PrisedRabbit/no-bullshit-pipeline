@@ -146,6 +146,20 @@ pub fn run() {
             // Run transcript migration on startup
             transcript_migration::run_migration_if_needed();
 
+            // Auto-check model freshness if >24h since last check
+            let settings = config::load_settings();
+            let now = chrono::Utc::now().timestamp();
+            let needs_check = match settings.last_model_freshness_check {
+                Some(last) => now - last > 86400,
+                None => true,
+            };
+            if needs_check {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    local_llm::auto_check_model_freshness(handle).await;
+                });
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -245,6 +259,7 @@ pub fn run() {
             local_llm::check_model_freshness,
             local_llm::check_all_llm_freshness,
             local_llm::cancel_llm_freshness,
+            local_llm::get_cached_freshness_results,
             // Provider models
             cloud_ai::models::fetch_provider_models,
             // Real-time transcription

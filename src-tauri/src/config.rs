@@ -145,6 +145,12 @@ pub struct AppSettings {
     /// Local LLM settings
     #[serde(default)]
     pub local_llm: LocalLlmConfig,
+    /// Unix timestamp of last automatic model freshness check
+    #[serde(default)]
+    pub last_model_freshness_check: Option<i64>,
+    /// Cached model freshness results from last auto-check (model_id → update_available)
+    #[serde(default)]
+    pub cached_freshness_results: HashMap<String, bool>,
     /// Provider-first model config: keyed by provider ID ("openai", "google", "anthropic", "local")
     #[serde(default = "default_providers")]
     pub providers: HashMap<String, ProviderConfig>,
@@ -194,6 +200,8 @@ impl Default for AppSettings {
             last_used_pipeline: None,
             walkthrough_completed: false,
             local_llm: LocalLlmConfig::default(),
+            last_model_freshness_check: None,
+            cached_freshness_results: HashMap::new(),
             providers: default_providers(),
         }
     }

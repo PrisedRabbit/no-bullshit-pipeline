@@ -373,7 +373,7 @@ function renderModelsProviders() {
           showToast('All models are up to date', 'success');
           if (statusEl) statusEl.textContent = 'All up to date';
         }
-        await renderLocalLlmModels();
+        renderLocalLlmModelsInner();
       } catch (err) {
         if (String(err).includes('cancelled')) {
           if (statusEl) statusEl.textContent = '';
@@ -407,6 +407,16 @@ async function renderLocalLlmModels() {
     console.error('Failed to load LLM models:', err);
     llmModelsData = [];
   }
+  // Load cached freshness results from last auto-check (full snapshot replaces existing data)
+  try {
+    const cached = await invoke('get_cached_freshness_results');
+    if (cached && typeof cached === 'object') {
+      llmFreshnessData = {};
+      for (const [modelId, hasUpdate] of Object.entries(cached)) {
+        llmFreshnessData[modelId] = { status: hasUpdate ? 'update_available' : 'up_to_date' };
+      }
+    }
+  } catch (_) { /* ignore — cached results are optional */ }
   renderLocalLlmModelsInner();
 }
 
@@ -570,6 +580,17 @@ if (window.__TAURI__?.event?.listen) {
     const { model_name, current, total } = event.payload;
     const statusEl = document.getElementById('llm-freshness-status');
     if (statusEl) statusEl.textContent = `Checking ${model_name} (${current}/${total})…`;
+  });
+
+  // Listen for auto-check results from app launch freshness check (full snapshot replacement)
+  window.__TAURI__.event.listen('model_freshness_auto_result', (event) => {
+    const results = event.payload;
+    if (!Array.isArray(results)) return;
+    llmFreshnessData = {};
+    for (const info of results) {
+      llmFreshnessData[info.model_id] = { status: info.update_available ? 'update_available' : 'up_to_date' };
+    }
+    renderLocalLlmModelsInner();
   });
 }
 
