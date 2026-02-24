@@ -137,7 +137,7 @@ pub fn resume_recording(_state: State<'_, AudioState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn stop_recording(state: State<'_, AudioState>) -> Result<(), String> {
+pub fn stop_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>) -> Result<(), String> {
     let mut is_recording = state.is_recording.lock().map_err(|e| e.to_string())?;
     if !*is_recording {
         return Ok(());
@@ -239,6 +239,7 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<(), String> {
 
             // Finalization in background thread — handle is STORED, not fire-and-forget
             let finalization_id = id.clone();
+            let finalization_app_handle = app_handle.clone();
             Some(std::thread::spawn(move || {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     finalize_recording(&finalization_id, duration_sec, save_mix_only);
@@ -250,6 +251,8 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<(), String> {
                         let _ = storage::write_metadata(&m);
                     }
                 }
+                // Notify frontend that recording is finalized and ready
+                let _ = finalization_app_handle.emit("recording_complete", &finalization_id);
             }))
         } else {
             None

@@ -76,6 +76,7 @@ let selectedRecordingId = null;
 let permissions = { mic: false, system_audio: false };
 let appSettings = null;
 let currentAssignedPipelines = new Set(); // pipelines assigned to the current/last recording
+const pendingAutoExec = new Map(); // recordingId → pipeline names, consumed by recording_complete handler
 let pipelineProgressUnlisten = null;
 let pipelineRunningSteps = {}; // key: "recordingId:pipelineName" -> { step_name, start_time }
 let stepElapsedTimer = null;
@@ -459,6 +460,9 @@ async function stopRecording() {
     isRecording = false;
     currentAssignedPipelines = new Set(); // Clear global after capturing to local
 
+    // Stash pipelines BEFORE async UI work so recording_complete handler always finds them
+    pendingAutoExec.set(currentId, stoppedPipelines);
+
     stopTimer();
     stopWaveformAnimation();
     stopLiveTranscript();
@@ -470,11 +474,6 @@ async function stopRecording() {
     if (selectedRecordingId === currentId) {
       showDetailView(currentId);
       renderPipelineChips(); // Ensure chips are updated after detail view re-renders
-    }
-
-    // Auto-transcribe + auto-execute (EXEC-01) — fire and forget
-    if (appSettings?.transcription?.enabled) {
-      autoTranscribeAndExecute(currentId, stoppedPipelines);
     }
 
   } catch (error) {
@@ -2534,6 +2533,21 @@ async function init() {
   }
 
   await updatePermissionStatus();
+
+  // Auto-transcribe + auto-execute when recording finalization completes (EXEC-01)
+  window.__TAURI__.event.listen('recording_complete', async (event) => {
+    const recordingId = event.payload;
+    await loadRecordings();
+    if (selectedRecordingId === recordingId) showDetailView(recordingId);
+
+    if (appSettings?.transcription?.enabled) {
+      const pipelines = pendingAutoExec.get(recordingId) || [];
+      pendingAutoExec.delete(recordingId);
+      autoTranscribeAndExecute(recordingId, pipelines);
+    } else {
+      pendingAutoExec.delete(recordingId);
+    }
+  });
 
   // Show onboarding only if never completed before
   if (!appSettings.onboarding_completed) {
