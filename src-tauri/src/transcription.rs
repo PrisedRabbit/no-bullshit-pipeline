@@ -252,16 +252,16 @@ async fn transcribe_recording_inner(
         TranscriptionProvider::Anthropic => TranscriptSource::Anthropic,
     };
 
+    let _ = app_handle.emit("transcription_progress", TranscriptionProgress {
+        recording_id: recording_id.clone(),
+        stage: "Starting".to_string(),
+        percent: 0,
+    });
+
     let transcript_json = match provider {
         TranscriptionProvider::FluidAudio => {
             let wav_path = recording_dir.join("temp_transcription.wav");
             convert_ogg_to_wav(&audio_path, &wav_path)?;
-
-            let _ = app_handle.emit("transcription_progress", TranscriptionProgress {
-                recording_id: recording_id.clone(),
-                stage: "Starting".to_string(),
-                percent: 0,
-            });
 
             let (mut rx, _child) = app_handle.shell().sidecar("fluidaudio-sidecar")
                 .map_err(|e| format!("Failed to create sidecar command: {}", e))?
@@ -356,11 +356,19 @@ async fn transcribe_recording_inner(
             let wav_path = recording_dir.join("temp_transcription.wav");
             convert_ogg_to_wav(&audio_path, &wav_path)?;
 
+            let _ = app_handle.emit("transcription_progress", TranscriptionProgress {
+                recording_id: recording_id.clone(),
+                stage: "Loading model".to_string(),
+                percent: 0,
+            });
+
             let model_p = model_path.clone();
             let wav_p = wav_path.clone();
+            let app_h = app_handle.clone();
+            let rec_id = recording_id.clone();
 
             let transcript = tokio::task::spawn_blocking(move || {
-                run_whisper_transcription(&model_p, &wav_p)
+                run_whisper_transcription(&model_p, &wav_p, &app_h, &rec_id)
             }).await.map_err(|e| e.to_string())??;
 
             let _ = std::fs::remove_file(&wav_path);
@@ -385,6 +393,12 @@ async fn transcribe_recording_inner(
         TranscriptionProvider::OpenAI => {
             let api_key = crate::config::get_api_key_for_provider(&settings, "openai")
                 .ok_or("OpenAI API key not configured")?;
+
+            let _ = app_handle.emit("transcription_progress", TranscriptionProgress {
+                recording_id: recording_id.clone(),
+                stage: "Transcribing".to_string(),
+                percent: 0,
+            });
 
             let transcript = cloud_ai::transcribe_with_whisper(&api_key, &audio_path).await?;
             let duration_sec = read_metadata(&recording_id)
@@ -421,6 +435,12 @@ async fn transcribe_recording_inner(
         .map_err(|e| format!("Failed to write transcript: {}", e))?;
     std::fs::rename(&temp_path, &json_path)
         .map_err(|e| format!("Failed to finalize transcript: {}", e))?;
+
+    let _ = app_handle.emit("transcription_progress", TranscriptionProgress {
+        recording_id: recording_id.clone(),
+        stage: "Done".to_string(),
+        percent: 100,
+    });
 
     // Return rendered text for immediate UI display
     Ok(render_transcript_from_json(&transcript_json))
@@ -765,7 +785,12 @@ pub(crate) fn load_whisper_context(model_path: &std::path::Path) -> Result<whisp
     .map_err(|e| format!("Failed to load Whisper model: {}", e))
 }
 
-fn run_whisper_transcription(model_path: &std::path::Path, wav_path: &std::path::Path) -> Result<String, String> {
+fn run_whisper_transcription(
+    model_path: &std::path::Path,
+    wav_path: &std::path::Path,
+    app_handle: &tauri::AppHandle,
+    recording_id: &str,
+) -> Result<String, String> {
     use whisper_rs::{FullParams, SamplingStrategy};
     use hound::WavReader;
 
@@ -779,6 +804,21 @@ fn run_whisper_transcription(model_path: &std::path::Path, wav_path: &std::path:
     params.set_translate(false);
     params.set_print_progress(false);
     params.set_print_realtime(false);
+
+    let ah = app_handle.clone();
+    let rid = recording_id.to_string();
+    let last_emit = std::sync::Mutex::new(std::time::Instant::now());
+    params.set_progress_callback_safe(move |progress: i32| {
+        let mut last = last_emit.lock().unwrap_or_else(|e| e.into_inner());
+        if last.elapsed().as_millis() > 200 || progress >= 100 {
+            let _ = ah.emit("transcription_progress", TranscriptionProgress {
+                recording_id: rid.clone(),
+                stage: "Transcribing".to_string(),
+                percent: progress.max(0) as u32,
+            });
+            *last = std::time::Instant::now();
+        }
+    });
 
     let mut state = ctx.create_state().map_err(|e| e.to_string())?;
     state.full(params, &samples).map_err(|e| e.to_string())?;

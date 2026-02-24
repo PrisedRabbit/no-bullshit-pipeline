@@ -81,6 +81,20 @@ let pipelineProgressUnlisten = null;
 let pipelineRunningSteps = {}; // key: "recordingId:pipelineName" -> { step_name, start_time }
 let stepElapsedTimer = null;
 
+// ===== TRANSCRIPTION PROGRESS STATE =====
+let transcriptionElapsedTimer = null;
+let transcriptionStartTime = null;
+let transcriptionCurrentStage = '';
+
+function clearTranscriptionTimer() {
+  if (transcriptionElapsedTimer) {
+    clearInterval(transcriptionElapsedTimer);
+    transcriptionElapsedTimer = null;
+  }
+  transcriptionStartTime = null;
+  transcriptionCurrentStage = '';
+}
+
 // ===== LIVE TRANSCRIPT STATE =====
 let liveTranscriptGeneration = 0;
 let liveTranscriptUnlisten = null;
@@ -1029,6 +1043,7 @@ window.showDetailView = async (id) => {
   if (!rec) return;
 
   selectedRecordingId = id;
+  clearTranscriptionTimer();
   updateMainButton(); // Switch to play mode
 
   if (detailTitleInput) detailTitleInput.value = rec.title || "";
@@ -1449,15 +1464,43 @@ if (window.__TAURI__) {
       }
     });
 
-    // Listen for transcription progress (FluidAudio stages)
+    // Listen for transcription progress
     window.__TAURI__.event.listen('transcription_progress', (event) => {
       const { recording_id, stage, percent } = event.payload;
-      if (recording_id === transcribingRecordingId) {
-        const btn = document.getElementById('process-btn');
-        if (btn && btn.disabled) {
-          const text = percent > 0 ? `${stage} ${percent}%` : stage;
-          btn.innerHTML = `<span style="font-weight: 600; font-size: 12px;">${escapeHtml(text)}</span>`;
+      if (recording_id !== transcribingRecordingId || selectedRecordingId !== transcribingRecordingId) return;
+      const btn = document.getElementById('process-btn');
+      if (!btn || !btn.disabled) return;
+
+      if (stage === 'Done') {
+        clearTranscriptionTimer();
+        return;
+      }
+
+      if (percent > 0) {
+        // Determinate progress (local Whisper)
+        clearTranscriptionTimer();
+        btn.innerHTML = `<span style="font-weight: 600; font-size: 12px;">${escapeHtml(stage)} ${percent}%</span>`;
+      } else {
+        // Indeterminate progress (cloud / loading) — show elapsed time
+        transcriptionCurrentStage = stage;
+        if (!transcriptionStartTime) {
+          transcriptionStartTime = Date.now();
         }
+        if (!transcriptionElapsedTimer) {
+          transcriptionElapsedTimer = setInterval(() => {
+            if (!transcriptionStartTime || selectedRecordingId !== transcribingRecordingId) {
+              clearTranscriptionTimer();
+              return;
+            }
+            const elapsed = Math.floor((Date.now() - transcriptionStartTime) / 1000);
+            const b = document.getElementById('process-btn');
+            if (b && b.disabled) {
+              b.innerHTML = `<span style="font-weight: 600; font-size: 12px;">${escapeHtml(transcriptionCurrentStage)} ${elapsed}s</span>`;
+            }
+          }, 1000);
+        }
+        const elapsed = Math.floor((Date.now() - transcriptionStartTime) / 1000);
+        btn.innerHTML = `<span style="font-weight: 600; font-size: 12px;">${escapeHtml(stage)} ${elapsed}s</span>`;
       }
     });
   } catch (e) {
@@ -1473,6 +1516,7 @@ if (prBtn) {
 
     try {
       prBtn.disabled = true;
+      clearTranscriptionTimer();
       prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Processing...</span>';
 
       if (detailTranscriptEl) {
@@ -1511,10 +1555,12 @@ if (prBtn) {
         }
       } catch (e) { console.error('Failed to auto-execute waiting pipelines:', e); }
 
+      clearTranscriptionTimer();
       prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Transcribe</span>';
       prBtn.disabled = false;
 
     } catch (error) {
+      clearTranscriptionTimer();
       console.error('Transcription failed:', error);
       showToast(`Transcription failed: ${error}`, 'error');
 
