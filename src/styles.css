@@ -3749,6 +3749,16 @@ body.light .connections-group-header {
   white-space: nowrap;
 }
 
+.provider-models-toggle {
+  margin-top: 4px;
+  opacity: 0.8;
+  transition: opacity 0.15s;
+}
+
+.provider-models-toggle:hover {
+  opacity: 1;
+}
+
 body.light .provider-models-section {
   background: #ffffff;
   border-color: #e2e8f0;

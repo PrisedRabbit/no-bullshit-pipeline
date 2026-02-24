@@ -62,10 +62,12 @@ async function refreshAllProviderModels() {
   providerModelsFetching = false;
 }
 
+var providerModelsExpanded = {};
+
 function renderProviderModelsList(providerId) {
   const data = providerModels[providerId];
+  const expanded = providerModelsExpanded[providerId] || false;
 
-  // Fallback to hardcoded models from appSettings when no fetch data exists
   if (!data) {
     const storedModels = (appSettings && appSettings.providers && appSettings.providers[providerId] && appSettings.providers[providerId].models) || [];
     if (storedModels.length === 0) return '';
@@ -83,7 +85,6 @@ function renderProviderModelsList(providerId) {
   }
 
   if (data.error) {
-    // Show error but still fall back to stored models below the error
     const storedModels = (appSettings && appSettings.providers && appSettings.providers[providerId] && appSettings.providers[providerId].models) || [];
     if (storedModels.length === 0) {
       return `<div class="provider-models-section"><span class="provider-models-error">Failed to load models</span></div>`;
@@ -112,7 +113,22 @@ function renderProviderModelsList(providerId) {
     image: 'rgba(239,68,68,0.2)',
   };
 
-  const chips = data.models.map(m => {
+  const recommended = RECOMMENDED_MODELS[providerId] || [];
+  const recommendedSet = new Set(recommended);
+  const recommendedModels = data.models.filter(m => recommendedSet.has(m.id));
+  const otherModels = data.models.filter(m => !recommendedSet.has(m.id) && !m.deprecated);
+
+  let displayModels;
+  let showToggle = false;
+  const MAX_DEFAULT = 4;
+  if (expanded) {
+    displayModels = [...recommendedModels, ...otherModels];
+  } else {
+    displayModels = recommendedModels.length > 0 ? recommendedModels.slice(0, MAX_DEFAULT) : otherModels.slice(0, MAX_DEFAULT);
+    showToggle = otherModels.length > 0 || recommendedModels.length > MAX_DEFAULT;
+  }
+
+  const chips = displayModels.map(m => {
     const capBadges = m.capabilities.map(c => {
       const bg = CAP_COLORS[c] || 'rgba(148,163,184,0.2)';
       return `<span class="provider-model-cap" style="background:${bg}">${escapeHtml(c)}</span>`;
@@ -121,18 +137,27 @@ function renderProviderModelsList(providerId) {
       ? '<span class="provider-model-cap" style="background:rgba(239,68,68,0.25);color:rgba(239,68,68,0.9)">deprecated</span>'
       : '';
     const displayName = m.name !== m.id ? escapeHtml(m.name) : '';
+    const isRecommended = recommendedSet.has(m.id);
+    const recBadge = isRecommended ? '<span class="provider-model-cap" style="background:rgba(34,197,94,0.2);color:rgba(34,197,94,0.9)">recommended</span>' : '';
     return `<div class="provider-model-item"${m.deprecated ? ' style="opacity:0.55"' : ''}>
       <span class="provider-model-id">${escapeHtml(m.id)}</span>
       ${displayName ? `<span class="provider-model-name">${displayName}</span>` : ''}
-      ${capBadges}${deprecatedBadge}
+      ${recBadge}${capBadges}${deprecatedBadge}
     </div>`;
   }).join('');
 
+  const toggleBtn = showToggle
+    ? `<button class="provider-models-toggle" data-provider="${escapeHtml(providerId)}" style="font-size:0.68rem;color:var(--accent);background:none;border:none;cursor:pointer;padding:4px 0;">Show all ${data.models.length} models</button>`
+    : expanded && (otherModels.length > 0 || recommendedModels.length < data.models.length)
+    ? `<button class="provider-models-toggle" data-provider="${escapeHtml(providerId)}" style="font-size:0.68rem;color:var(--text-secondary);background:none;border:none;cursor:pointer;padding:4px 0;">Show less</button>`
+    : '';
+
   return `<div class="provider-models-section">
     <div class="provider-models-header">
-      <span class="provider-models-count">${data.models.length} model${data.models.length !== 1 ? 's' : ''} available</span>
+      <span class="provider-models-count">${displayModels.length} of ${data.models.length} models</span>
     </div>
     <div class="provider-models-list">${chips}</div>
+    ${toggleBtn}
   </div>`;
 }
 
@@ -174,6 +199,13 @@ const CAP_BADGE_COLORS = {
   'Transcription': 'rgba(16,185,129,0.18)',
   'Processing':    'rgba(59,130,246,0.18)',
   'Embedding':     'rgba(168,85,247,0.18)',
+};
+
+const RECOMMENDED_MODELS = {
+  openai: ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'o4-mini'],
+  anthropic: ['claude-sonnet-4-20250514', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-opus-4-20250514'],
+  google: ['gemini-2.5-pro-preview-06-05', 'gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+  ollama: [],
 };
 
 function renderCapBadges(capabilities) {
@@ -342,6 +374,15 @@ function renderModelsProviders() {
         btn.disabled = false;
         btn.textContent = 'Save';
       }
+    });
+  });
+
+  // Wire Show All / Show Less toggle buttons
+  el.querySelectorAll('.provider-models-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const providerId = btn.dataset.provider;
+      providerModelsExpanded[providerId] = !providerModelsExpanded[providerId];
+      renderModelsProviders();
     });
   });
 

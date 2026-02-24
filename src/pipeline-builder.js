@@ -9,6 +9,7 @@ let editingStepIndex = null;  // index of step currently open in panel
 let sortableInstance = null;  // Sortable.js instance for drag-and-drop reordering
 let lastAutoName = '';        // Track last auto-generated pipeline name
 const slackTargetCache = {};  // Cache channels+members per integration_id
+let modelSelectExpanded = {}; // Track expanded state per provider in step editor
 
 const SLACK_SVG = `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zm2.521-10.123a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zm0 1.271a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zm10.123 2.521a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zm-1.268 0a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zm-2.523 10.123a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zm0-1.268a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/></svg>`;
 const NOTION_SVG = `<svg viewBox="0 0 100 100" width="18" height="18" fill="currentColor"><path d="M6.017 4.313l55.333-4.087c6.797-.583 8.543-.19 12.817 2.917l17.663 12.443c2.913 2.14 3.883 2.723 3.883 5.053v68.243c0 4.277-1.553 6.807-6.99 7.193L24.467 99.967c-4.08.193-6.023-.39-8.16-3.113L3.3 79.94c-2.333-3.113-3.3-5.443-3.3-8.167V11.113c0-3.497 1.553-6.413 6.017-6.8z" fill="#fff"/><path d="M61.35.227l-55.333 4.087C1.553 4.7 0 7.617 0 11.113v60.66c0 2.723.967 5.053 3.3 8.167l13.007 16.913c2.137 2.723 4.08 3.307 8.16 3.113l64.257-3.89c5.433-.387 6.99-2.917 6.99-7.193V20.64c0-2.21-.81-2.76-3.088-4.587L75.983 3.523C71.71.607 69.96.22 63.163.803L61.35.227z" fill="#000"/><path d="M26.395 18.768c-5.433.39-6.675.477-9.768-1.753L7.997 10.527c-1.163-.913-1.55-1.94-1.55-3.113.39-2.53 1.94-4.47 7.377-4.86l53.39-3.89c4.47-.39 6.603 1.553 8.157 2.723l10.133 7.577c.39.193 1.553 1.553 0 1.553l-55.14 3.11v5.14z" fill="#fff"/><path d="M19.018 88.4V30.173c0-2.527.78-3.697 3.113-3.89l57.277-3.307c2.14-.193 3.113 1.167 3.113 3.693V85.09c0 2.527-.39 4.667-3.887 4.86l-54.943 3.113c-3.5.193-4.673-1.003-4.673-4.663zm54.167-55.13c.39 1.75 0 3.5-1.75 3.697l-2.527.39v40.257c-2.14 1.163-4.277 1.75-5.833 1.75-2.723 0-3.5-.583-5.443-3.113L38.468 45.948V74.7l5.247 1.163s0 3.5-4.86 3.5l-13.393.78c-.39-.78 0-2.723 1.36-3.113l3.497-.97V38.33l-4.86-.39c-.39-1.75.583-4.277 3.307-4.473l14.363-.97 20.603 31.46V35.077l-4.47-.39c-.39-2.14 1.163-3.697 3.113-3.89l14.003-.527z" fill="#fff"/></svg>`;
@@ -24,8 +25,13 @@ const PROVIDER_META = {
   ollama:    { img: 'assets/local-llm.svg', filter: 'invert(48%) sepia(70%) saturate(300%) hue-rotate(150deg)',           bgColor: 'rgba(45,160,120,0.15)' },
 };
 
-// Heuristic: filter out known non-chat model IDs (transcription, embedding, tts, image).
-// Mirrors capability logic in src-tauri/src/cloud_ai/models.rs.
+const RECOMMENDED_MODELS = {
+  openai: ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'o4-mini'],
+  anthropic: ['claude-sonnet-4-20250514', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-opus-4-20250514'],
+  google: ['gemini-2.5-pro-preview-06-05', 'gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+  ollama: [],
+};
+
 function isChatCapableModel(modelId) {
   if (!modelId) return false;
   const id = modelId.toLowerCase();
@@ -52,26 +58,55 @@ function getModelsForProvider(providerId) {
   return [];
 }
 
-function buildModelOptions(providerId, currentModel) {
+function buildModelOptions(providerId, currentModel, expanded = false) {
+  const MAX_DEFAULT = 4;
   if (providerId === 'local') {
     const models = (typeof llmModelsData !== 'undefined') ? llmModelsData.filter(m => m.downloaded) : [];
-    if (models.length === 0) return '<option value="" disabled>No local models downloaded</option>';
-    return models.map(m =>
+    if (models.length === 0) return { html: '<option value="" disabled>No local models downloaded</option>', hasMore: false, total: 0 };
+    const html = models.map(m =>
       `<option value="${escapeHtml(m.id)}" ${currentModel === m.id ? 'selected' : ''}>${escapeHtml(m.name)} (${escapeHtml(m.params)})</option>`
     ).join('');
+    return { html, hasMore: false, total: models.length };
   }
   if (providerId === 'ollama') {
     const models = getModelsForProvider('ollama');
-    if (models.length === 0) return '<option value="" disabled>No Ollama models found (is Ollama running?)</option>';
-    return models.map(m =>
+    if (models.length === 0) return { html: '<option value="" disabled>No Ollama models found (is Ollama running?)</option>', hasMore: false, total: 0 };
+    const html = models.map(m =>
       `<option value="${escapeHtml(m)}" ${currentModel === m ? 'selected' : ''}>${escapeHtml(m)}</option>`
     ).join('');
+    return { html, hasMore: false, total: models.length };
   }
   const models = getModelsForProvider(providerId);
-  if (models.length === 0) return '<option value="" disabled>No models available</option>';
-  return models.map(m =>
-    `<option value="${escapeHtml(m)}" ${currentModel === m ? 'selected' : ''}>${escapeHtml(m)}</option>`
-  ).join('');
+  if (models.length === 0) return { html: '<option value="" disabled>No models available</option>', hasMore: false, total: 0 };
+
+  const recommended = RECOMMENDED_MODELS[providerId] || [];
+  const recommendedSet = new Set(recommended);
+  const recommendedModels = models.filter(m => recommendedSet.has(m));
+  const otherModels = models.filter(m => !recommendedSet.has(m));
+
+  const currentInRecommended = recommendedSet.has(currentModel);
+  const currentInOther = otherModels.includes(currentModel);
+
+  let displayModels;
+  let hasMore = false;
+
+  if (expanded) {
+    displayModels = [...recommendedModels, ...otherModels];
+  } else {
+    displayModels = recommendedModels.slice(0, MAX_DEFAULT);
+    if (!currentInRecommended && currentModel) {
+      displayModels = [...displayModels, currentModel].filter((v, i, a) => a.indexOf(v) === i);
+    }
+    hasMore = otherModels.length > 0 || recommendedModels.length > MAX_DEFAULT;
+  }
+
+  const html = displayModels.map(m => {
+    const isRec = recommendedSet.has(m) && !expanded;
+    const label = isRec ? `${escapeHtml(m)}` : escapeHtml(m);
+    return `<option value="${escapeHtml(m)}" ${currentModel === m ? 'selected' : ''}>${label}</option>`;
+  }).join('');
+
+  return { html, hasMore, total: models.length };
 }
 
 function trimModelName(model, provider) {
@@ -812,7 +847,6 @@ function showStepEditor(index) {
     `<option value="${escapeHtml(t.name)}" ${step.config?.prompt_template === t.name ? 'selected' : ''}>${escapeHtml(t.name)}</option>`
   ).join('');
 
-  // Build connector-specific config fields
   let configFields = '';
   if (step.connector === 'llm') {
     let promptField;
@@ -823,7 +857,13 @@ function showStepEditor(index) {
     }
     const currentProvider = step.config?.provider || 'openai';
     const currentModel = step.config?.model || '';
-    const modelOptions = buildModelOptions(currentProvider, currentModel);
+    const expanded = modelSelectExpanded[currentProvider] || false;
+    const modelResult = buildModelOptions(currentProvider, currentModel, expanded);
+    const toggleBtn = modelResult.hasMore
+      ? `<button type="button" class="model-select-toggle" data-provider="${escapeHtml(currentProvider)}" style="font-size:0.68rem;color:var(--accent);background:none;border:none;cursor:pointer;padding:2px 0;margin-top:2px;">Show all ${modelResult.total} models</button>`
+      : expanded && modelResult.total > 4
+      ? `<button type="button" class="model-select-toggle" data-provider="${escapeHtml(currentProvider)}" style="font-size:0.68rem;color:var(--text-secondary);background:none;border:none;cursor:pointer;padding:2px 0;margin-top:2px;">Show less</button>`
+      : '';
     configFields = `
       ${promptField}
       <div class="step-editor-row"><label>Provider</label><select data-field="provider" class="llm-provider-select">
@@ -833,9 +873,9 @@ function showStepEditor(index) {
         <option value="local" ${currentProvider === 'local' ? 'selected' : ''}>Local LLM</option>
         <option value="ollama" ${currentProvider === 'ollama' ? 'selected' : ''}>Ollama</option>
       </select></div>
-      <div class="step-editor-row"><label>Model</label><select data-field="model" class="llm-model-select">
-        ${modelOptions}
-      </select></div>
+      <div class="step-editor-row"><label>Model</label><div><select data-field="model" class="llm-model-select">
+        ${modelResult.html}
+      </select>${toggleBtn}</div></div>
     `;
   } else if (step.connector === 'save') {
     const savePaths = (typeof savePathIntegrations !== 'undefined') ? savePathIntegrations : [];
@@ -1215,7 +1255,42 @@ function showStepEditor(index) {
       const newProvider = llmProviderSelect.value;
       const modelSelect = editorEl.querySelector('.llm-model-select');
       if (!modelSelect) return;
-      modelSelect.innerHTML = buildModelOptions(newProvider, '');
+      const expanded = modelSelectExpanded[newProvider] || false;
+      const modelResult = buildModelOptions(newProvider, '', expanded);
+      modelSelect.innerHTML = modelResult.html;
+      const toggleBtn = editorEl.querySelector('.model-select-toggle');
+      if (toggleBtn) {
+        toggleBtn.dataset.provider = newProvider;
+        if (modelResult.hasMore) {
+          toggleBtn.textContent = `Show all ${modelResult.total} models`;
+          toggleBtn.style.display = '';
+        } else if (expanded && modelResult.total > 4) {
+          toggleBtn.textContent = 'Show less';
+          toggleBtn.style.display = '';
+        } else {
+          toggleBtn.style.display = 'none';
+        }
+      }
+    });
+  }
+
+  // Model select toggle button → show all / show less
+  const modelToggleBtn = editorEl.querySelector('.model-select-toggle');
+  if (modelToggleBtn) {
+    modelToggleBtn.addEventListener('click', () => {
+      const provider = modelToggleBtn.dataset.provider;
+      modelSelectExpanded[provider] = !modelSelectExpanded[provider];
+      const modelSelect = editorEl.querySelector('.llm-model-select');
+      if (!modelSelect) return;
+      const currentModel = modelSelect.value;
+      const expanded = modelSelectExpanded[provider];
+      const modelResult = buildModelOptions(provider, currentModel, expanded);
+      modelSelect.innerHTML = modelResult.html;
+      if (modelResult.hasMore) {
+        modelToggleBtn.textContent = `Show all ${modelResult.total} models`;
+      } else if (expanded && modelResult.total > 4) {
+        modelToggleBtn.textContent = 'Show less';
+      }
     });
   }
 
