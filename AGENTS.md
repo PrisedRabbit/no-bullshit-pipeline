@@ -2,16 +2,22 @@
 
 This file provides instructions and context for AI coding agents working on this project.
 
+## UI/UX Skill Rule
+
+When the user asks for design work (or mentions design/UI/UX improvements), always use the `ui-ux-pro-max` skill.
+
 <!-- BEGIN BEADS INTEGRATION -->
-## Issue Tracking with bd (beads)
+## Issue Tracking with br (beads_rust)
 
-**IMPORTANT**: This project uses **bd (beads)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other tracking methods.
+**IMPORTANT**: This project uses **br (beads_rust)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other tracking methods.
 
-### Why bd?
+**Note:** `br` is non-invasive and never executes git commands. After issue-tracking changes, run `br sync --flush-only`, then commit `.beads/` manually.
 
-- Dependency-aware: Track blockers and relationships between issues
-- Git-friendly: Auto-syncs to JSONL for version control
-- Agent-optimized: JSON output, ready work detection, discovered-from links
+### Why br?
+
+- Dependency-aware: track blockers and relationships between issues
+- Git-friendly: export JSONL to `.beads/issues.jsonl`
+- Agent-optimized: JSON output, ready work detection, clean CLI for automation
 - Prevents duplicate tracking systems and confusion
 
 ### Quick Start
@@ -19,27 +25,35 @@ This file provides instructions and context for AI coding agents working on this
 **Check for ready work:**
 
 ```bash
-bd ready --json
+br ready --json
 ```
 
 **Create new issues:**
 
 ```bash
-bd create "Issue title" --description="Detailed context" -t bug|feature|task -p 0-4 --json
-bd create "Issue title" --description="What this issue is about" -p 1 --deps discovered-from:bd-123 --json
+br create "Issue title" --description "Detailed context" -t bug|feature|task -p 0-4 --json
+br create "Issue title" --description "What this issue is about" -p 1 --json
 ```
 
 **Claim and update:**
 
 ```bash
-bd update bd-42 --status in_progress --json
-bd update bd-42 --priority 1 --json
+br update nbp-42 --status in_progress --json
+br update nbp-42 --priority 1 --json
 ```
 
 **Complete work:**
 
 ```bash
-bd close bd-42 --reason "Completed" --json
+br close nbp-42 --reason "Completed" --json
+```
+
+**Sync tracker state to JSONL + git:**
+
+```bash
+br sync --flush-only
+git add .beads/
+git commit -m "sync beads"
 ```
 
 ### Issue Types
@@ -49,6 +63,7 @@ bd close bd-42 --reason "Completed" --json
 - `task` - Work item (tests, docs, refactoring)
 - `epic` - Large feature with subtasks
 - `chore` - Maintenance (dependencies, tooling)
+- `decision` - Product/architecture decision records
 
 ### Priorities
 
@@ -60,32 +75,29 @@ bd close bd-42 --reason "Completed" --json
 
 ### Workflow for AI Agents
 
-1. **Check ready work**: `bd ready` shows unblocked issues
-2. **Claim your task**: `bd update <id> --status in_progress`
-3. **Work on it**: Implement, test, document
+1. **Check ready work**: `br ready` shows unblocked issues
+2. **Claim your task**: `br update <id> --status in_progress`
+3. **Work on it**: implement, test, document
 4. **Discover new work?** Create linked issue:
-   - `bd create "Found bug" --description="Details about what was found" -p 1 --deps discovered-from:<parent-id>`
-5. **Complete**: `bd close <id> --reason "Done"`
-
-### Auto-Sync
-
-bd automatically syncs with git:
-
-- Exports to `.beads/issues.jsonl` after changes (5s debounce)
-- Imports from JSONL when newer (e.g., after `git pull`)
-- No manual export/import needed!
+   - `br create "Found bug" --description "Details about what was found" -p 1 --json`
+   - Add dependency with `br dep add <new-id> <parent-id> -t discovered-from`
+5. **Complete**: `br close <id> --reason "Done"`
+6. **Flush tracker state**:
+   - `br sync --flush-only`
+   - `git add .beads/ && git commit -m "sync beads"`
 
 ### Important Rules
 
-- ✅ Use bd for ALL task tracking
-- ✅ Always use `--json` flag for programmatic use
-- ✅ Link discovered work with `discovered-from` dependencies
-- ✅ Check `bd ready` before asking "what should I work on?"
+- ✅ Use br for ALL task tracking
+- ✅ Always use `--json` for programmatic use
+- ✅ Link discovered work to parent issues via dependencies
+- ✅ Check `br ready` before asking "what should I work on?"
 - ❌ Do NOT create markdown TODO lists
 - ❌ Do NOT use external issue trackers
 - ❌ Do NOT duplicate tracking systems
+- ❌ Do NOT assume br auto-commits anything
 
-For more details, see README.md and docs/QUICKSTART.md.
+For more details, see README.md.
 
 <!-- END BEADS INTEGRATION -->
 
@@ -96,8 +108,8 @@ _Add your build and test commands here_
 
 ```bash
 # Example:
-# npm install
-# npm test
+# bun install
+# bun test
 ```
 
 ## Architecture Overview
@@ -110,26 +122,27 @@ _Add your project-specific conventions here_
 
 ## Landing the Plane (Session Completion)
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+**When ending a work session**, complete all steps below.
 
 **MANDATORY WORKFLOW:**
 
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
 2. **Run quality gates** (if code changed) - Tests, linters, builds
 3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
+4. **Sync issue tracker state and git**
    ```bash
    git pull --rebase
-   bd sync
+   br sync --flush-only
+   git add .beads/
+   git commit -m "sync beads"
    git push
-   git status  # MUST show "up to date with origin"
+   git status
    ```
 5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
+6. **Verify** - All required changes committed and pushed
 7. **Hand off** - Provide context for next session
 
 **CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
+- Do not leave tracker updates uncommitted in `.beads/`
+- Do not stop in the middle of sync/commit/push flow
+- If push fails, resolve and retry
