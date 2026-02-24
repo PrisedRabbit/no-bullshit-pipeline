@@ -63,18 +63,15 @@ function buildModelOptions(providerId, currentModel, expanded = false) {
   if (providerId === 'local') {
     const models = (typeof llmModelsData !== 'undefined') ? llmModelsData.filter(m => m.downloaded) : [];
     if (models.length === 0) return { html: '<option value="" disabled>No local models downloaded</option>', hasMore: false, total: 0 };
-    const html = models.map(m =>
+    let displayModels = expanded ? models : models.slice(0, MAX_DEFAULT);
+    if (currentModel && !displayModels.some(m => m.id === currentModel)) {
+      const selectedModel = models.find(m => m.id === currentModel);
+      if (selectedModel) displayModels = [...displayModels, selectedModel];
+    }
+    const html = displayModels.map(m =>
       `<option value="${escapeHtml(m.id)}" ${currentModel === m.id ? 'selected' : ''}>${escapeHtml(m.name)} (${escapeHtml(m.params)})</option>`
     ).join('');
-    return { html, hasMore: false, total: models.length };
-  }
-  if (providerId === 'ollama') {
-    const models = getModelsForProvider('ollama');
-    if (models.length === 0) return { html: '<option value="" disabled>No Ollama models found (is Ollama running?)</option>', hasMore: false, total: 0 };
-    const html = models.map(m =>
-      `<option value="${escapeHtml(m)}" ${currentModel === m ? 'selected' : ''}>${escapeHtml(m)}</option>`
-    ).join('');
-    return { html, hasMore: false, total: models.length };
+    return { html, hasMore: displayModels.length < models.length, total: models.length };
   }
   const models = getModelsForProvider(providerId);
   if (models.length === 0) return { html: '<option value="" disabled>No models available</option>', hasMore: false, total: 0 };
@@ -84,20 +81,17 @@ function buildModelOptions(providerId, currentModel, expanded = false) {
   const recommendedModels = models.filter(m => recommendedSet.has(m));
   const otherModels = models.filter(m => !recommendedSet.has(m));
 
-  const currentInRecommended = recommendedSet.has(currentModel);
-  const currentInOther = otherModels.includes(currentModel);
-
   let displayModels;
   let hasMore = false;
 
   if (expanded) {
     displayModels = [...recommendedModels, ...otherModels];
   } else {
-    displayModels = recommendedModels.slice(0, MAX_DEFAULT);
-    if (!currentInRecommended && currentModel) {
+    displayModels = (recommendedModels.length > 0 ? recommendedModels : otherModels).slice(0, MAX_DEFAULT);
+    if (currentModel && !displayModels.includes(currentModel) && models.includes(currentModel)) {
       displayModels = [...displayModels, currentModel].filter((v, i, a) => a.indexOf(v) === i);
     }
-    hasMore = otherModels.length > 0 || recommendedModels.length > MAX_DEFAULT;
+    hasMore = displayModels.length < models.length;
   }
 
   const html = displayModels.map(m => {
