@@ -429,18 +429,8 @@ async function startRecording() {
     showDetailView(metadata.id);
     startLiveTranscript(metadata.id);
 
-    // Send recording notification
     if (appSettings?.show_recording_notification !== false) {
-      try {
-        if (Notification.permission === 'granted') {
-          new Notification('NBP Recording', { body: 'Recording has started', silent: true });
-        } else if (Notification.permission !== 'denied') {
-          const perm = await Notification.requestPermission();
-          if (perm === 'granted') {
-            new Notification('NBP Recording', { body: 'Recording has started', silent: true });
-          }
-        }
-      } catch (_) { /* notification not available */ }
+      showToast('Recording started', 'info');
     }
 
   } catch (error) {
@@ -474,6 +464,10 @@ async function stopRecording() {
     isRecording = false;
     currentAssignedPipelines = new Set(); // Clear global after capturing to local
 
+    if (appSettings?.show_recording_notification !== false) {
+      showToast('Recording stopped', 'info');
+    }
+
     // Stash pipelines BEFORE async UI work so recording_complete handler always finds them
     pendingAutoExec.set(currentId, stoppedPipelines);
 
@@ -503,6 +497,9 @@ async function stopRecording() {
     if (error && error.includes && error.includes("discarded")) {
       hideDetailView();
       await loadRecordings();
+      showToast('Recording discarded (too short)', 'info');
+    } else {
+      showToast('Failed to stop: ' + error, 'error');
     }
   } finally {
     isRecordingBusy = false;
@@ -2348,18 +2345,8 @@ async function startRecordingWithPipeline(pipelineName) {
     renderPipelineChips(); // Update chip visual state (show assigned chip)
     startLiveTranscript(metadata.id);
 
-    // Send recording notification
     if (appSettings?.show_recording_notification !== false) {
-      try {
-        if (Notification.permission === 'granted') {
-          new Notification('NBP Recording', { body: 'Recording has started', silent: true });
-        } else if (Notification.permission !== 'denied') {
-          const perm = await Notification.requestPermission();
-          if (perm === 'granted') {
-            new Notification('NBP Recording', { body: 'Recording has started', silent: true });
-          }
-        }
-      } catch (_) { /* notification not available */ }
+      showToast('Recording started', 'info');
     }
   } catch (error) {
     // Revert all state on failure
