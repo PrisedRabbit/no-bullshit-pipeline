@@ -1,3 +1,4 @@
+pub mod cli_agent;
 pub mod llm;
 pub mod mcp;
 pub mod save;

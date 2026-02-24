@@ -197,6 +197,17 @@ const PROMPT_PRESETS = [
 
 const TOOL_PRESETS = [
   {
+    label: 'CLI Agent',
+    icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+    step: {
+      name: 'cli-agent',
+      connector: 'cli_agent',
+      input: 'transcript',
+      config: { cli: 'claude', prompt: '', timeout_secs: 300 },
+      description: 'Run Claude Code or Codex CLI as agent'
+    }
+  },
+  {
     label: 'MCP Tool',
     icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>',
     step: {
@@ -409,7 +420,7 @@ function addPresetStep(preset) {
   closePicker();
   maybeAutoName();
   // Auto-open editor for delivery connectors that need configuration
-  const needsConfig = ['slack', 'notion', 'linear', 'webhook', 'save', 'mcp'];
+  const needsConfig = ['slack', 'notion', 'linear', 'webhook', 'save', 'mcp', 'cli_agent'];
   if (needsConfig.includes(step.connector)) {
     showStepEditor(pipelineEditorSteps.length - 1);
   }
@@ -419,7 +430,7 @@ function suggestPipelineName() {
   const processing = [];
   const delivery = [];
   for (const step of pipelineEditorSteps) {
-    if (step.connector === 'llm' || step.connector === 'mcp') {
+    if (step.connector === 'llm' || step.connector === 'mcp' || step.connector === 'cli_agent') {
       // Title-case the step name: "meeting-notes" → "Meeting Notes"
       const titleCased = (step.name || 'Untitled')
         .replace(/[-_]/g, ' ')
@@ -887,6 +898,17 @@ function showStepEditor(index) {
         <input data-field="target_custom" value="" placeholder="#channel, email@example.com, or U123456" />
       </div>
     `;
+  } else if (step.connector === 'cli_agent') {
+    const currentCli = step.config?.cli || 'claude';
+    configFields = `
+      <div class="step-editor-row"><label>CLI</label><select data-field="cli">
+        <option value="claude"${currentCli === 'claude' ? ' selected' : ''}>Claude Code</option>
+        <option value="codex"${currentCli === 'codex' ? ' selected' : ''}>Codex CLI</option>
+      </select></div>
+      <div class="step-editor-row"><label>Prompt</label><textarea data-field="prompt" rows="3" placeholder="Instructions for the agent...">${escapeHtml(step.config?.prompt || '')}</textarea></div>
+      <div class="step-editor-row"><label>Working Directory</label><input data-field="working_directory" value="${escapeHtml(step.config?.working_directory || '')}" placeholder="~/Projects/my-repo (optional)" /></div>
+      <div class="step-editor-row"><label>Timeout (sec)</label><input data-field="timeout_secs" type="number" value="${step.config?.timeout_secs || 300}" min="10" max="3600" /></div>
+    `;
   } else if (step.connector === 'mcp') {
     configFields = `
       <div class="step-editor-row"><label>URL</label><input data-field="url" value="${escapeHtml(step.config?.url || '')}" placeholder="https://mcp.example.com" /></div>
@@ -1207,6 +1229,9 @@ function showStepEditor(index) {
       let val = field.value.trim();
       if (key === 'args') {
         try { val = JSON.parse(val); } catch { val = {}; }
+      }
+      if (field.type === 'number' && val !== '') {
+        val = Number(val);
       }
       // Slack target: if dropdown says "__custom__", use custom input instead
       if (key === 'target' && val === '__custom__') return;

@@ -1010,6 +1010,17 @@ pub async fn execute_pipeline_internal(
                 )
                 .await
             }
+            ConnectorType::CliAgent => {
+                connectors::cli_agent::execute(
+                    &input_path,
+                    &step.config,
+                    &output_dir,
+                    &step.name,
+                    &step.input,
+                    step.description.as_deref(),
+                )
+                .await
+            }
         };
 
         match step_result {

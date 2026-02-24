@@ -16,6 +16,8 @@ pub enum ConnectorType {
     Mcp,
     Notion,
     Linear,
+    #[serde(rename = "cli_agent")]
+    CliAgent,
 }
 
 /// Step categories for UI grouping
@@ -32,7 +34,7 @@ impl ConnectorType {
     pub fn category(&self) -> StepCategory {
         match self {
             ConnectorType::Llm => StepCategory::Prompt,
-            ConnectorType::Mcp => StepCategory::Tool,
+            ConnectorType::Mcp | ConnectorType::CliAgent => StepCategory::Tool,
             _ => StepCategory::Output,
         }
     }
@@ -44,7 +46,14 @@ impl ConnectorType {
     /// Prompt and Tool connectors produce output consumed by downstream steps.
     /// Their failure halts all downstream steps because those steps depend on the output.
     pub fn is_delivery(&self) -> bool {
-        matches!(self, ConnectorType::Notion | ConnectorType::Linear | ConnectorType::Slack | ConnectorType::Webhook | ConnectorType::Save)
+        matches!(
+            self,
+            ConnectorType::Notion
+                | ConnectorType::Linear
+                | ConnectorType::Slack
+                | ConnectorType::Webhook
+                | ConnectorType::Save
+        )
     }
 }
 
@@ -340,6 +349,30 @@ fn validate_step_config(step: &PipelineStep) -> Result<(), String> {
                 ));
             }
         }
+        ConnectorType::CliAgent => {
+            let cli = step.config.get("cli").and_then(|v| v.as_str());
+            match cli {
+                Some("claude") | Some("codex") => {}
+                Some(other) => {
+                    return Err(format!(
+                        "Step '{}': CLI agent 'cli' must be 'claude' or 'codex', got '{}'",
+                        step.name, other
+                    ));
+                }
+                None => {
+                    return Err(format!(
+                        "Step '{}': CLI agent connector requires 'cli' in config ('claude' or 'codex')",
+                        step.name
+                    ));
+                }
+            }
+            if step.config.get("prompt").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty()).is_none() {
+                return Err(format!(
+                    "Step '{}': CLI agent connector requires 'prompt' in config",
+                    step.name
+                ));
+            }
+        }
     }
     Ok(())
 }
@@ -454,6 +487,8 @@ mod tests {
         Pipeline {
             name: "test-pipeline".to_string(),
             description: "A test pipeline".to_string(),
+            created_at: default_now(),
+            updated_at: default_now(),
             steps: vec![
                 PipelineStep {
                     name: "summarize".to_string(),
@@ -518,6 +553,8 @@ mod tests {
         let pipeline = Pipeline {
             name: "bad-pipeline".to_string(),
             description: "test".to_string(),
+            created_at: default_now(),
+            updated_at: default_now(),
             steps: vec![
                 PipelineStep {
                     name: "step-a".to_string(),
@@ -555,6 +592,8 @@ mod tests {
         let pipeline = Pipeline {
             name: "dup-pipeline".to_string(),
             description: "test".to_string(),
+            created_at: default_now(),
+            updated_at: default_now(),
             steps: vec![
                 PipelineStep {
                     name: "step-a".to_string(),
@@ -646,6 +685,8 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
+            created_at: default_now(),
+            updated_at: default_now(),
             steps: vec![PipelineStep {
                 name: "post-to-notion".to_string(),
                 connector: ConnectorType::Notion,
@@ -665,6 +706,8 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
+            created_at: default_now(),
+            updated_at: default_now(),
             steps: vec![PipelineStep {
                 name: "post-to-notion".to_string(),
                 connector: ConnectorType::Notion,
@@ -682,6 +725,8 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
+            created_at: default_now(),
+            updated_at: default_now(),
             steps: vec![PipelineStep {
                 name: "custom".to_string(),
                 connector: ConnectorType::Llm,
@@ -699,6 +744,8 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
+            created_at: default_now(),
+            updated_at: default_now(),
             steps: vec![PipelineStep {
                 name: "summarize".to_string(),
                 connector: ConnectorType::Llm,
@@ -718,6 +765,8 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
+            created_at: default_now(),
+            updated_at: default_now(),
             steps: vec![PipelineStep {
                 name: "summarize".to_string(),
                 connector: ConnectorType::Llm,
@@ -740,6 +789,8 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
+            created_at: default_now(),
+            updated_at: default_now(),
             steps: vec![PipelineStep {
                 name: "save-it".to_string(),
                 connector: ConnectorType::Save,
@@ -759,6 +810,8 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
+            created_at: default_now(),
+            updated_at: default_now(),
             steps: vec![PipelineStep {
                 name: "notify".to_string(),
                 connector: ConnectorType::Webhook,
@@ -778,6 +831,8 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
+            created_at: default_now(),
+            updated_at: default_now(),
             steps: vec![PipelineStep {
                 name: "notify".to_string(),
                 connector: ConnectorType::Webhook,
@@ -797,6 +852,8 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
+            created_at: default_now(),
+            updated_at: default_now(),
             steps: vec![PipelineStep {
                 name: "notify".to_string(),
                 connector: ConnectorType::Webhook,
@@ -825,6 +882,8 @@ mod tests {
         let pipeline = Pipeline {
             name: "multi-input".to_string(),
             description: "test".to_string(),
+            created_at: default_now(),
+            updated_at: default_now(),
             steps: vec![
                 PipelineStep {
                     name: "step-a".to_string(),
@@ -843,6 +902,102 @@ mod tests {
                     description: None,
                 },
             ],
+        };
+        assert!(validate_pipeline(&pipeline).is_ok());
+    }
+
+    #[test]
+    fn test_cli_agent_connector_type_serialization() {
+        assert_eq!(
+            serde_json::to_string(&ConnectorType::CliAgent).unwrap(),
+            "\"cli_agent\""
+        );
+    }
+
+    #[test]
+    fn test_cli_agent_connector_type_deserialization() {
+        let ct: ConnectorType = serde_json::from_str("\"cli_agent\"").unwrap();
+        assert_eq!(ct, ConnectorType::CliAgent);
+    }
+
+    #[test]
+    fn test_cli_agent_step_missing_cli_fails() {
+        let pipeline = Pipeline {
+            name: "test".to_string(),
+            description: "test".to_string(),
+            created_at: default_now(),
+            updated_at: default_now(),
+            steps: vec![PipelineStep {
+                name: "run-agent".to_string(),
+                connector: ConnectorType::CliAgent,
+                category: StepCategory::Tool,
+                input: "transcript".to_string(),
+                config: serde_json::json!({"prompt": "do stuff"}),
+                description: None,
+            }],
+        };
+        let result = validate_pipeline(&pipeline);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("cli"));
+    }
+
+    #[test]
+    fn test_cli_agent_step_invalid_cli_fails() {
+        let pipeline = Pipeline {
+            name: "test".to_string(),
+            description: "test".to_string(),
+            created_at: default_now(),
+            updated_at: default_now(),
+            steps: vec![PipelineStep {
+                name: "run-agent".to_string(),
+                connector: ConnectorType::CliAgent,
+                category: StepCategory::Tool,
+                input: "transcript".to_string(),
+                config: serde_json::json!({"cli": "gpt", "prompt": "do stuff"}),
+                description: None,
+            }],
+        };
+        let result = validate_pipeline(&pipeline);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("'claude' or 'codex'"));
+    }
+
+    #[test]
+    fn test_cli_agent_step_missing_prompt_fails() {
+        let pipeline = Pipeline {
+            name: "test".to_string(),
+            description: "test".to_string(),
+            created_at: default_now(),
+            updated_at: default_now(),
+            steps: vec![PipelineStep {
+                name: "run-agent".to_string(),
+                connector: ConnectorType::CliAgent,
+                category: StepCategory::Tool,
+                input: "transcript".to_string(),
+                config: serde_json::json!({"cli": "claude"}),
+                description: None,
+            }],
+        };
+        let result = validate_pipeline(&pipeline);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("prompt"));
+    }
+
+    #[test]
+    fn test_cli_agent_step_valid_config_passes() {
+        let pipeline = Pipeline {
+            name: "test".to_string(),
+            description: "test".to_string(),
+            created_at: default_now(),
+            updated_at: default_now(),
+            steps: vec![PipelineStep {
+                name: "run-agent".to_string(),
+                connector: ConnectorType::CliAgent,
+                category: StepCategory::Tool,
+                input: "transcript".to_string(),
+                config: serde_json::json!({"cli": "claude", "prompt": "Analyze this"}),
+                description: None,
+            }],
         };
         assert!(validate_pipeline(&pipeline).is_ok());
     }
