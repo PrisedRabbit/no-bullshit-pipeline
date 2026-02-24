@@ -510,24 +510,66 @@ async function stopRecording() {
 }
 
 async function autoTranscribeAndExecute(recordingId, pipelineNames) {
-  // Step 1: Transcribe once (blocking — must complete before any pipeline)
+  if (window.__NBP_setTranscribingId) window.__NBP_setTranscribingId(recordingId);
+
+  const prBtn = document.getElementById('process-btn');
+  if (prBtn && selectedRecordingId === recordingId) {
+    prBtn.disabled = true;
+    prBtn.innerHTML = '<span class="btn-spinner"></span><span style="font-weight: 600; font-size: 12px;">Auto-transcribing...</span>';
+    prBtn.style.opacity = '0.6';
+  }
+
+  if (detailTranscriptEl && selectedRecordingId === recordingId) {
+    detailTranscriptEl.innerHTML = `
+      <div class="transcript-processing-state">
+        <div class="transcript-processing-spinner"></div>
+        <span class="transcript-processing-text">Processing audio...</span>
+      </div>
+    `;
+    detailTranscriptEl.classList.remove('empty');
+  }
+
   try {
-    if (window.__NBP_setTranscribingId) window.__NBP_setTranscribingId(recordingId);
     await invoke('transcribe_recording', { recordingId });
   } catch (err) {
     console.error('Auto-transcription failed:', err);
-    await loadRecordings();
-    if (selectedRecordingId === recordingId) showDetailView(recordingId);
-    return; // Do not proceed to pipeline execution if transcription failed
-  } finally {
+    if (detailTranscriptEl && selectedRecordingId === recordingId) {
+      detailTranscriptEl.innerHTML = `
+        <div class="transcript-error-state">
+          <span class="transcript-error-text">Transcription failed: ${escapeHtml(err)}</span>
+          <button class="mini-action-btn transcript-retry-btn" onclick="retryTranscription('${recordingId}')">Retry</button>
+        </div>
+      `;
+      detailTranscriptEl.classList.add('empty');
+    }
+    if (prBtn && selectedRecordingId === recordingId) {
+      prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Retry</span>';
+      prBtn.disabled = false;
+      prBtn.style.opacity = '1';
+      prBtn.style.display = '';
+    }
     if (window.__NBP_setTranscribingId) window.__NBP_setTranscribingId(null);
+    return;
   }
 
-  // Refresh UI after transcription completes
+  if (detailTranscriptEl && selectedRecordingId === recordingId) {
+    const transcript = await invoke('get_transcript', { recordingId });
+    if (transcript) {
+      applyMarkdownRendering(detailTranscriptEl, transcript);
+      detailTranscriptEl.classList.remove('empty');
+    }
+  }
+
+  if (prBtn && selectedRecordingId === recordingId) {
+    prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Transcribe</span>';
+    prBtn.disabled = false;
+    prBtn.style.opacity = '1';
+  }
+  if (window.__NBP_setTranscribingId) window.__NBP_setTranscribingId(null);
+
   await loadRecordings();
   if (selectedRecordingId === recordingId) showDetailView(recordingId);
 
-  // Step 2: Execute each assigned pipeline sequentially, refreshing UI after each
   for (const pipelineName of pipelineNames) {
     try {
       await invoke('execute_pipeline', { recordingId, pipelineName });
@@ -538,6 +580,13 @@ async function autoTranscribeAndExecute(recordingId, pipelineNames) {
     if (selectedRecordingId === recordingId) showDetailView(recordingId);
   }
 }
+
+window.retryTranscription = async function(recordingId) {
+  const prBtn = document.getElementById('process-btn');
+  if (prBtn) {
+    prBtn.click();
+  }
+};
 
 async function subscribeToProgress(recordingId) {
   // Clean up previous listener (Research Pitfall 3)
@@ -1078,24 +1127,34 @@ window.showDetailView = async (id) => {
   }
   if (prBtn) {
     prBtn.disabled = isProcessing;
+    prBtn.style.opacity = '1';
     if (isProcessing) {
       prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Mixing Audio...</span>';
     } else {
       prBtn.disabled = true;
       prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Transcribe</span>';
-      // Check backend lock before enabling — prevents click during async window
       const checkId = id;
+      const isAutoTranscribe = appSettings?.transcription?.enabled;
       invoke('is_transcribing', { recordingId: checkId }).then(active => {
         if (selectedRecordingId === checkId && prBtn) {
           if (active) {
-            prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Processing...</span>';
+            prBtn.innerHTML = '<span class="btn-spinner"></span><span style="font-weight: 600; font-size: 12px;">Auto-transcribing...</span>';
+            prBtn.style.opacity = '0.6';
+          } else if (isAutoTranscribe) {
+            prBtn.style.display = 'none';
           } else {
             prBtn.disabled = false;
+            prBtn.style.display = '';
           }
         }
       }).catch(() => {
         if (selectedRecordingId === checkId && prBtn) {
-          prBtn.disabled = false;
+          if (isAutoTranscribe) {
+            prBtn.style.display = 'none';
+          } else {
+            prBtn.disabled = false;
+            prBtn.style.display = '';
+          }
         }
       });
     }
@@ -1255,17 +1314,28 @@ window.showDetailView = async (id) => {
 
   // Load Transcript only if not recording/processing
   if (!hideContent && detailTranscriptEl) {
-    detailTranscriptEl.textContent = "Loading...";
-    detailTranscriptEl.classList.remove('empty');
-
     const rawToggle = document.getElementById('transcript-raw-toggle');
+    const isAutoTranscribe = appSettings?.transcription?.enabled;
+
     try {
+      const isTranscribing = await invoke('is_transcribing', { recordingId: id });
       const transcript = await invoke("get_transcript", { recordingId: id });
+
       if (transcript) {
         applyMarkdownRendering(detailTranscriptEl, transcript);
         detailTranscriptEl.classList.remove('empty');
         if (saveTranscriptBtn) saveTranscriptBtn.style.display = '';
         if (rawToggle) rawToggle.style.display = looksLikeMarkdown(transcript) ? '' : 'none';
+      } else if (isTranscribing) {
+        detailTranscriptEl.innerHTML = `
+          <div class="transcript-processing-state">
+            <div class="transcript-processing-spinner"></div>
+            <span class="transcript-processing-text">Processing audio...</span>
+          </div>
+        `;
+        detailTranscriptEl.classList.remove('empty');
+        if (saveTranscriptBtn) saveTranscriptBtn.style.display = 'none';
+        if (rawToggle) rawToggle.style.display = 'none';
       } else {
         detailTranscriptEl.textContent = "Not processed yet.";
         detailTranscriptEl.classList.add('empty');
@@ -1516,34 +1586,37 @@ if (prBtn) {
 
     try {
       prBtn.disabled = true;
+      prBtn.style.display = '';
+      prBtn.style.opacity = '1';
       clearTranscriptionTimer();
-      prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Processing...</span>';
+      prBtn.innerHTML = '<span class="btn-spinner"></span><span style="font-weight: 600; font-size: 12px;">Processing...</span>';
 
       if (detailTranscriptEl) {
-        detailTranscriptEl.textContent = '';
+        detailTranscriptEl.innerHTML = `
+          <div class="transcript-processing-state">
+            <div class="transcript-processing-spinner"></div>
+            <span class="transcript-processing-text">Processing audio...</span>
+          </div>
+        `;
         detailTranscriptEl.classList.remove('empty');
       }
       if (saveTranscriptBtn) saveTranscriptBtn.style.display = 'none';
 
-      // Set which recording is being transcribed so listener is scoped
       if (window.__NBP_setTranscribingId) window.__NBP_setTranscribingId(selectedRecordingId);
 
       const transcript = await invoke('transcribe_recording', { recordingId: selectedRecordingId });
 
-      // Backend no-op: transcription was already running (safety net for any race)
       if (transcript === '__already_running__') {
-        prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Processing...</span>';
+        prBtn.innerHTML = '<span class="btn-spinner"></span><span style="font-weight: 600; font-size: 12px;">Processing...</span>';
         return;
       }
 
-      // Final update to ensure everything is matched correctly
       if (detailTranscriptEl) {
-        detailTranscriptEl.textContent = transcript;
+        applyMarkdownRendering(detailTranscriptEl, transcript);
         detailTranscriptEl.classList.remove('empty');
       }
       if (saveTranscriptBtn) saveTranscriptBtn.style.display = '';
 
-      // Auto-execute any waiting pipelines now that transcript is ready
       try {
         const states = await invoke('get_all_pipeline_states', { recordingId: selectedRecordingId });
         for (const s of (states || [])) {

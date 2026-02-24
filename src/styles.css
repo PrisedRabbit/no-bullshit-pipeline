@@ -1212,6 +1212,45 @@ body.detail-open .detail-view {
   overflow-y: auto;
 }
 
+.transcript-processing-state {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.transcript-processing-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: btn-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.transcript-processing-text {
+  opacity: 0.8;
+}
+
+.transcript-error-state {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.transcript-error-text {
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+.transcript-retry-btn {
+  padding: 6px 14px;
+  font-size: 0.8rem;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
 }
