@@ -3636,29 +3636,55 @@ body.is-recording-active .record-btn .stop-icon {
   width: 200px;
 }
 
-.provider-key-status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+.provider-key-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.provider-key-status svg {
+  width: 12px;
+  height: 12px;
   flex-shrink: 0;
 }
 
-.provider-key-status-dot.key-set {
-  background: #f59e0b;
+.provider-key-status.key-missing {
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--text-secondary);
 }
 
-.provider-key-status-dot.key-valid {
-  background: var(--success);
+.provider-key-status.key-checking {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
 }
 
-.provider-key-status-dot.key-missing {
-  background: var(--text-secondary);
-  opacity: 0.4;
+.provider-key-status.key-checking svg {
+  animation: spin 1s linear infinite;
 }
 
-.provider-key-status-dot.key-checking {
-  background: #f59e0b;
-  animation: pulse 0.8s ease-in-out infinite;
+.provider-key-status.key-valid {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--success);
+}
+
+.provider-key-status.key-saved {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.provider-key-status.key-failed {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 @keyframes pulse {

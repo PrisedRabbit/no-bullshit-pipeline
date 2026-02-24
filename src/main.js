@@ -1923,6 +1923,21 @@ const PROVIDER_LABEL_MAP = {
   Anthropic: 'Anthropic',
 };
 
+function updateKeyStatusElement(el, state) {
+  if (!el) return;
+  const STATUS_CONFIG = {
+    missing: { class: 'key-missing', label: 'No key', ariaLabel: 'API key not configured', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>` },
+    saved: { class: 'key-saved', label: 'Saved', ariaLabel: 'API key saved (not yet verified)', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>` },
+    checking: { class: 'key-checking', label: 'Verifying', ariaLabel: 'Verifying API key', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>` },
+    valid: { class: 'key-valid', label: 'Verified', ariaLabel: 'API key verified successfully', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>` },
+    failed: { class: 'key-failed', label: 'Invalid', ariaLabel: 'API key verification failed', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>` }
+  };
+  const config = STATUS_CONFIG[state] || STATUS_CONFIG.missing;
+  el.className = `provider-key-status ${config.class}`;
+  el.setAttribute('aria-label', config.ariaLabel);
+  el.innerHTML = `${config.icon}<span>${config.label}</span>`;
+}
+
 function updateTranscriptionKeyStatusDot() {
   const provider = transcriptionProviderSelect ? transcriptionProviderSelect.value : '';
   const keyId = PROVIDER_KEY_MAP[provider];
@@ -1930,11 +1945,15 @@ function updateTranscriptionKeyStatusDot() {
 
   const apiKeys = (appSettings && appSettings.transcription && appSettings.transcription.api_keys) || {};
   const hasKey = !!apiKeys[keyId];
+  const validatedKeys = window.__nbpValidatedKeys || {};
+  const failedKeys = window.__nbpFailedKeys || {};
+  const key = apiKeys[keyId] || '';
+  const isValidated = validatedKeys[keyId] === key && !!key;
+  const isFailed = failedKeys[keyId] === key;
+  const state = !hasKey ? 'missing' : isFailed ? 'failed' : isValidated ? 'valid' : 'saved';
 
-  const dot = document.getElementById('cloud-provider-status-dot');
-  if (dot) {
-    dot.className = 'provider-key-status-dot ' + (hasKey ? 'key-set' : 'key-missing');
-  }
+  const statusEl = document.getElementById('cloud-provider-status');
+  updateKeyStatusElement(statusEl, state);
 
   const label = document.getElementById('cloud-provider-note-label');
   const detail = document.getElementById('cloud-provider-note-detail');
@@ -2004,11 +2023,15 @@ function updateRealtimeProviderVisibility() {
 function updateRealtimeKeyStatusDot() {
   const apiKeys = (appSettings && appSettings.transcription && appSettings.transcription.api_keys) || {};
   const hasKey = !!apiKeys.openai;
+  const validatedKeys = window.__nbpValidatedKeys || {};
+  const failedKeys = window.__nbpFailedKeys || {};
+  const key = apiKeys.openai || '';
+  const isValidated = validatedKeys.openai === key && !!key;
+  const isFailed = failedKeys.openai === key;
+  const state = !hasKey ? 'missing' : isFailed ? 'failed' : isValidated ? 'valid' : 'saved';
 
-  const dot = document.getElementById('realtime-provider-status-dot');
-  if (dot) {
-    dot.className = 'provider-key-status-dot ' + (hasKey ? 'key-set' : 'key-missing');
-  }
+  const statusEl = document.getElementById('realtime-provider-status');
+  updateKeyStatusElement(statusEl, state);
 
   const label = document.getElementById('realtime-provider-note-label');
   const detail = document.getElementById('realtime-provider-note-detail');
