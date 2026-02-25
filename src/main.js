@@ -517,9 +517,9 @@ async function autoTranscribeAndExecute(recordingId, pipelineNames) {
   }
 
   if (detailTranscriptEl && selectedRecordingId === recordingId) {
-    detailTranscriptEl.innerHTML = `
-      <div class="transcript-processing-state">
-        <div class="transcript-processing-spinner"></div>
+          detailTranscriptEl.innerHTML = `
+      <div class="is-loading transcript-processing-state">
+        <div class="loading-spinner transcript-processing-spinner"></div>
         <span class="transcript-processing-text">Processing audio...</span>
       </div>
     `;
