@@ -4221,129 +4221,40 @@ body.light .provider-models-section {
 #pipeline-cards .pipeline-card-icon svg { width: 11px; height: 11px; }
 #pipeline-cards .pipeline-card-name { font-size: 0.73rem; font-weight: 500; color: var(--text-secondary); text-align: left; max-width: 140px; }
 
-/* Recording: two-column layout — left=info, right=pipeline panel */
-body.is-recording-active #detail-view .detail-container {
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 2rem;
-}
-
-body.is-recording-active .detail-header-card {
-  flex: 1;
-  min-width: 0;
-}
-
-/* Recording pipeline pre-assign panel (right column) */
+/* Recording pipeline pre-assign panel — hidden, replaced by unified detail-pipeline-assignment */
 .recording-pipeline-panel {
-  display: none;
-  width: 220px;
-  flex-shrink: 0;
-  padding-top: 2px;
+  display: none !important;
 }
 
 body.is-recording-active .recording-pipeline-panel {
-  display: block;
+  display: none !important;
 }
 
-/* Minimal panel header */
-.rpp-header {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 2px 8px;
-  margin-bottom: 2px;
-  border-bottom: 1px solid var(--border);
-  color: var(--text-muted, var(--text-secondary));
-}
-
-.rpp-header span {
-  font-size: 0.68rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-}
-
-/* Recording pipeline cards — compact column */
-.recording-pipeline-cards {
-  flex-direction: column;
-  gap: 2px;
-}
-
-/* Compact row overrides scoped to recording panel */
-.recording-pipeline-cards .pipeline-card {
-  flex-direction: row;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
-  min-width: unset;
-  background: transparent;
-  border-color: transparent;
-  transition: background 0.15s, border-color 0.15s;
-}
-
-.recording-pipeline-cards .pipeline-card::after {
-  display: none;
-}
-
-.recording-pipeline-cards .pipeline-card:hover {
-  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
-  border-color: var(--border);
-}
-
-.recording-pipeline-cards .pipeline-card .pipeline-card-icons { gap: 3px; flex-shrink: 0; }
-.recording-pipeline-cards .pipeline-card .pipeline-card-icon { width: 20px; height: 20px; border-radius: 5px; font-size: 0.65rem; }
-.recording-pipeline-cards .pipeline-card .pipeline-card-icon svg { width: 11px; height: 11px; }
-.recording-pipeline-cards .pipeline-card .pipeline-card-name { font-size: 0.75rem; font-weight: 500; color: var(--text-secondary); text-align: left; flex: 1; max-width: none; transition: color 0.15s; }
-
-/* Assigned state */
-.recording-pipeline-cards .pipeline-card.is-assigned {
+/* Queued state during recording — highlighted with accent */
+.pipeline-card.is-queued {
+  border-color: var(--accent);
   background: var(--accent-soft);
-  border-color: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
-.recording-pipeline-cards .pipeline-card.is-assigned:hover {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  border-color: var(--accent);
-}
-
-.recording-pipeline-cards .pipeline-card.is-assigned .pipeline-card-name {
-  color: var(--text-primary);
-}
-
-/* Toggle indicator dot */
-.rpp-toggle {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 1.5px solid var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  margin-left: auto;
-  transition: background 0.15s, border-color 0.15s;
-}
-
-.recording-pipeline-cards .pipeline-card.is-assigned .rpp-toggle {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-/* Global assigned card state (used outside recording panel, e.g. pipeline builder) */
-.pipeline-card.is-assigned {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
-.pipeline-card.is-assigned::after {
-  content: '−';
-  font-size: 4rem;
+.pipeline-card.is-queued::after {
+  content: '✓';
+  font-size: 2.5rem;
   font-weight: 300;
+  background: transparent;
+  color: var(--accent);
 }
 
-.pipeline-card.is-assigned:hover::after {
+.pipeline-card.is-queued:hover::after {
   opacity: 1;
+}
+
+#pipeline-cards .pipeline-card.is-queued {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+#pipeline-cards .pipeline-card.is-queued .pipeline-card-name {
+  color: var(--text-primary);
 }
 
 

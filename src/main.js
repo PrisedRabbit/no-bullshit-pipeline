@@ -1203,16 +1203,20 @@ window.showDetailView = async (id) => {
   }
 
   // Detail view pipeline cards — clickable tiles with connector icons
+  // During recording: show cards to queue pipelines (no execution)
+  // Post-recording: show cards to assign + execute immediately if transcript exists
   const detailPipelineAssignment = document.getElementById('detail-pipeline-assignment');
   const pipelineCardsEl = document.getElementById('pipeline-cards');
   if (detailPipelineAssignment && pipelineCardsEl) {
-    if (!isRecording && !isProcessing && typeof allPipelineDefs !== 'undefined' && allPipelineDefs.length > 0) {
+    if (!isProcessing && typeof allPipelineDefs !== 'undefined' && allPipelineDefs.length > 0) {
       let cardsHtml = '';
       for (const p of allPipelineDefs) {
+        const isQueued = isRecording && currentAssignedPipelines.has(p.name);
         const flowHtml = typeof renderPipelineFlowHTML !== 'undefined'
           ? renderPipelineFlowHTML(p.steps || [], { compact: true })
           : '';
-        cardsHtml += `<div class="pipeline-card" data-pipeline="${escapeHtml(p.name)}">${flowHtml}<div class="pipeline-card-name">${escapeHtml(p.name)}</div></div>`;
+        const cardClass = isQueued ? 'pipeline-card is-queued' : 'pipeline-card';
+        cardsHtml += `<div class="${cardClass}" data-pipeline="${escapeHtml(p.name)}">${flowHtml}<div class="pipeline-card-name">${escapeHtml(p.name)}</div></div>`;
       }
       pipelineCardsEl.innerHTML = cardsHtml;
       detailPipelineAssignment.style.display = '';
@@ -1221,11 +1225,36 @@ window.showDetailView = async (id) => {
       pipelineCardsEl.querySelectorAll('.pipeline-card').forEach(card => {
         card.addEventListener('click', async () => {
           const pipelineName = card.dataset.pipeline;
-          // Animate card flying into the pipeline runs list below
+
+          // During recording: toggle queued state only (no execution)
+          if (isRecording) {
+            try {
+              if (currentAssignedPipelines.has(pipelineName)) {
+                currentAssignedPipelines.delete(pipelineName);
+                const states = await invoke('get_all_pipeline_states', { recordingId: id });
+                const waitingRun = states.find(s => s.name === pipelineName && s.status === 'waiting');
+                if (waitingRun) {
+                  await invoke('remove_pipeline_run', { recordingId: id, runId: waitingRun.id });
+                }
+              } else {
+                currentAssignedPipelines.add(pipelineName);
+                await invoke('assign_pipeline', { recordingId: id, pipelineName });
+              }
+            } catch (err) {
+              console.error('Failed to toggle pipeline queue:', err);
+            }
+            // Update card visual state
+            const isQueued = currentAssignedPipelines.has(pipelineName);
+            card.classList.toggle('is-queued', isQueued);
+            if (typeof renderPipelineChips === 'function') renderPipelineChips();
+            renderPipelineStatus(id);
+            return;
+          }
+
+          // Post-recording: animate and execute
           const statusSection = document.getElementById('pipeline-status-section');
           const cardRect = card.getBoundingClientRect();
           const statusContent = document.getElementById('pipeline-status-content');
-          // Target: the runs list content area, fallback to status section, fallback to below
           const target = statusContent || statusSection;
           let targetY, targetX;
           if (target && target.offsetParent !== null) {
@@ -1239,7 +1268,6 @@ window.showDetailView = async (id) => {
           const dx = targetX - cardRect.left;
           const dy = targetY - cardRect.top;
 
-          // Clone card for the visual fly effect (out of flow)
           const clone = card.cloneNode(true);
           clone.classList.add('is-flying');
           clone.style.cssText = `position:fixed;left:${cardRect.left}px;top:${cardRect.top}px;width:${cardRect.width}px;height:${cardRect.height}px;z-index:10000;pointer-events:none;margin:0;`;
@@ -1250,7 +1278,6 @@ window.showDetailView = async (id) => {
           clone.style.transform = `translate(${dx}px, ${dy}px) scale(0.4)`;
           clone.style.opacity = '0';
 
-          // Collapse original card in flow so siblings reflow smoothly
           const cardWidth = card.offsetWidth;
           card.style.maxWidth = cardWidth + 'px';
           card.style.minWidth = '0';
@@ -1266,7 +1293,6 @@ window.showDetailView = async (id) => {
 
           setTimeout(async () => {
             clone.remove();
-            // Flash the pipeline status content area (not the header)
             if (statusSection) statusSection.style.display = '';
             const flashTarget = document.getElementById('pipeline-status-content');
             if (flashTarget) {
@@ -1324,10 +1350,10 @@ window.showDetailView = async (id) => {
     }
   }
 
-  // Hide transcript/structured sections if currently recording or processing
+  // Hide transcript section if currently recording or processing (keep pipeline assignment visible)
   const hideContent = isRecording || isProcessing;
-  const contentGrid = document.getElementById('detail-content-grid');
-  if (contentGrid) contentGrid.style.display = hideContent ? 'none' : 'flex';
+  const transcriptSection = document.getElementById('transcript-section');
+  if (transcriptSection) transcriptSection.style.display = hideContent ? 'none' : '';
 
   // Render pipeline status (shown during recording and after)
   renderPipelineStatus(id);
