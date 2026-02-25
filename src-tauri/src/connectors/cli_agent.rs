@@ -1,7 +1,47 @@
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tokio::process::Command;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CliAvailability {
+    pub id: String,
+    pub name: String,
+    pub installed: bool,
+    pub install_hint: String,
+}
+
+#[tauri::command]
+pub async fn check_cli_availability() -> Result<Vec<CliAvailability>, String> {
+    let clis = vec![
+        ("claude", "Claude Code", "npm install -g @anthropic-ai/claude-code"),
+        ("codex", "Codex CLI", "npm install -g @openai/codex"),
+        ("opencode", "OpenCode", "npm install -g opencode-ai"),
+    ];
+
+    let mut results = Vec::new();
+    for (id, name, hint) in clis {
+        let installed = is_cli_installed(id).await;
+        results.push(CliAvailability {
+            id: id.to_string(),
+            name: name.to_string(),
+            installed,
+            install_hint: hint.to_string(),
+        });
+    }
+
+    Ok(results)
+}
+
+async fn is_cli_installed(cli: &str) -> bool {
+    Command::new("which")
+        .arg(cli)
+        .output()
+        .await
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
 
 /// Execute a CLI agent (Claude Code or Codex CLI) as a pipeline step.
 ///
