@@ -563,7 +563,7 @@ function renderLocalLlmModelsInner() {
             : `<button class="mini-action-btn llm-download-btn" data-llm-id="${escapeHtml(m.id)}" style="font-size:0.75rem;">Download</button>`
           }
         </div>
-        <div id="llm-progress-${escapeHtml(m.id)}" style="display:none;flex-basis:100%;padding:8px 0 0;">
+        <div id="llm-progress-${escapeHtml(m.id)}" class="llm-progress-region" style="display:none;flex-basis:100%;padding:8px 0 0;">
           <div style="height:4px;background:var(--border-color);border-radius:2px;overflow:hidden;">
             <div class="llm-progress-fill" style="height:100%;width:0%;background:var(--accent-color);transition:width 0.2s;border-radius:2px;"></div>
           </div>

@@ -3747,6 +3747,15 @@ body.light .connections-group-header {
   overflow-y: auto;
 }
 
+.llm-progress-region {
+  min-height: 30px;
+}
+
+.llm-progress-text {
+  min-height: 1.2em;
+  white-space: nowrap;
+}
+
 .provider-model-item {
   display: flex;
   align-items: center;
