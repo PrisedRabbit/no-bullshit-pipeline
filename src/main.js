@@ -395,7 +395,7 @@ function setRecordingUI(recording) {
     if (statusIndicator) statusIndicator.className = "status-recording";
     document.body.classList.add("is-recording-active");
     if (recordToggleBtn) {
-      recordToggleBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 11 11" fill="currentColor"><rect width="11" height="11" rx="1.5"/></svg>';
+      recordToggleBtn.innerHTML = '<svg class="stop-icon" width="11" height="11" viewBox="0 0 11 11" fill="currentColor"><rect width="11" height="11" rx="1.5"/></svg>';
       recordToggleBtn.classList.add("is-active");
       recordToggleBtn.classList.remove("is-play-mode");
       recordToggleBtn.title = "Stop Recording";
