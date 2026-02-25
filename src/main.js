@@ -46,21 +46,44 @@ function toggleMarkdownRaw(el) {
 // ===== VIEW STATE MANAGER =====
 const ViewManager = {
   closeAll() {
-    document.body.classList.remove('detail-open', 'settings-open');
+    document.body.classList.remove('detail-open', 'settings-open', 'prompts-open', 'pipelines-open');
   },
 
   showRecordings() {
     this.closeAll();
+    this.updateSidebar('recordings');
   },
 
   showDetail() {
     this.closeAll();
     document.body.classList.add('detail-open');
+    this.updateSidebar('recordings');
   },
 
   showSettings() {
     this.closeAll();
     document.body.classList.add('settings-open');
+    this.updateSidebar('settings');
+  },
+
+  showPrompts() {
+    this.closeAll();
+    document.body.classList.add('prompts-open');
+    this.updateSidebar('prompts');
+    if (typeof loadPromptTemplates === 'function') loadPromptTemplates();
+  },
+
+  showPipelines() {
+    this.closeAll();
+    document.body.classList.add('pipelines-open');
+    this.updateSidebar('pipelines');
+    switchSettingsTab('pipelines');
+  },
+
+  updateSidebar(view) {
+    document.querySelectorAll('.sidebar-nav-item').forEach(item => {
+      item.classList.toggle('active', item.dataset.view === view);
+    });
   }
 };
 
@@ -2393,6 +2416,18 @@ if (settingsBtn) settingsBtn.addEventListener("click", () => {
 if (settingsBackBtn) settingsBackBtn.addEventListener("click", () => {
   ViewManager.showRecordings();
 });
+
+// ===== SIDEBAR NAVIGATION =====
+document.querySelectorAll('.sidebar-nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    const view = item.dataset.view;
+    if (view === 'recordings') ViewManager.showRecordings();
+    else if (view === 'prompts') ViewManager.showPrompts();
+    else if (view === 'pipelines') ViewManager.showPipelines();
+    else if (view === 'settings') ViewManager.showSettings();
+  });
+});
+
 // Auto-save: any change in settings triggers save + flash "Saved" indicator
 const settingsSavedIndicator = document.getElementById('settings-saved-indicator');
 function flashSaved() {
@@ -2446,18 +2481,64 @@ themeButtons.forEach(btn => {
 
 // ===== PROMPT TEMPLATE MANAGEMENT =====
 let allPromptTemplates = [];
-let editingPromptTemplate = null; // null = new, string = editing name
+let editingPromptTemplate = null;
 
 const promptTemplatesListEl = document.getElementById('prompt-templates-list');
+const promptsListEl = document.getElementById('prompts-list');
 const addPromptTemplateBtn = document.getElementById('add-prompt-template-btn');
+const addPromptViewBtn = document.getElementById('add-prompt-view-btn');
 const promptTemplateEditor = document.getElementById('prompt-template-editor');
+const promptViewEditor = document.getElementById('prompt-view-editor');
 const promptEditorTitle = document.getElementById('prompt-editor-title');
+const promptViewEditorTitle = document.getElementById('prompt-view-editor-title');
 const promptEditorName = document.getElementById('prompt-editor-name');
+const promptViewName = document.getElementById('prompt-view-name');
 const promptEditorDesc = document.getElementById('prompt-editor-desc');
+const promptViewDesc = document.getElementById('prompt-view-desc');
 const promptEditorText = document.getElementById('prompt-editor-text');
+const promptViewText = document.getElementById('prompt-view-text');
 const savePromptTemplateBtn = document.getElementById('save-prompt-template-btn');
+const savePromptViewBtn = document.getElementById('save-prompt-view-btn');
 const deletePromptTemplateBtn = document.getElementById('delete-prompt-template-btn');
+const deletePromptViewBtn = document.getElementById('delete-prompt-view-btn');
 const closePromptEditorBtn = document.getElementById('close-prompt-editor');
+const closePromptViewBtn = document.getElementById('close-prompt-view-btn');
+
+function getActivePromptList() {
+  return promptsListEl || promptTemplatesListEl;
+}
+
+function getActivePromptEditor() {
+  return promptViewEditor || promptTemplateEditor;
+}
+
+function getActivePromptTitle() {
+  return promptViewEditorTitle || promptEditorTitle;
+}
+
+function getActivePromptName() {
+  return promptViewName || promptEditorName;
+}
+
+function getActivePromptDesc() {
+  return promptViewDesc || promptEditorDesc;
+}
+
+function getActivePromptText() {
+  return promptViewText || promptEditorText;
+}
+
+function getActiveSaveBtn() {
+  return savePromptViewBtn || savePromptTemplateBtn;
+}
+
+function getActiveDeleteBtn() {
+  return deletePromptViewBtn || deletePromptTemplateBtn;
+}
+
+function getActiveCloseBtn() {
+  return closePromptViewBtn || closePromptEditorBtn;
+}
 
 async function loadPromptTemplates() {
   try {
@@ -2469,109 +2550,197 @@ async function loadPromptTemplates() {
 }
 
 function renderPromptTemplatesList() {
-  if (!promptTemplatesListEl) return;
+  const listEl = getActivePromptList();
+  if (!listEl) return;
   if (allPromptTemplates.length === 0) {
-    promptTemplatesListEl.innerHTML = '<div style="color: var(--text-secondary); opacity: 0.6; font-size: 0.85rem;">No templates yet.</div>';
+    listEl.innerHTML = '<div style="color: var(--text-secondary); opacity: 0.6; font-size: 0.85rem; text-align: center; padding: 2rem;">No prompt templates yet.\n\nClick "+ New Prompt" to create one.</div>';
     return;
   }
-  promptTemplatesListEl.innerHTML = allPromptTemplates.map(t => {
+  listEl.innerHTML = allPromptTemplates.map(t => {
     const safeName = escapeHtml(t.name);
     const safeDesc = escapeHtml(t.description || '');
-    const safePreview = escapeHtml((t.prompt || '').substring(0, 80)) + (t.prompt && t.prompt.length > 80 ? '...' : '');
+    const safePreview = escapeHtml((t.prompt || '').substring(0, 100)) + (t.prompt && t.prompt.length > 100 ? '...' : '');
     const updated = t.updated_at ? new Date(t.updated_at).toLocaleDateString() : '';
     return `
-    <div class="template-item" data-name="${safeName}">
-      <div class="template-item-info">
-        <div class="template-item-name">${safeName}</div>
-        <div class="template-item-desc">${safeDesc}${updated ? ' &middot; ' + updated : ''}</div>
-        <div class="template-item-preview">${safePreview}</div>
+    <div class="prompt-card" data-name="${safeName}">
+      <div class="prompt-card-header">
+        <div class="prompt-card-name">${safeName}</div>
       </div>
+      <div class="prompt-card-desc">${safeDesc}${updated ? ' · ' + updated : ''}</div>
+      <div class="prompt-card-preview">${safePreview}</div>
     </div>
   `;
   }).join('');
 
-  promptTemplatesListEl.querySelectorAll('.template-item').forEach(el => {
+  listEl.querySelectorAll('.prompt-card').forEach(el => {
     el.addEventListener('click', () => openPromptEditor(el.dataset.name));
   });
 }
 
-function openPromptEditor(name) {
-  if (!promptTemplateEditor) return;
+async function openPromptEditor(name) {
+  const editorEl = getActivePromptEditor();
+  if (!editorEl) return;
   if (name) {
     const t = allPromptTemplates.find(t => t.name === name);
     if (!t) return;
     editingPromptTemplate = name;
-    promptEditorTitle.textContent = 'Edit Prompt Template';
-    promptEditorName.value = t.name;
-    promptEditorDesc.value = t.description || '';
-    promptEditorText.value = t.prompt || '';
-    if (deletePromptTemplateBtn) deletePromptTemplateBtn.style.display = 'inline-block';
+    const titleEl = getActivePromptTitle();
+    const nameEl = getActivePromptName();
+    const descEl = getActivePromptDesc();
+    const textEl = getActivePromptText();
+    const deleteBtn = getActiveDeleteBtn();
+    if (titleEl) titleEl.textContent = 'Edit Prompt';
+    if (nameEl) nameEl.value = t.name;
+    if (descEl) descEl.value = t.description || '';
+    if (textEl) textEl.value = t.prompt || '';
+    if (deleteBtn) deleteBtn.style.display = 'inline-block';
+    
+    const usageSection = document.getElementById('prompt-usage-section');
+    const usageList = document.getElementById('prompt-usage-list');
+    if (usageSection && usageList) {
+      const pipelines = typeof allPipelineDefs !== 'undefined' ? allPipelineDefs : [];
+      const referencing = [];
+      for (const p of pipelines) {
+        for (const step of (p.steps || [])) {
+          if (step.config?.prompt_template === name) {
+            referencing.push(p.name);
+            break;
+          }
+        }
+      }
+      if (referencing.length > 0) {
+        usageSection.style.display = 'block';
+        usageList.innerHTML = referencing.map(pn => `
+          <div class="prompt-usage-item">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="16 18 22 12 16 6"/>
+              <polyline points="8 6 2 12 8 18"/>
+            </svg>
+            ${escapeHtml(pn)}
+          </div>
+        `).join('');
+      } else {
+        usageSection.style.display = 'none';
+      }
+    }
   } else {
     editingPromptTemplate = null;
-    promptEditorTitle.textContent = 'New Prompt Template';
-    promptEditorName.value = '';
-    promptEditorDesc.value = '';
-    promptEditorText.value = '';
-    if (deletePromptTemplateBtn) deletePromptTemplateBtn.style.display = 'none';
+    const titleEl = getActivePromptTitle();
+    const nameEl = getActivePromptName();
+    const descEl = getActivePromptDesc();
+    const textEl = getActivePromptText();
+    const deleteBtn = getActiveDeleteBtn();
+    if (titleEl) titleEl.textContent = 'New Prompt';
+    if (nameEl) nameEl.value = '';
+    if (descEl) descEl.value = '';
+    if (textEl) textEl.value = '';
+    if (deleteBtn) deleteBtn.style.display = 'none';
+    const usageSection = document.getElementById('prompt-usage-section');
+    if (usageSection) usageSection.style.display = 'none';
   }
-  promptTemplateEditor.style.display = 'block';
-  promptEditorName.focus();
+  editorEl.style.display = 'block';
+  const nameEl = getActivePromptName();
+  if (nameEl) nameEl.focus();
 }
 
 function closePromptEditor() {
-  if (promptTemplateEditor) promptTemplateEditor.style.display = 'none';
+  const editorEl = getActivePromptEditor();
+  if (editorEl) editorEl.style.display = 'none';
   editingPromptTemplate = null;
 }
 
 if (addPromptTemplateBtn) addPromptTemplateBtn.addEventListener('click', () => openPromptEditor(null));
+if (addPromptViewBtn) addPromptViewBtn.addEventListener('click', () => openPromptEditor(null));
 if (closePromptEditorBtn) closePromptEditorBtn.addEventListener('click', closePromptEditor);
+if (closePromptViewBtn) closePromptViewBtn.addEventListener('click', closePromptEditor);
 
-if (savePromptTemplateBtn) {
-  savePromptTemplateBtn.addEventListener('click', async () => {
-    const name = promptEditorName.value.trim();
-    const desc = promptEditorDesc.value.trim();
-    const prompt = promptEditorText.value.trim();
-    if (!name) { showToast('Name is required', 'error'); return; }
-    if (!prompt) { showToast('Prompt text is required', 'error'); return; }
-
-    try {
-      const template = {
-        name,
-        description: desc,
-        prompt,
-        created_at: editingPromptTemplate ? (allPromptTemplates.find(t => t.name === editingPromptTemplate)?.created_at || new Date().toISOString()) : new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-
-      // If renaming, delete old first
-      if (editingPromptTemplate && editingPromptTemplate !== name) {
-        await invoke('delete_prompt_template', { name: editingPromptTemplate, force: true });
+function findPipelinesReferencingPrompt(promptName) {
+  const pipelines = typeof allPipelineDefs !== 'undefined' ? allPipelineDefs : [];
+  const referencing = [];
+  for (const p of pipelines) {
+    for (const step of (p.steps || [])) {
+      if (step.config?.prompt_template === promptName) {
+        referencing.push(p);
+        break;
       }
-      await invoke('save_prompt_template', { template });
-      closePromptEditor();
-      await loadPromptTemplates();
-    } catch (err) {
-      console.error('Failed to save prompt template:', err);
-      showToast('Failed to save: ' + err, 'error');
     }
-  });
+  }
+  return referencing;
 }
 
-if (deletePromptTemplateBtn) {
-  deletePromptTemplateBtn.addEventListener('click', async () => {
-    if (!editingPromptTemplate) return;
-    const ok = await showConfirm('Delete Template?', `Delete template "${editingPromptTemplate}"?`);
-    if (!ok) return;
-    try {
-      await invoke('delete_prompt_template', { name: editingPromptTemplate, force: true });
-      closePromptEditor();
-      await loadPromptTemplates();
-    } catch (err) {
-      console.error('Failed to delete prompt template:', err);
-      showToast('Failed to delete: ' + err, 'error');
+async function savePromptTemplate() {
+  const nameEl = getActivePromptName();
+  const descEl = getActivePromptDesc();
+  const textEl = getActivePromptText();
+  const name = nameEl?.value.trim() || '';
+  const desc = descEl?.value.trim() || '';
+  const prompt = textEl?.value.trim() || '';
+  if (!name) { showToast('Name is required', 'error'); return; }
+  if (!prompt) { showToast('Prompt text is required', 'error'); return; }
+
+  try {
+    const template = {
+      name,
+      description: desc,
+      prompt,
+      created_at: editingPromptTemplate ? (allPromptTemplates.find(t => t.name === editingPromptTemplate)?.created_at || new Date().toISOString()) : new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    if (editingPromptTemplate && editingPromptTemplate !== name) {
+      const referencing = findPipelinesReferencingPrompt(editingPromptTemplate);
+      if (referencing.length > 0) {
+        const pipelineNames = referencing.map(p => p.name).join(', ');
+        const ok = await showConfirm('Rename will update pipelines', `Renaming "${editingPromptTemplate}" to "${name}" will update ${referencing.length} pipeline(s): ${pipelineNames}. Continue?`);
+        if (!ok) return;
+        for (const pipeline of referencing) {
+          for (const step of (pipeline.steps || [])) {
+            if (step.config?.prompt_template === editingPromptTemplate) {
+              step.config.prompt_template = name;
+            }
+          }
+          await invoke('save_pipeline', { pipeline });
+        }
+        if (typeof loadPipelineDefs === 'function') await loadPipelineDefs();
+      }
+      await invoke('delete_prompt_template', { name: editingPromptTemplate, force: false });
     }
-  });
+    await invoke('save_prompt_template', { template });
+    closePromptEditor();
+    await loadPromptTemplates();
+    showToast('Prompt saved', 'info');
+  } catch (err) {
+    console.error('Failed to save prompt template:', err);
+    showToast('Failed to save: ' + err, 'error');
+  }
 }
+
+async function deletePromptTemplate() {
+  if (!editingPromptTemplate) return;
+  const referencing = findPipelinesReferencingPrompt(editingPromptTemplate);
+  let ok;
+  if (referencing.length > 0) {
+    const pipelineNames = referencing.map(p => p.name).join(', ');
+    ok = await showConfirm('Prompt is in use', `Prompt "${editingPromptTemplate}" is used by ${referencing.length} pipeline(s): ${pipelineNames}. Delete anyway? Steps using this prompt will need manual fix.`);
+  } else {
+    ok = await showConfirm('Delete Prompt?', `Delete prompt "${editingPromptTemplate}"? This cannot be undone.`);
+  }
+  if (!ok) return;
+  try {
+    await invoke('delete_prompt_template', { name: editingPromptTemplate, force: referencing.length > 0 });
+    closePromptEditor();
+    await loadPromptTemplates();
+    showToast('Prompt deleted', 'info');
+  } catch (err) {
+    console.error('Failed to delete prompt template:', err);
+    showToast('Failed to delete: ' + err, 'error');
+  }
+}
+
+if (savePromptTemplateBtn) savePromptTemplateBtn.addEventListener('click', savePromptTemplate);
+if (savePromptViewBtn) savePromptViewBtn.addEventListener('click', savePromptTemplate);
+if (deletePromptTemplateBtn) deletePromptTemplateBtn.addEventListener('click', deletePromptTemplate);
+if (deletePromptViewBtn) deletePromptViewBtn.addEventListener('click', deletePromptTemplate);
 
 // ===== SLACK INTEGRATIONS =====
 let slackIntegrations = {};
