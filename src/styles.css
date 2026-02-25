@@ -2294,7 +2294,7 @@ body.settings-open .detail-view {
 
 .pflow--builder {
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
   padding: 8px 0 12px;
   user-select: none;
@@ -2302,176 +2302,235 @@ body.settings-open .detail-view {
 
 /* Builder chips: larger and interactive */
 .pflow--builder .pflow-chip {
-  padding: 5px 10px 5px 5px;
-  gap: 6px;
-  border-radius: 10px;
+  padding: 6px 12px 6px 6px;
+  gap: 8px;
+  border-radius: 12px;
   position: relative;
   cursor: grab;
-  transition: border-color 0.18s, box-shadow 0.18s, transform 0.15s;
+  transition: border-color 0.18s, box-shadow 0.18s, transform 0.15s, background 0.18s;
+  border-width: 1.5px;
 }
 
-.pflow--builder .pflow-chip-icon { width: 28px; height: 28px; border-radius: 7px; }
-.pflow--builder .pflow-chip-icon svg { width: 15px; height: 15px; }
-.pflow--builder .pflow-chip-icon img { width: 15px; height: 15px; object-fit: contain; }
-.pflow--builder .pflow-chip-label { font-size: 0.73rem; max-width: 110px; }
+.pflow--builder .pflow-chip-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+.pflow--builder .pflow-chip-icon svg { width: 16px; height: 16px; }
+.pflow--builder .pflow-chip-icon img { width: 16px; height: 16px; object-fit: contain; }
+.pflow--builder .pflow-chip-label { font-size: 0.78rem; max-width: 120px; font-weight: 600; }
 
 /* Label group: name stacked above subtext */
-.pflow-chip-label-group { display: flex; flex-direction: column; gap: 1px; }
+.pflow-chip-label-group { display: flex; flex-direction: column; gap: 2px; }
 
 /* Secondary metadata (model name, connector type) */
 .pflow-chip-sub {
-  font-size: 0.52rem;
+  font-size: 0.58rem;
   font-weight: 600;
   color: var(--text-secondary);
-  opacity: 0.55;
+  opacity: 0.7;
   text-transform: uppercase;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.5px;
   white-space: nowrap;
 }
 
 /* Step number badge */
 .pflow-chip-num {
   position: absolute;
-  top: -5px;
-  left: -5px;
-  width: 15px;
-  height: 15px;
+  top: -6px;
+  left: -6px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  background: var(--accent-soft);
-  border: 1px solid var(--border);
-  color: var(--accent);
-  font-size: 0.5rem;
+  background: var(--accent);
+  border: 2px solid var(--bg-primary);
+  color: #fff;
+  font-size: 0.55rem;
   font-weight: 800;
   display: flex;
   align-items: center;
   justify-content: center;
   line-height: 1;
   pointer-events: none;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
 }
 
-/* Remove button: hidden until hover */
+/* Remove button: visible for better affordance (hover + focus) */
 .pflow-chip-remove {
   position: absolute;
-  top: -6px;
-  right: -6px;
-  width: 16px;
-  height: 16px;
+  top: -7px;
+  right: -7px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: var(--danger, #e6453d);
   color: #fff;
-  border: none;
-  font-size: 11px;
+  border: 2px solid var(--bg-primary);
+  font-size: 12px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
-  transition: opacity 0.15s, transform 0.12s;
+  opacity: 1;
+  transition: opacity 0.15s, transform 0.12s, background 0.15s;
   padding: 0;
   line-height: 1;
+  box-shadow: 0 2px 6px rgba(230,69,61,0.4);
 }
 
-.pflow--builder .pflow-chip:hover .pflow-chip-remove { opacity: 1; }
-.pflow-chip-remove:hover { transform: scale(1.15); }
+.pflow--builder .pflow-chip:hover .pflow-chip-remove,
+.pflow--builder .pflow-chip:focus-within .pflow-chip-remove { opacity: 1; }
+.pflow-chip-remove:hover { transform: scale(1.2); background: #ff5c54; }
 
-/* Hover: step chips lift slightly */
+/* Hover: step chips lift with glow */
 .pflow--builder .pflow-chip:not(.pflow-chip--source):not(.pflow-chip--add):hover {
   border-color: var(--accent);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--accent-soft);
+}
+.pflow--builder .pflow-chip:not(.pflow-chip--source):not(.pflow-chip--add):hover .pflow-chip-icon {
+  transform: scale(1.05);
 }
 
 /* Editing state: active chip gets accent glow */
 .pflow--builder .pflow-chip--editing {
   border-color: var(--accent);
   border-width: 2px;
-  box-shadow: 0 0 0 3px var(--accent-soft), 0 4px 14px rgba(0, 0, 0, 0.25);
-  transform: translateY(-1px);
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 6px 20px rgba(0, 0, 0, 0.3);
+  transform: translateY(-2px);
+  background: var(--accent-soft);
 }
 
 /* Source chip: static, non-draggable */
 .pflow--builder .pflow-chip--source { cursor: default; }
 .pflow--builder .pflow-chip--source:hover { transform: none; box-shadow: none; }
 
-/* Add chip: dashed ghost */
+/* Add chip: prominent dashed ghost */
 .pflow--builder .pflow-chip--add {
   border-style: dashed;
-  border-color: var(--border);
+  border-width: 2px;
+  border-color: var(--text-secondary);
   background: transparent;
-  opacity: 0.55;
+  opacity: 0.7;
   cursor: pointer;
 }
 
 .pflow--builder .pflow-chip--add:hover {
   opacity: 1;
   border-color: var(--accent);
+  border-style: solid;
   background: var(--accent-soft);
   transform: none;
-  box-shadow: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 .pflow--builder .pflow-chip--add .pflow-chip-icon {
-  font-size: 1.1rem;
+  font-size: 1.2rem;
   font-weight: 300;
   background: transparent !important;
   color: var(--text-secondary);
+  transition: color 0.15s, transform 0.15s;
 }
 
-.pflow--builder .pflow-chip--add:hover .pflow-chip-icon { color: var(--accent); }
+.pflow--builder .pflow-chip--add:hover .pflow-chip-icon {
+  color: var(--accent);
+  transform: rotate(90deg);
+}
 
 /* Sortable.js drag states */
-.pflow--builder .pflow-chip.sortable-ghost { opacity: 0.22; border-style: dashed; border-color: var(--accent); background: var(--accent-soft); }
-.pflow--builder .pflow-chip.sortable-chosen { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-.pflow--builder .pflow-chip.sortable-drag { cursor: grabbing !important; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4); transform: rotate(1.5deg) scale(1.05); }
+.pflow--builder .pflow-chip.sortable-ghost {
+  opacity: 0.3;
+  border-style: dashed;
+  border-width: 2px;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.pflow--builder .pflow-chip.sortable-chosen {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  transform: scale(1.02);
+}
+.pflow--builder .pflow-chip.sortable-drag {
+  cursor: grabbing !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 2px var(--accent);
+  transform: rotate(2deg) scale(1.08);
+  z-index: 100;
+}
 
 .step-editor-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 4px;
-  padding-bottom: 10px;
+  margin-bottom: 8px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--border);
 }
 
 .step-editor-title {
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   font-weight: 700;
   color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.step-editor-title::before {
+  content: '';
+  width: 4px;
+  height: 16px;
+  background: var(--accent);
+  border-radius: 2px;
 }
 
 .step-editor-close {
-  background: none;
-  border: none;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
   color: var(--text-secondary);
-  font-size: 1.2rem;
+  font-size: 1rem;
   cursor: pointer;
-  opacity: 0.5;
-  padding: 2px 6px;
-  border-radius: 4px;
+  opacity: 1;
+  padding: 4px 10px;
+  border-radius: 6px;
   line-height: 1;
-  transition: opacity 0.15s, color 0.15s;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
 }
 
 .step-editor-close:hover {
   opacity: 1;
   color: var(--danger);
+  background: rgba(248, 113, 113, 0.1);
+  border-color: var(--danger);
 }
 
 .step-editor-done {
   background: var(--accent);
-  color: var(--bg-primary);
+  color: #fff;
   font-weight: 700;
   font-size: 0.85rem;
-  padding: 7px 20px;
+  padding: 8px 24px;
   border-radius: 8px;
   border: none;
   cursor: pointer;
   font-family: inherit;
-  transition: background 0.15s;
+  transition: all 0.15s;
+  box-shadow: 0 2px 8px rgba(168, 85, 247, 0.3);
 }
 
 .step-editor-done:hover {
   background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(168, 85, 247, 0.4);
 }
 
 /* Keep old ghost class in case SortableJS reference exists */
@@ -2555,47 +2614,65 @@ body.settings-open .detail-view {
 
 .step-editor {
   background: var(--bg-card);
-  border: 1px solid var(--accent);
-  border-radius: 12px;
-  padding: 16px;
+  border: 2px solid var(--accent);
+  border-radius: 14px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  box-shadow: 0 0 0 3px var(--accent-soft), 0 8px 24px rgba(0,0,0,0.25);
+  gap: 12px;
+  box-shadow: 0 0 0 4px var(--accent-soft), 0 12px 32px rgba(0,0,0,0.3);
   width: 100%;
   max-width: 100%;
   position: relative;
+  animation: stepEditorSlideIn 0.2s ease-out;
+}
+
+@keyframes stepEditorSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .step-editor-row {
-  display: flex;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 10px;
   align-items: center;
 }
 
+.step-editor-row.full-width {
+  grid-template-columns: 1fr;
+}
+
 .step-editor-row label {
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.72rem;
+  font-weight: 700;
   color: var(--text-secondary);
-  min-width: 80px;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.5px;
   flex-shrink: 0;
+  text-align: right;
+  padding-right: 4px;
 }
 
 .step-editor-row input,
 .step-editor-row select,
 .step-editor-row textarea {
-  flex: 1;
   background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px 8px;
+  border-radius: 8px;
+  padding: 8px 10px;
   color: var(--text-primary);
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   font-family: inherit;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
+  width: 100%;
 }
 
 .step-editor-row select {
@@ -2630,36 +2707,38 @@ body.settings-open .detail-view {
 
 .step-editor-actions {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   justify-content: flex-end;
-  padding-top: 8px;
+  padding-top: 12px;
   border-top: 1px solid var(--border);
-  margin-top: 4px;
+  margin-top: 8px;
 }
 
 .step-editor-actions .step-editor-done {
   background: var(--accent);
-  color: var(--bg-primary);
+  color: #fff;
   font-weight: 700;
-  padding: 6px 20px;
-  border-radius: 6px;
+  padding: 8px 24px;
+  border-radius: 8px;
   border: none;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: all 0.15s;
+  box-shadow: 0 2px 8px rgba(168, 85, 247, 0.3);
 }
 
 .step-editor-actions .step-editor-done:hover {
   background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(168, 85, 247, 0.4);
 }
 
 @media (max-width: 600px) {
   .step-editor-row {
-    flex-direction: column;
-    align-items: stretch;
+    grid-template-columns: 1fr;
     gap: 6px;
   }
   .step-editor-row label {
-    min-width: auto;
+    text-align: left;
     margin-bottom: 2px;
   }
 }
@@ -3486,12 +3565,24 @@ body.is-recording-active .record-btn .stop-icon {
 .step-picker {
   position: relative;
   background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 6px;
-  margin-top: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--border);
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  padding: 8px;
+  margin-top: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--border);
   z-index: 10;
+  animation: stepPickerSlideIn 0.2s ease-out;
+}
+
+@keyframes stepPickerSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .step-picker-section {
@@ -3503,13 +3594,24 @@ body.is-recording-active .record-btn .stop-icon {
 
 .step-picker-section-title {
   width: 100%;
-  font-size: 0.65rem;
-  font-weight: 700;
+  font-size: 0.68rem;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 1.2px;
   color: var(--text-secondary);
-  opacity: 0.6;
-  padding: 2px 2px 0;
+  opacity: 0.7;
+  padding: 4px 2px 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.step-picker-section-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+  opacity: 0.5;
 }
 
 .step-picker-option {
@@ -3518,47 +3620,59 @@ body.is-recording-active .record-btn .stop-icon {
   align-items: center;
   justify-content: center;
   width: 100px;
-  min-height: 72px;
-  padding: 10px 6px;
+  min-height: 76px;
+  padding: 12px 8px;
   text-align: center;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
   background: var(--bg-input);
   color: var(--text-primary);
   font-size: 0.85rem;
   font-family: inherit;
   font-weight: 500;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition: all 0.18s ease;
 }
 
 .step-picker-option:hover {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--text-primary);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
 }
 
 .step-picker-icon {
   font-size: 1.2rem;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
   flex-shrink: 0;
+  border-radius: 8px;
+  background: var(--bg-card);
+  transition: background 0.15s;
+}
+
+.step-picker-option:hover .step-picker-icon {
+  background: var(--bg-primary);
 }
 
 .step-picker-label {
   font-size: 0.75rem;
+  font-weight: 600;
 }
 
 .step-picker-empty {
-  padding: 10px 12px;
+  padding: 12px 14px;
   font-size: 0.8rem;
   color: var(--text-secondary);
   font-style: italic;
-  opacity: 0.6;
+  opacity: 0.7;
+  width: 100%;
+  text-align: center;
 }
 
 /* Custom Prompt Form */
@@ -4515,29 +4629,30 @@ body.is-recording-active .recording-pipeline-panel {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 2px;
+  gap: 4px;
 }
 
 .pflow-arrow {
   flex-shrink: 0;
   color: var(--text-secondary);
-  opacity: 0.38;
-  font-size: 0.78rem;
-  padding: 0 1px;
+  opacity: 0.5;
+  font-size: 0.9rem;
+  padding: 0 2px;
   pointer-events: none;
   line-height: 1;
+  font-weight: 300;
 }
 
 .pflow-chip {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 4px;
-  border-radius: 8px;
+  gap: 5px;
+  border-radius: 10px;
   border: 1.5px solid var(--border);
   background: var(--bg-card);
-  padding: 3px 7px 3px 3px;
-  transition: border-color 0.15s;
+  padding: 4px 9px 4px 4px;
+  transition: border-color 0.15s, box-shadow 0.15s;
   cursor: default;
 }
 
@@ -4547,47 +4662,48 @@ body.is-recording-active .recording-pipeline-panel {
 }
 
 .pflow-chip-icon {
-  width: 20px;
-  height: 20px;
-  border-radius: 5px;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
 
-.pflow-chip-icon svg { width: 12px; height: 12px; }
-.pflow-chip-icon img { width: 12px; height: 12px; object-fit: contain; }
+.pflow-chip-icon svg { width: 13px; height: 13px; }
+.pflow-chip-icon img { width: 13px; height: 13px; object-fit: contain; }
 
 .pflow-chip-label {
-  font-size: 0.67rem;
+  font-size: 0.7rem;
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 80px;
+  max-width: 90px;
 }
 
 /* Status variants */
-.pflow-chip--done { border-color: rgba(16, 185, 129, 0.55); }
-.pflow-chip--failed { border-color: rgba(248, 113, 113, 0.55); }
-.pflow-chip--skipped { opacity: 0.38; }
+.pflow-chip--done { border-color: rgba(16, 185, 129, 0.55); background: rgba(16, 185, 129, 0.08); }
+.pflow-chip--failed { border-color: rgba(248, 113, 113, 0.55); background: rgba(248, 113, 113, 0.08); }
+.pflow-chip--skipped { opacity: 0.4; }
 .pflow-chip--running {
   border-color: var(--accent);
+  background: var(--accent-soft);
   animation: pflowPulse 1.2s ease-in-out infinite;
 }
 
 @keyframes pflowPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 var(--accent-soft); }
+  50% { opacity: 0.7; box-shadow: 0 0 0 4px var(--accent-soft); }
 }
 
 /* Compact: icon-only, no labels */
-.pflow--compact .pflow-chip { padding: 2px; gap: 0; border-radius: 7px; }
+.pflow--compact .pflow-chip { padding: 3px; gap: 0; border-radius: 8px; }
 .pflow--compact .pflow-chip-label { display: none; }
-.pflow--compact .pflow-chip-icon { width: 22px; height: 22px; }
-.pflow--compact .pflow-arrow { padding: 0; font-size: 0.7rem; }
+.pflow--compact .pflow-chip-icon { width: 24px; height: 24px; }
+.pflow--compact .pflow-arrow { padding: 0 1px; font-size: 0.75rem; }
 
 /* Spacing when flow appears inside pipeline status runs */
 .pipeline-run-flow { margin: 4px 0 6px; }

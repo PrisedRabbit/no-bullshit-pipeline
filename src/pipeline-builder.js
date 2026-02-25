@@ -901,7 +901,7 @@ function showStepEditor(index) {
       // No save path integrations — fall back to free-text path input
       configFields = `
         <div class="step-editor-row"><label>Path</label><input data-field="path" value="${escapeHtml(step.config?.path || '')}" placeholder="~/Documents/{date}-{pipeline-name}.md" /></div>
-        <div class="step-editor-row" style="color: var(--text-secondary); font-size: 0.8rem;">Tip: Add named save paths in Settings &gt; Integrations for quick selection.</div>
+        <div class="step-editor-row full-width" style="color: var(--text-secondary); font-size: 0.8rem;">Tip: Add named save paths in Settings &gt; Integrations for quick selection.</div>
       `;
     } else {
       const saveOptions = savePaths.map(sp =>
@@ -923,7 +923,7 @@ function showStepEditor(index) {
 
     if (whProfiles.length === 0) {
       configFields = `
-        <div class="step-editor-row" style="color: var(--text-secondary); font-size: 0.85rem;">No webhook endpoints configured. Add one in Settings &gt; Integrations.</div>
+        <div class="step-editor-row full-width" style="color: var(--text-secondary); font-size: 0.85rem;">No webhook endpoints configured. Add one in Settings &gt; Integrations.</div>
       `;
     } else {
       configFields = `
@@ -999,7 +999,7 @@ function showStepEditor(index) {
 
     if (profiles.length === 0) {
       configFields = `
-        <div class="step-editor-row" style="color: var(--text-secondary); font-size: 0.85rem;">No Notion integrations connected. Add one in Settings &gt; Integrations.</div>
+        <div class="step-editor-row full-width" style="color: var(--text-secondary); font-size: 0.85rem;">No Notion integrations connected. Add one in Settings &gt; Integrations.</div>
       `;
     } else {
       configFields = `
@@ -1007,7 +1007,7 @@ function showStepEditor(index) {
           <option value="">Select Notion database...</option>
           ${notionOptions}
         </select></div>
-        <div class="step-editor-row">
+        <div class="step-editor-row full-width">
           <button class="mini-action-btn resync-notion-schema-btn" style="font-size: 0.8rem;">Re-sync Schema</button>
           <span class="resync-status" style="font-size: 0.8rem; color: var(--text-secondary); margin-left: 8px;"></span>
         </div>
@@ -1022,7 +1022,7 @@ function showStepEditor(index) {
 
     if (linProfiles.length === 0) {
       configFields = `
-        <div class="step-editor-row" style="color: var(--text-secondary); font-size: 0.85rem;">No Linear integrations connected. Add one in Settings &gt; Integrations.</div>
+        <div class="step-editor-row full-width" style="color: var(--text-secondary); font-size: 0.85rem;">No Linear integrations connected. Add one in Settings &gt; Integrations.</div>
       `;
     } else {
       configFields = `
@@ -1030,7 +1030,7 @@ function showStepEditor(index) {
           <option value="">Select Linear team...</option>
           ${linearOptions}
         </select></div>
-        <div class="step-editor-row">
+        <div class="step-editor-row full-width">
           <button class="mini-action-btn resync-linear-schema-btn" style="font-size: 0.8rem;">Re-sync Schema</button>
           <span class="resync-status" style="font-size: 0.8rem; color: var(--text-secondary); margin-left: 8px;"></span>
         </div>
