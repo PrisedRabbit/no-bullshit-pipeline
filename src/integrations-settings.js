@@ -78,7 +78,7 @@ function renderProviderModelsList(providerId) {
     }).join('');
     return `<div class="provider-models-section">
     <div class="provider-models-header">
-      <span class="provider-models-count">${storedModels.length} model${storedModels.length !== 1 ? 's' : ''} available</span>
+      <span class="provider-models-count">${storedModels.length} LLM${storedModels.length !== 1 ? 's' : ''} available</span>
     </div>
     <div class="provider-models-list">${chips}</div>
   </div>`;
@@ -87,7 +87,7 @@ function renderProviderModelsList(providerId) {
   if (data.error) {
     const storedModels = (appSettings && appSettings.providers && appSettings.providers[providerId] && appSettings.providers[providerId].models) || [];
     if (storedModels.length === 0) {
-      return `<div class="provider-models-section"><span class="provider-models-error">Failed to load models</span></div>`;
+      return `<div class="provider-models-section"><span class="provider-models-error">Failed to load LLMs</span></div>`;
     }
     const chips = storedModels.map(id => {
       return `<div class="provider-model-item">
@@ -95,9 +95,9 @@ function renderProviderModelsList(providerId) {
     </div>`;
     }).join('');
     return `<div class="provider-models-section">
-    <span class="provider-models-error">Failed to load models</span>
+    <span class="provider-models-error">Failed to load LLMs</span>
     <div class="provider-models-header">
-      <span class="provider-models-count">${storedModels.length} model${storedModels.length !== 1 ? 's' : ''} available</span>
+      <span class="provider-models-count">${storedModels.length} LLM${storedModels.length !== 1 ? 's' : ''} available</span>
     </div>
     <div class="provider-models-list">${chips}</div>
   </div>`;
@@ -147,14 +147,14 @@ function renderProviderModelsList(providerId) {
   }).join('');
 
   const toggleBtn = showToggle
-    ? `<button class="provider-models-toggle" data-provider="${escapeHtml(providerId)}" style="font-size:0.68rem;color:var(--accent);background:none;border:none;cursor:pointer;padding:4px 0;">Show all ${data.models.length} models</button>`
+    ? `<button class="provider-models-toggle" data-provider="${escapeHtml(providerId)}" style="font-size:0.68rem;color:var(--accent);background:none;border:none;cursor:pointer;padding:4px 0;">Show all ${data.models.length} LLMs</button>`
     : expanded && (otherModels.length > 0 || recommendedModels.length < data.models.length)
     ? `<button class="provider-models-toggle" data-provider="${escapeHtml(providerId)}" style="font-size:0.68rem;color:var(--text-secondary);background:none;border:none;cursor:pointer;padding:4px 0;">Show less</button>`
     : '';
 
   return `<div class="provider-models-section">
     <div class="provider-models-header">
-      <span class="provider-models-count">${displayModels.length} of ${data.models.length} models</span>
+      <span class="provider-models-count">${displayModels.length} of ${data.models.length} LLMs</span>
     </div>
     <div class="provider-models-list">${chips}</div>
     ${toggleBtn}
@@ -319,7 +319,7 @@ function renderModelsProviders() {
           </div>
         </div>
         ${modelsHtml ? `<div class="provider-card-wrapper">${modelsHtml}</div>` : ''}
-        <button class="mini-action-btn refresh-provider-btn" data-provider="${escapeHtml(p.id)}" style="align-self:flex-start;margin-top:4px;font-size:0.75rem;">Refresh Models</button>
+        <button class="mini-action-btn refresh-provider-btn" data-provider="${escapeHtml(p.id)}" style="align-self:flex-start;margin-top:4px;font-size:0.75rem;">Refresh LLMs</button>
       </div>
     `);
   }
@@ -377,7 +377,7 @@ function renderModelsProviders() {
         renderModelsProviders();
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Refresh Models';
+        btn.textContent = 'Refresh LLMs';
       }
     });
   });
@@ -461,7 +461,7 @@ function renderModelsProviders() {
         const updateCount = Object.values(llmFreshnessData).filter(v => v.status === 'update_available').length;
         if (report.failed > 0 && report.checked === 0) {
           showToast('Could not check for updates — network error', 'error');
-          if (statusEl) statusEl.textContent = `${report.failed} model(s) could not be checked`;
+          if (statusEl) statusEl.textContent = `${report.failed} LLM${report.failed !== 1 ? 's' : ''} could not be checked`;
         } else if (report.failed > 0) {
           const msg = updateCount > 0
             ? `${updateCount} update(s) available, ${report.failed} could not be checked`
@@ -470,7 +470,7 @@ function renderModelsProviders() {
         } else if (updateCount > 0) {
           if (statusEl) statusEl.textContent = `${updateCount} update(s) available`;
         } else {
-          showToast('All models are up to date', 'success');
+          showToast('All LLMs are up to date', 'success');
           if (statusEl) statusEl.textContent = 'All up to date';
         }
         renderLocalLlmModelsInner();
@@ -557,7 +557,7 @@ function renderLocalLlmModelsInner() {
                <button class="mini-action-btn llm-update-btn${hasUpdate ? ' update-available' : ''}" data-llm-id="${escapeHtml(m.id)}" title="${hasUpdate ? 'Update available — download latest version' : 'Re-download latest version'}" style="width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;">
                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
                </button>
-               <button class="mini-action-btn llm-delete-btn" data-llm-id="${escapeHtml(m.id)}" title="Delete model" style="width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;">
+               <button class="mini-action-btn llm-delete-btn" data-llm-id="${escapeHtml(m.id)}" title="Delete LLM" style="width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;">
                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="m19 6-.867 12.14A2 2 0 0 1 16.138 20H7.862a2 2 0 0 1-1.995-1.86L5 6m5 0V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2"/></svg>
                </button>`
             : `<button class="mini-action-btn llm-download-btn" data-llm-id="${escapeHtml(m.id)}" style="font-size:0.75rem;">Download</button>`
@@ -614,7 +614,7 @@ function renderLocalLlmModelsInner() {
       const modelId = btn.dataset.llmId;
       const model = llmModelsData.find(m => m.id === modelId);
       const hasUpdate = llmFreshnessData[modelId]?.status === 'update_available';
-      const title = hasUpdate ? 'Update Model?' : 'Re-download Model?';
+      const title = hasUpdate ? 'Update LLM?' : 'Re-download LLM?';
       const msg = hasUpdate
         ? `A newer version of ${model?.name || modelId} is available. Download it now?`
         : `Re-download ${model?.name || modelId}? This will replace the current file.`;
@@ -645,7 +645,7 @@ function renderLocalLlmModelsInner() {
       e.stopPropagation();
       const modelId = btn.dataset.llmId;
       const model = llmModelsData.find(m => m.id === modelId);
-      const ok2 = await showConfirm('Delete Model?', `Delete ${model?.name || modelId}? The model file will be removed.`);
+      const ok2 = await showConfirm('Delete LLM?', `Delete ${model?.name || modelId}? The LLM file will be removed.`);
       if (!ok2) return;
       try {
         await invoke('delete_llm_model', { modelId });
