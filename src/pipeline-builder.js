@@ -39,11 +39,11 @@ const SAVE_SVG = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" st
 const WEBHOOK_SVG = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>`;
 
 const PROVIDER_META = {
-  openai:    { img: 'assets/openai.svg',    filter: 'invert(1)',                                                          bgColor: 'rgba(142,142,160,0.15)' },
-  google:    { img: 'assets/gemini.svg',    filter: 'invert(48%) sepia(90%) saturate(400%) hue-rotate(190deg)',           bgColor: 'rgba(66,133,244,0.15)' },
-  anthropic: { img: 'assets/anthropic.svg', filter: 'invert(55%) sepia(80%) saturate(500%) hue-rotate(10deg)',            bgColor: 'rgba(217,119,6,0.15)'  },
-  local:     { img: 'assets/local-llm.svg', filter: 'invert(68%) sepia(60%) saturate(400%) hue-rotate(220deg)',           bgColor: 'rgba(139,92,246,0.15)' },
-  ollama:    { img: 'assets/local-llm.svg', filter: 'invert(48%) sepia(70%) saturate(300%) hue-rotate(150deg)',           bgColor: 'rgba(45,160,120,0.15)' },
+  openai:    { img: 'assets/openai.svg',    filter: 'invert(1)', bgColor: '#000' },
+  google:    { img: 'assets/gemini.svg',    filter: 'invert(1)', bgColor: '#4285F4' },
+  anthropic: { img: 'assets/anthropic.svg', filter: 'invert(1)', bgColor: '#D97706' },
+  local:     { img: 'assets/local-llm.svg', filter: 'invert(1)', bgColor: '#8B5CF6' },
+  ollama:    { img: 'assets/ollama.svg',    filter: 'invert(1)', bgColor: '#000' },
 };
 
 const RECOMMENDED_MODELS = {

@@ -4575,7 +4575,15 @@ body.light .wizard-mapping-row select {
 
 .provider-card-icon.openai { background: #000; }
 .provider-card-icon.google { background: #4285F4; }
-.provider-card-icon.anthropic { background: #cc785c; }
+.provider-card-icon.anthropic { background: #D97706; }
+.provider-card-icon.local { background: #8B5CF6; }
+.provider-card-icon.ollama { background: #6366F1; }
+
+body.light .provider-card-icon.openai { background: #000; }
+body.light .provider-card-icon.google { background: #4285F4; }
+body.light .provider-card-icon.anthropic { background: #D97706; }
+body.light .provider-card-icon.local { background: #8B5CF6; }
+body.light .provider-card-icon.ollama { background: #6366F1; }
 
 .provider-card-info {
   flex: 1;
