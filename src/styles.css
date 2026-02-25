@@ -3324,6 +3324,15 @@ body.is-recording-active .record-btn .stop-icon {
   transform: translateY(-1px);
 }
 
+.integration-card-icon-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-right: 14px;
+}
+
 .integration-card-icon {
   width: 40px;
   height: 40px;
@@ -3334,12 +3343,26 @@ body.is-recording-active .record-btn .stop-icon {
   font-weight: 700;
   font-size: 1rem;
   flex-shrink: 0;
-  margin-right: 14px;
   transition: transform 0.2s ease;
+}
+
+.integration-card-icon-label {
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  opacity: 0.8;
 }
 
 .integration-card:hover .integration-card-icon {
   transform: scale(1.05);
+}
+
+.integration-card:hover .integration-card-icon-label {
+  opacity: 1;
+  color: var(--accent);
 }
 
 .integration-card-icon.notion { background: linear-gradient(135deg, #000 0%, #1a1a1a 100%); color: #fff; }
@@ -3419,9 +3442,18 @@ body.is-recording-active .record-btn .stop-icon {
   transform: scale(1.05);
 }
 
+.available-integration-card:hover .integration-card-icon-label {
+  opacity: 1;
+}
+
 .available-integration-card .integration-card-icon {
   opacity: 0.6;
   transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.available-integration-card .integration-card-icon-label {
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
 }
 
 .available-integration-card .integration-card-name {
@@ -4560,6 +4592,14 @@ body.light .wizard-mapping-row select {
   border-color: var(--accent);
 }
 
+.provider-card-icon-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
 .provider-card-icon {
   width: 36px;
   height: 36px;
@@ -4571,6 +4611,16 @@ body.light .wizard-mapping-row select {
   font-size: 0.85rem;
   flex-shrink: 0;
   color: #fff;
+}
+
+.provider-card-icon-label {
+  font-size: 0.55rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.2px;
+  opacity: 0.7;
+  white-space: nowrap;
 }
 
 .provider-card-icon.openai { background: #000; }

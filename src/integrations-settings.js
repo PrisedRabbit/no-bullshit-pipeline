@@ -303,8 +303,11 @@ function renderModelsProviders() {
     sections.push(`
       <div class="connections-group" data-provider-section="${escapeHtml(p.id)}">
         <div class="connections-group-header">
-          <div class="provider-card-icon ${escapeHtml(p.id)}" style="background:${p.icon.bg};display:flex;align-items:center;justify-content:center;">
-            <img src="${escapeHtml(p.icon.img)}" style="width:20px;height:20px;filter:${p.icon.filter}" />
+          <div class="provider-card-icon-wrapper">
+            <div class="provider-card-icon ${escapeHtml(p.id)}" style="background:${p.icon.bg};display:flex;align-items:center;justify-content:center;">
+              <img src="${escapeHtml(p.icon.img)}" style="width:20px;height:20px;filter:${p.icon.filter}" />
+            </div>
+            <span class="provider-card-icon-label">${escapeHtml(p.name)}</span>
           </div>
           <div class="group-info">
             <div class="group-label">${escapeHtml(p.name)} ${renderCapBadges(caps)}</div>
@@ -341,8 +344,11 @@ function renderModelsProviders() {
   sections.push(`
     <div class="connections-group" data-provider-section="local">
       <div class="connections-group-header">
-        <div class="provider-card-icon ollama" style="background:#000;display:flex;align-items:center;justify-content:center;">
-          <img src="assets/ollama.svg" style="width:20px;height:20px;filter:invert(1)" />
+        <div class="provider-card-icon-wrapper">
+          <div class="provider-card-icon ollama" style="background:#000;display:flex;align-items:center;justify-content:center;">
+            <img src="assets/ollama.svg" style="width:20px;height:20px;filter:invert(1)" />
+          </div>
+          <span class="provider-card-icon-label">Ollama</span>
         </div>
         <div class="group-info">
           <div class="group-label">Local / Ollama ${renderCapBadges(localCaps)}</div>
@@ -780,9 +786,12 @@ function renderConnectedIntegrations() {
     }
     cards.push(`
       <div class="integration-card" data-type="notion" data-id="${escapeHtml(profile.id)}">
-        ${profile.icon_url
-          ? `<img class="integration-card-icon notion" src="${escapeHtml(profile.icon_url)}" alt="N" style="object-fit: cover;" />`
-          : `<div class="integration-card-icon notion">${INT_NOTION_SVG}</div>`}
+        <div class="integration-card-icon-wrapper">
+          ${profile.icon_url
+            ? `<img class="integration-card-icon notion" src="${escapeHtml(profile.icon_url)}" alt="N" style="object-fit: cover;" />`
+            : `<div class="integration-card-icon notion">${INT_NOTION_SVG}</div>`}
+          <span class="integration-card-icon-label">Notion</span>
+        </div>
         <div class="integration-card-info">
           <div class="integration-card-name">${safeName}</div>
           <div class="integration-card-detail">${cardDetail}</div>
@@ -816,7 +825,10 @@ function renderConnectedIntegrations() {
     }
     cards.push(`
       <div class="integration-card" data-type="linear" data-id="${escapeHtml(profile.id)}">
-        <div class="integration-card-icon linear">${INT_LINEAR_SVG}</div>
+        <div class="integration-card-icon-wrapper">
+          <div class="integration-card-icon linear">${INT_LINEAR_SVG}</div>
+          <span class="integration-card-icon-label">Linear</span>
+        </div>
         <div class="integration-card-info">
           <div class="integration-card-name">${safeName}</div>
           <div class="integration-card-detail">${cardDetail}</div>
@@ -836,9 +848,12 @@ function renderConnectedIntegrations() {
     const safeWorkspace = escapeHtml(data.workspace_name || 'Unknown workspace');
     cards.push(`
       <div class="integration-card" data-type="slack" data-id="${escapeHtml(id)}">
-        ${data.icon_url
-          ? `<img class="integration-card-icon slack" src="${escapeHtml(data.icon_url)}" alt="S" style="object-fit: cover;" />`
-          : `<div class="integration-card-icon slack">${INT_SLACK_SVG}</div>`}
+        <div class="integration-card-icon-wrapper">
+          ${data.icon_url
+            ? `<img class="integration-card-icon slack" src="${escapeHtml(data.icon_url)}" alt="S" style="object-fit: cover;" />`
+            : `<div class="integration-card-icon slack">${INT_SLACK_SVG}</div>`}
+          <span class="integration-card-icon-label">Slack</span>
+        </div>
         <div class="integration-card-info">
           <div class="integration-card-name">${safeName}</div>
           <div class="integration-card-detail">${safeWorkspace}</div>
@@ -857,7 +872,10 @@ function renderConnectedIntegrations() {
     const safePath = escapeHtml(sp.path);
     cards.push(`
       <div class="integration-card" data-type="save-path" data-id="${escapeHtml(sp.id)}">
-        <div class="integration-card-icon save-path">${INT_FOLDER_SVG}</div>
+        <div class="integration-card-icon-wrapper">
+          <div class="integration-card-icon save-path">${INT_FOLDER_SVG}</div>
+          <span class="integration-card-icon-label">Folder</span>
+        </div>
         <div class="integration-card-info">
           <div class="integration-card-name">${safeName}</div>
           <div class="integration-card-detail">${safePath}</div>
@@ -877,7 +895,10 @@ function renderConnectedIntegrations() {
     const safeMethod = escapeHtml(wh.method || 'POST');
     cards.push(`
       <div class="integration-card" data-type="webhook" data-id="${escapeHtml(wh.id)}">
-        <div class="integration-card-icon webhook">${INT_LINK_SVG}</div>
+        <div class="integration-card-icon-wrapper">
+          <div class="integration-card-icon webhook">${INT_LINK_SVG}</div>
+          <span class="integration-card-icon-label">Webhook</span>
+        </div>
         <div class="integration-card-info">
           <div class="integration-card-name">${safeName}</div>
           <div class="integration-card-detail">${safeMethod} ${safeUrl}</div>
@@ -1045,7 +1066,10 @@ function renderConnectedIntegrations() {
       const safeId = escapeHtml(sp.id);
       card.outerHTML = `
         <div class="integration-card save-path-editor" data-id="${safeId}">
-          <div class="integration-card-icon save-path"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4l2 2h10a2 2 0 0 1 2 2z"></path></svg></div>
+          <div class="integration-card-icon-wrapper">
+            <div class="integration-card-icon save-path">${INT_FOLDER_SVG}</div>
+            <span class="integration-card-icon-label">Folder</span>
+          </div>
           <div class="integration-card-info" style="flex: 1; gap: 6px; display: flex; flex-direction: column;">
             <input id="edit-sp-name-${safeId}" type="text" value="${escapeHtml(sp.name)}" placeholder="Folder name" style="width: 100%;" />
             <div style="display: flex; align-items: center; gap: 8px;">
@@ -1164,7 +1188,10 @@ function renderAvailableIntegrations() {
   // Notion is always available to add (user can have multiple databases)
   available.push(`
     <div class="available-integration-card" data-type="notion" id="add-notion-integration-btn">
-      <div class="integration-card-icon notion">${INT_NOTION_SVG}</div>
+      <div class="integration-card-icon-wrapper">
+        <div class="integration-card-icon notion">${INT_NOTION_SVG}</div>
+        <span class="integration-card-icon-label">Notion</span>
+      </div>
       <div class="integration-card-info">
         <div class="integration-card-name">Notion</div>
         <div class="integration-card-detail">Connect a Notion database for automatic page creation</div>
@@ -1176,7 +1203,10 @@ function renderAvailableIntegrations() {
   // Linear is always available to add (user can have multiple team connections)
   available.push(`
     <div class="available-integration-card" data-type="linear" id="add-linear-integration-btn">
-      <div class="integration-card-icon linear">${INT_LINEAR_SVG}</div>
+      <div class="integration-card-icon-wrapper">
+        <div class="integration-card-icon linear">${INT_LINEAR_SVG}</div>
+        <span class="integration-card-icon-label">Linear</span>
+      </div>
       <div class="integration-card-info">
         <div class="integration-card-name">Linear</div>
         <div class="integration-card-detail">Connect Linear to create issues from pipeline output</div>
@@ -1188,7 +1218,10 @@ function renderAvailableIntegrations() {
   // Slack is always available to add
   available.push(`
     <div class="available-integration-card" data-type="slack" id="add-slack-integration-btn">
-      <div class="integration-card-icon slack">${INT_SLACK_SVG}</div>
+      <div class="integration-card-icon-wrapper">
+        <div class="integration-card-icon slack">${INT_SLACK_SVG}</div>
+        <span class="integration-card-icon-label">Slack</span>
+      </div>
       <div class="integration-card-info">
         <div class="integration-card-name">Slack</div>
         <div class="integration-card-detail">Send pipeline output to Slack channels or DMs</div>
@@ -1200,7 +1233,10 @@ function renderAvailableIntegrations() {
   // Save Path is always available to add (multiple can exist)
   available.push(`
     <div class="available-integration-card" data-type="save-path" id="add-save-path-btn">
-      <div class="integration-card-icon save-path">${INT_FOLDER_SVG}</div>
+      <div class="integration-card-icon-wrapper">
+        <div class="integration-card-icon save-path">${INT_FOLDER_SVG}</div>
+        <span class="integration-card-icon-label">Folder</span>
+      </div>
       <div class="integration-card-info">
         <div class="integration-card-name">Save Path</div>
         <div class="integration-card-detail">Save pipeline output to a named folder location</div>
@@ -1212,7 +1248,10 @@ function renderAvailableIntegrations() {
   // Webhook is always available to add
   available.push(`
     <div class="available-integration-card" data-type="webhook" id="add-webhook-btn">
-      <div class="integration-card-icon webhook">${INT_LINK_SVG}</div>
+      <div class="integration-card-icon-wrapper">
+        <div class="integration-card-icon webhook">${INT_LINK_SVG}</div>
+        <span class="integration-card-icon-label">Webhook</span>
+      </div>
       <div class="integration-card-info">
         <div class="integration-card-name">Webhook</div>
         <div class="integration-card-detail">Send pipeline output to any HTTP endpoint</div>
@@ -1267,7 +1306,10 @@ function renderAvailableIntegrations() {
       let selectedPath = '';
       addSavePathBtn.outerHTML = `
         <div class="available-integration-card save-path-add-form" id="add-save-path-form">
-          <div class="integration-card-icon save-path"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4l2 2h10a2 2 0 0 1 2 2z"></path></svg></div>
+          <div class="integration-card-icon-wrapper">
+            <div class="integration-card-icon save-path">${INT_FOLDER_SVG}</div>
+            <span class="integration-card-icon-label">Folder</span>
+          </div>
           <div class="integration-card-info" style="flex: 1; gap: 6px; display: flex; flex-direction: column;">
             <input id="new-sp-name" type="text" placeholder="Folder name (e.g. Notes)" style="width: 100%;" />
             <div style="display: flex; align-items: center; gap: 8px;">
@@ -1331,7 +1373,10 @@ function renderAvailableIntegrations() {
     addWebhookBtn.addEventListener('click', () => {
       addWebhookBtn.outerHTML = `
         <div class="available-integration-card webhook-add-form" id="add-webhook-form">
-          <div class="integration-card-icon webhook"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></div>
+          <div class="integration-card-icon-wrapper">
+            <div class="integration-card-icon webhook">${INT_LINK_SVG}</div>
+            <span class="integration-card-icon-label">Webhook</span>
+          </div>
           <div class="integration-card-info" style="flex: 1; gap: 6px; display: flex; flex-direction: column;">
             <input id="new-wh-name" type="text" placeholder="Endpoint name (e.g. n8n Meetings)" style="width: 100%;" />
             <input id="new-wh-url" type="text" placeholder="https://hooks.example.com/..." style="width: 100%;" />
