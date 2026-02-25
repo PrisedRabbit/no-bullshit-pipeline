@@ -1280,18 +1280,18 @@ body.detail-open .detail-view {
 }
 
 .recording-pipeline-entry .pflow--compact .pflow-chip-icon {
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
 }
 
 .recording-pipeline-entry .pflow--compact .pflow-chip-icon svg {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
 }
 
 .recording-pipeline-entry .pflow--compact .pflow-chip-icon img {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
 }
 
 .recording-item.recording-active {
@@ -2342,17 +2342,17 @@ body.settings-open .detail-view {
 }
 
 .pflow--builder .pflow-chip-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   transition: transform 0.15s ease;
 }
-.pflow--builder .pflow-chip-icon svg { width: 16px; height: 16px; }
-.pflow--builder .pflow-chip-icon img { width: 16px; height: 16px; object-fit: contain; }
+.pflow--builder .pflow-chip-icon svg { width: 18px; height: 18px; }
+.pflow--builder .pflow-chip-icon img { width: 18px; height: 18px; object-fit: contain; }
 .pflow--builder .pflow-chip-label { font-size: 0.78rem; max-width: 120px; font-weight: 600; }
 
 /* Label group: name stacked above subtext */
@@ -4835,16 +4835,16 @@ body.light .provider-models-section {
 .pipeline-card:hover { border-color: var(--accent); }
 .pipeline-card:hover::after { opacity: 1; }
 .pipeline-card-icons { display: flex; gap: 4px; }
-.pipeline-card-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 800; flex-shrink: 0; }
-.pipeline-card-icon svg { width: 16px; height: 16px; }
+.pipeline-card-icon { width: 36px; height: 36px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 800; flex-shrink: 0; }
+.pipeline-card-icon svg { width: 18px; height: 18px; }
 .pipeline-card-name { font-size: 0.78rem; font-weight: 600; color: var(--text-primary); text-align: center; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Pipeline card: hide hover overlay during fly and preserve compact layout when clone is in body */
 .pipeline-card.is-flying::after { opacity: 0 !important; }
 .pipeline-card.is-flying { padding: 3px 8px 3px 4px; border-radius: 7px; background: transparent; flex-direction: row; align-items: center; gap: 5px; min-width: unset; }
 .pipeline-card.is-flying .pipeline-card-icons { gap: 3px; }
-.pipeline-card.is-flying .pipeline-card-icon { width: 20px; height: 20px; border-radius: 5px; font-size: 0.65rem; }
-.pipeline-card.is-flying .pipeline-card-icon svg { width: 11px; height: 11px; }
+.pipeline-card.is-flying .pipeline-card-icon { width: 24px; height: 24px; border-radius: 6px; font-size: 0.7rem; }
+.pipeline-card.is-flying .pipeline-card-icon svg { width: 13px; height: 13px; }
 .pipeline-card.is-flying .pipeline-card-name { font-size: 0.73rem; font-weight: 500; color: var(--text-secondary); text-align: left; max-width: 140px; }
 
 /* Compact pipeline cards — available-pipelines panel in detail view (post-recording) */
@@ -4852,9 +4852,9 @@ body.light .provider-models-section {
 #pipeline-cards .pipeline-card { padding: 3px 8px 3px 4px; border-radius: 7px; background: transparent; flex-direction: row; align-items: center; gap: 5px; min-width: unset; transition: border-color 0.2s, background 0.2s; }
 #pipeline-cards .pipeline-card::after { display: none; }
 #pipeline-cards .pipeline-card:hover { border-color: var(--accent); background: var(--accent-soft); }
-#pipeline-cards .pipeline-card-icons { gap: 3px; }
-#pipeline-cards .pipeline-card-icon { width: 20px; height: 20px; border-radius: 5px; font-size: 0.65rem; }
-#pipeline-cards .pipeline-card-icon svg { width: 11px; height: 11px; }
+#pipeline-cards .pipeline-card-icons { gap: 4px; }
+#pipeline-cards .pipeline-card-icon { width: 24px; height: 24px; border-radius: 6px; font-size: 0.7rem; }
+#pipeline-cards .pipeline-card-icon svg { width: 13px; height: 13px; }
 #pipeline-cards .pipeline-card-name { font-size: 0.73rem; font-weight: 500; color: var(--text-secondary); text-align: left; max-width: 140px; }
 
 /* Recording pipeline pre-assign panel — hidden, replaced by unified detail-pipeline-assignment */
@@ -4995,17 +4995,17 @@ body.is-recording-active .recording-pipeline-panel {
 }
 
 .pflow-chip-icon {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
 
-.pflow-chip-icon svg { width: 13px; height: 13px; }
-.pflow-chip-icon img { width: 13px; height: 13px; object-fit: contain; }
+.pflow-chip-icon svg { width: 16px; height: 16px; }
+.pflow-chip-icon img { width: 16px; height: 16px; object-fit: contain; }
 
 .pflow-chip-label {
   font-size: 0.7rem;
@@ -5033,10 +5033,10 @@ body.is-recording-active .recording-pipeline-panel {
 }
 
 /* Compact: icon-only, no labels */
-.pflow--compact .pflow-chip { padding: 3px; gap: 0; border-radius: 8px; }
+.pflow--compact .pflow-chip { padding: 4px; gap: 0; border-radius: 9px; }
 .pflow--compact .pflow-chip-label { display: none; }
-.pflow--compact .pflow-chip-icon { width: 24px; height: 24px; }
-.pflow--compact .pflow-arrow { padding: 0 1px; font-size: 0.75rem; }
+.pflow--compact .pflow-chip-icon { width: 28px; height: 28px; }
+.pflow--compact .pflow-arrow { padding: 0 2px; font-size: 0.8rem; }
 
 /* Spacing when flow appears inside pipeline status runs */
 .pipeline-run-flow { margin: 4px 0 6px; }
