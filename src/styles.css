@@ -3195,32 +3195,6 @@ body.is-recording-active .record-btn .stop-icon {
   50% { transform: scale(0.82); opacity: 0.7; }
 }
 
-/* Recording warning toast */
-.recording-warning-toast {
-  position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(255, 180, 0, 0.95);
-  color: #1a1a2e;
-  padding: 10px 20px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  z-index: 9999;
-  animation: toast-in 0.3s ease, toast-out 0.3s ease 4.7s;
-  pointer-events: none;
-}
-
-@keyframes toast-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0); }
-}
-
-@keyframes toast-out {
-  from { opacity: 1; }
-  to { opacity: 0; }
-}
 
 /* ===== INTEGRATION CARDS ===== */
 .integration-card {
@@ -4518,7 +4492,23 @@ body.is-recording-active .recording-pipeline-panel {
 .toast.show { opacity: 1; transform: translateY(0); }
 .toast-info { background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); }
 .toast-success { background: var(--success); }
+.toast-warning { background: var(--warning); color: #1a1a2e; }
 .toast-error { background: var(--danger); }
+.toast-close {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 0 0 12px;
+  margin-left: auto;
+  opacity: 0.7;
+  font-size: 1rem;
+  line-height: 1;
+  transition: opacity 0.15s;
+}
+.toast-close:hover { opacity: 1; }
+.toast-info .toast-close { color: var(--text-secondary); }
+.toast-warning .toast-close { color: #1a1a2e; }
 
 /* ===== PIPELINE FLOW (unified chip-based visualization) ===== */
 .pflow {

@@ -1493,12 +1493,22 @@ function showToast(message, type = 'info') {
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
   toast.textContent = message;
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'toast-close';
+  closeBtn.innerHTML = '&times;';
+  closeBtn.setAttribute('aria-label', 'Dismiss');
+  closeBtn.onclick = () => {
+    toast.classList.remove('show');
+    toast.addEventListener('transitionend', () => toast.remove());
+  };
+  toast.appendChild(closeBtn);
   container.appendChild(toast);
   requestAnimationFrame(() => toast.classList.add('show'));
-  setTimeout(() => {
+  const timeout = setTimeout(() => {
     toast.classList.remove('show');
     toast.addEventListener('transitionend', () => toast.remove());
   }, 3000);
+  closeBtn.addEventListener('click', () => clearTimeout(timeout), { once: true });
 }
 
 // ===== DELETE RECORDING =====
@@ -1557,12 +1567,7 @@ if (window.__TAURI__) {
 
     window.__TAURI__.event.listen('recording_warning', (event) => {
       console.warn('Recording warning:', event.payload);
-      // Show non-blocking notification — system audio may have failed
-      const warn = document.createElement('div');
-      warn.className = 'recording-warning-toast';
-      warn.textContent = event.payload;
-      document.body.appendChild(warn);
-      setTimeout(() => warn.remove(), 5000);
+      showToast(event.payload, 'warning');
     });
 
     window.__TAURI__.event.listen('transcription_segment', (event) => {
