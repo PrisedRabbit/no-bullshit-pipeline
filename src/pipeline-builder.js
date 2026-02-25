@@ -193,6 +193,45 @@ const savePipelineDefBtn = document.getElementById('save-pipeline-def-btn');
 const deletePipelineDefBtn = document.getElementById('delete-pipeline-def-btn');
 const closePipelineEditorBtn = document.getElementById('close-pipeline-editor');
 
+function sanitizeStepName(name) {
+  return name.replace(/[/\\:]/g, '-').replace(/\0/g, '');
+}
+
+function generateStepName(connector, config, index, excludeIndex = null) {
+  const connectorLabels = {
+    llm: 'AI',
+    save: 'Save',
+    slack: 'Slack',
+    notion: 'Notion',
+    linear: 'Linear',
+    webhook: 'Webhook',
+    mcp: 'MCP',
+    cli_agent: 'CLI',
+  };
+  const baseLabel = connectorLabels[connector] || connector.charAt(0).toUpperCase() + connector.slice(1);
+  let baseName;
+  if (connector === 'llm' && config?.prompt_template) {
+    const templateName = config.prompt_template.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    baseName = sanitizeStepName(templateName);
+  } else if (connector === 'llm' && config?.prompt_inline) {
+    baseName = 'Custom Prompt';
+  } else {
+    baseName = `${baseLabel} ${index + 1}`;
+  }
+  const existingNames = new Set(
+    pipelineEditorSteps
+      .filter((_, i) => i !== excludeIndex)
+      .map(s => s.name)
+  );
+  let candidate = baseName;
+  let suffix = 2;
+  while (existingNames.has(candidate)) {
+    candidate = `${baseName} ${suffix}`;
+    suffix++;
+  }
+  return candidate;
+}
+
 const PROMPT_PRESETS = [
   {
     label: 'Meeting Notes',
@@ -459,7 +498,7 @@ function closePicker() {
 
 function addPresetStep(preset) {
   const step = JSON.parse(JSON.stringify(preset.step));
-  // Auto-wire: delivery steps chain from the last step's output, not raw transcript
+  step.name = generateStepName(step.connector, step.config, pipelineEditorSteps.length);
   if (step.connector !== 'llm' && pipelineEditorSteps.length > 0) {
     const lastStep = pipelineEditorSteps[pipelineEditorSteps.length - 1];
     if (lastStep.name) step.input = lastStep.name;
@@ -588,9 +627,7 @@ function showCustomPromptForm() {
     }
 
     const step = {
-      name: saveAsTemplate
-        ? formEl.querySelector('.custom-prompt-name-input').value.trim()
-        : 'custom-prompt',
+      name: generateStepName('llm', stepConfig, pipelineEditorSteps.length),
       connector: 'llm',
       input: 'transcript',
       config: stepConfig,
@@ -1046,11 +1083,10 @@ function showStepEditor(index) {
   editorEl.className = 'step-editor';
   editorEl.innerHTML = `
     <div class="step-editor-header">
-      <span class="step-editor-title">Step ${index + 1} — ${escapeHtml(step.name || 'Unnamed')}</span>
+      <span class="step-editor-title">${escapeHtml(step.name || 'Unnamed')}</span>
       <button class="step-editor-close" title="Close editor">×</button>
     </div>
     <div id="step-config-fields">
-      <div class="step-editor-row"><label>Step Name</label><input class="step-name-input" value="${escapeHtml(step.name || '')}" placeholder="Step name" /></div>
       ${configFields}
       ${index > 0 ? (() => {
         const currentInput = step.input || 'transcript';
@@ -1426,15 +1462,15 @@ function showStepEditor(index) {
     if (step.connector === 'slack' && !step.config.target && prevTarget) {
       step.config.target = prevTarget;
     }
-    // Use explicit step name from input, fall back to auto-derive for llm steps
-    const nameInput = editorEl.querySelector('.step-name-input');
-    const nameVal = nameInput ? nameInput.value.trim() : '';
-    if (nameVal) {
-      step.name = nameVal;
-    } else if (step.connector === 'llm' && step.config.prompt_template) {
-      step.name = step.config.prompt_template;
+    const oldName = step.name;
+    step.name = generateStepName(step.connector, step.config, index, index);
+    if (oldName !== step.name) {
+      for (let j = index + 1; j < pipelineEditorSteps.length; j++) {
+        if (pipelineEditorSteps[j].input === oldName) {
+          pipelineEditorSteps[j].input = step.name;
+        }
+      }
     }
-    // Persist user-selected input source (transcript or previous step name)
     const inputSelect = editorEl.querySelector('.step-input-select');
     if (inputSelect) {
       step.input = inputSelect.value || 'transcript';
