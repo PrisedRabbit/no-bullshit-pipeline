@@ -1880,12 +1880,6 @@ body.settings-open .detail-view {
 .pflow--builder .pflow-chip.sortable-chosen { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .pflow--builder .pflow-chip.sortable-drag { cursor: grabbing !important; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4); transform: rotate(1.5deg) scale(1.05); }
 
-/* Step editor panel (shown below the tiles row when editing a step) */
-#step-editor-panel .step-editor {
-  margin: 0;
-  border-radius: 12px;
-}
-
 .step-editor-header {
   display: flex;
   align-items: center;
@@ -2012,20 +2006,20 @@ body.settings-open .detail-view {
 /* Step Editor (shown in the step-editor-panel below tiles) */
 #step-editor-panel {
   position: relative;
+  margin-top: 16px;
 }
 
 .step-editor {
-  background: var(--bg-primary);
+  background: var(--bg-card);
   border: 1px solid var(--accent);
-  border-radius: 14px;
+  border-radius: 12px;
   padding: 16px;
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
   gap: 10px;
   box-shadow: 0 0 0 3px var(--accent-soft), 0 8px 24px rgba(0,0,0,0.25);
-  width: 340px;
-  min-width: 260px;
-  max-width: 420px;
+  width: 100%;
+  max-width: 100%;
   position: relative;
 }
 
@@ -2112,6 +2106,18 @@ body.settings-open .detail-view {
 
 .step-editor-actions .step-editor-done:hover {
   background: var(--accent-hover);
+}
+
+@media (max-width: 600px) {
+  .step-editor-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+  .step-editor-row label {
+    min-width: auto;
+    margin-bottom: 2px;
+  }
 }
 
 /* Pipeline Preview */

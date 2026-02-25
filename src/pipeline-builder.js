@@ -1218,10 +1218,31 @@ function showStepEditor(index) {
       }
     }
 
-    wsSelect.addEventListener('change', () => {
-      populateSlackTargets(wsSelect.value);
-    });
-
+    // Pre-select workspace dropdown if already configured or only one exists
+    const wsIds = Object.keys(slackIntegrations);
+    if (!step.config?.integration_id && wsIds.length === 1) {
+      wsSelect.value = wsIds[0];
+      step.config = step.config || {};
+      step.config.integration_id = wsIds[0];
+    } else if (step.config?.integration_id && wsSelect) {
+      wsSelect.value = step.config.integration_id;
+    }
+    // Lazy load: only fetch targets when user interacts with target dropdown
+    // This prevents API calls on simple step click
+    let targetsLoadedForWs = null;
+    const loadTargetsLazy = async () => {
+      const currentWs = wsSelect.value;
+      if (!currentWs) return;
+      if (targetsLoadedForWs === currentWs) return;
+      targetsLoadedForWs = currentWs;
+      if (slackTargetCache[currentWs]) {
+        renderSlackTargetOptions(slackTargetCache[currentWs], targetSelect, step.config?.target, customRow);
+        return;
+      }
+      await populateSlackTargets(currentWs);
+    };
+    targetSelect.addEventListener('focus', loadTargetsLazy);
+    targetSelect.addEventListener('mousedown', loadTargetsLazy);
     targetSelect.addEventListener('change', () => {
       if (targetSelect.value === '__custom__') {
         customRow.style.display = 'block';
@@ -1229,17 +1250,14 @@ function showStepEditor(index) {
         customRow.style.display = 'none';
       }
     });
-
-    // Auto-select workspace if only one exists or already configured
-    const wsIds = Object.keys(slackIntegrations);
-    if (!step.config?.integration_id && wsIds.length === 1) {
-      wsSelect.value = wsIds[0];
-      step.config = step.config || {};
-      step.config.integration_id = wsIds[0];
-    }
-    if (wsSelect.value) {
-      populateSlackTargets(wsSelect.value);
-    }
+    const handleWsChange = () => {
+      targetsLoadedForWs = null;
+      targetSelect.innerHTML = '<option value="">Click to load channels...</option>';
+      customRow.style.display = 'none';
+    };
+    wsSelect.addEventListener('change', handleWsChange);
+    // Show placeholder if targets not yet loaded
+    targetSelect.innerHTML = '<option value="">Click to load channels...</option>';
   }
 
   // LLM provider change → update model dropdown
