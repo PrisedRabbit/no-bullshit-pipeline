@@ -265,6 +265,8 @@ pub fn run() {
             // Real-time transcription
             audio::start_realtime_transcription,
             audio::stop_realtime_transcription,
+            // CLI Agent
+            connectors::cli_agent::check_cli_availability,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

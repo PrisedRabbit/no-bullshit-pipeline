@@ -352,16 +352,16 @@ fn validate_step_config(step: &PipelineStep) -> Result<(), String> {
         ConnectorType::CliAgent => {
             let cli = step.config.get("cli").and_then(|v| v.as_str());
             match cli {
-                Some("claude") | Some("codex") => {}
+                Some("claude") | Some("codex") | Some("opencode") => {}
                 Some(other) => {
                     return Err(format!(
-                        "Step '{}': CLI agent 'cli' must be 'claude' or 'codex', got '{}'",
+                        "Step '{}': CLI agent 'cli' must be 'claude', 'codex', or 'opencode', got '{}'",
                         step.name, other
                     ));
                 }
                 None => {
                     return Err(format!(
-                        "Step '{}': CLI agent connector requires 'cli' in config ('claude' or 'codex')",
+                        "Step '{}': CLI agent connector requires 'cli' in config ('claude', 'codex', or 'opencode')",
                         step.name
                     ));
                 }
@@ -959,7 +959,7 @@ mod tests {
         };
         let result = validate_pipeline(&pipeline);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("'claude' or 'codex'"));
+        assert!(result.unwrap_err().contains("'claude', 'codex', or 'opencode'"));
     }
 
     #[test]

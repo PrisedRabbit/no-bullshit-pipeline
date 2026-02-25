@@ -1,13 +1,49 @@
 use chrono::Utc;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::Duration;
-use tokio::process::Command;
+use tokio::process::Command as AsyncCommand;
 
-/// Execute a CLI agent (Claude Code or Codex) as a pipeline step.
+pub const SUPPORTED_CLIS: &[(&str, &str, &str)] = &[
+    ("claude", "Claude Code", "npm install -g @anthropic-ai/claude-code"),
+    ("codex", "Codex CLI", "npm install -g @openai/codex"),
+    ("opencode", "OpenCode", "npm install -g opencode-ai"),
+];
+
+#[derive(serde::Serialize, Clone)]
+pub struct CliInfo {
+    pub id: String,
+    pub name: String,
+    pub installed: bool,
+    pub install_hint: String,
+}
+
+#[tauri::command]
+pub fn check_cli_availability() -> Vec<CliInfo> {
+    SUPPORTED_CLIS.iter().map(|(id, name, hint)| {
+        let installed = check_cli_installed(id);
+        CliInfo {
+            id: id.to_string(),
+            name: name.to_string(),
+            installed,
+            install_hint: hint.to_string(),
+        }
+    }).collect()
+}
+
+pub fn check_cli_installed(cli: &str) -> bool {
+    Command::new("which")
+        .arg(cli)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Execute a CLI agent (Claude Code, Codex, or OpenCode) as a pipeline step.
 ///
 /// Config fields:
-///   cli             - "claude" or "codex" (required)
+///   cli             - "claude", "codex", or "opencode" (required)
 ///   prompt          - Prompt text sent along with the input (required)
 ///   working_directory - Working directory for the subprocess (optional, default: home dir)
 ///   timeout_secs    - Timeout in seconds (optional, default: 300)
@@ -24,12 +60,23 @@ pub async fn execute(
     let cli = config
         .get("cli")
         .and_then(|v| v.as_str())
-        .ok_or("CLI agent config missing 'cli' (must be 'claude' or 'codex')")?;
+        .ok_or("CLI agent config missing 'cli' (must be 'claude', 'codex', or 'opencode')")?;
 
-    if cli != "claude" && cli != "codex" {
+    let valid_clis: Vec<&str> = SUPPORTED_CLIS.iter().map(|(id, _, _)| *id).collect();
+    if !valid_clis.contains(&cli) {
         return Err(format!(
-            "CLI agent 'cli' must be 'claude' or 'codex', got '{}'",
+            "CLI agent 'cli' must be 'claude', 'codex', or 'opencode', got '{}'",
             cli
+        ));
+    }
+
+    // Check if CLI is installed
+    if !check_cli_installed(cli) {
+        let cli_info = SUPPORTED_CLIS.iter().find(|(id, _, _)| *id == cli);
+        let install_hint = cli_info.map(|(_, _, hint)| *hint).unwrap_or("npm install -g <cli>");
+        return Err(format!(
+            "CLI '{}' is not installed or not in PATH. Install it first: {}",
+            cli, install_hint
         ));
     }
 
@@ -62,13 +109,18 @@ pub async fn execute(
     // Build command based on CLI type
     let mut cmd = match cli {
         "claude" => {
-            let mut c = Command::new("claude");
+            let mut c = AsyncCommand::new("claude");
             c.arg("-p").arg(&full_prompt);
             c
         }
         "codex" => {
-            let mut c = Command::new("codex");
+            let mut c = AsyncCommand::new("codex");
             c.arg("exec").arg(&full_prompt);
+            c
+        }
+        "opencode" => {
+            let mut c = AsyncCommand::new("opencode");
+            c.arg("run").arg(&full_prompt);
             c
         }
         _ => unreachable!(),

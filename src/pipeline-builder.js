@@ -10,6 +10,27 @@ let sortableInstance = null;  // Sortable.js instance for drag-and-drop reorderi
 let lastAutoName = '';        // Track last auto-generated pipeline name
 const slackTargetCache = {};  // Cache channels+members per integration_id
 let modelSelectExpanded = {}; // Track expanded state per provider in step editor
+let cliAvailabilityCache = null; // Cache for CLI availability (null = not loaded yet)
+
+async function loadCliAvailability() {
+  if (cliAvailabilityCache) return cliAvailabilityCache;
+  try {
+    cliAvailabilityCache = await invoke('check_cli_availability');
+  } catch (err) {
+    console.error('Failed to check CLI availability:', err);
+    cliAvailabilityCache = [
+      { id: 'claude', name: 'Claude Code', installed: false, install_hint: 'npm install -g @anthropic-ai/claude-code' },
+      { id: 'codex', name: 'Codex CLI', installed: false, install_hint: 'npm install -g @openai/codex' },
+      { id: 'opencode', name: 'OpenCode', installed: false, install_hint: 'npm install -g opencode-ai' },
+    ];
+  }
+  return cliAvailabilityCache;
+}
+
+async function refreshCliAvailability() {
+  cliAvailabilityCache = null;
+  return loadCliAvailability();
+}
 
 const SLACK_SVG = `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zm2.521-10.123a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zm0 1.271a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zm10.123 2.521a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zm-1.268 0a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zm-2.523 10.123a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zm0-1.268a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/></svg>`;
 const NOTION_SVG = `<svg viewBox="0 0 100 100" width="18" height="18" fill="currentColor"><path d="M6.017 4.313l55.333-4.087c6.797-.583 8.543-.19 12.817 2.917l17.663 12.443c2.913 2.14 3.883 2.723 3.883 5.053v68.243c0 4.277-1.553 6.807-6.99 7.193L24.467 99.967c-4.08.193-6.023-.39-8.16-3.113L3.3 79.94c-2.333-3.113-3.3-5.443-3.3-8.167V11.113c0-3.497 1.553-6.413 6.017-6.8z" fill="#fff"/><path d="M61.35.227l-55.333 4.087C1.553 4.7 0 7.617 0 11.113v60.66c0 2.723.967 5.053 3.3 8.167l13.007 16.913c2.137 2.723 4.08 3.307 8.16 3.113l64.257-3.89c5.433-.387 6.99-2.917 6.99-7.193V20.64c0-2.21-.81-2.76-3.088-4.587L75.983 3.523C71.71.607 69.96.22 63.163.803L61.35.227z" fill="#000"/><path d="M26.395 18.768c-5.433.39-6.675.477-9.768-1.753L7.997 10.527c-1.163-.913-1.55-1.94-1.55-3.113.39-2.53 1.94-4.47 7.377-4.86l53.39-3.89c4.47-.39 6.603 1.553 8.157 2.723l10.133 7.577c.39.193 1.553 1.553 0 1.553l-55.14 3.11v5.14z" fill="#fff"/><path d="M19.018 88.4V30.173c0-2.527.78-3.697 3.113-3.89l57.277-3.307c2.14-.193 3.113 1.167 3.113 3.693V85.09c0 2.527-.39 4.667-3.887 4.86l-54.943 3.113c-3.5.193-4.673-1.003-4.673-4.663zm54.167-55.13c.39 1.75 0 3.5-1.75 3.697l-2.527.39v40.257c-2.14 1.163-4.277 1.75-5.833 1.75-2.723 0-3.5-.583-5.443-3.113L38.468 45.948V74.7l5.247 1.163s0 3.5-4.86 3.5l-13.393.78c-.39-.78 0-2.723 1.36-3.113l3.497-.97V38.33l-4.86-.39c-.39-1.75.583-4.277 3.307-4.473l14.363-.97 20.603 31.46V35.077l-4.47-.39c-.39-2.14 1.163-3.697 3.113-3.89l14.003-.527z" fill="#fff"/></svg>`;
@@ -599,6 +620,8 @@ async function loadPipelineDefs() {
     renderPipelineDefsList();
     if (typeof renderPipelineChips === 'function') renderPipelineChips();
     if (typeof populateDefaultPipelineSelect === 'function') populateDefaultPipelineSelect();
+    // Pre-load CLI availability in background
+    loadCliAvailability();
   } catch (err) {
     console.error('Failed to load pipelines:', err);
   }
@@ -934,11 +957,29 @@ function showStepEditor(index) {
     `;
   } else if (step.connector === 'cli_agent') {
     const currentCli = step.config?.cli || 'claude';
+    const fallbackCliInfo = [
+      { id: 'claude', name: 'Claude Code', installed: false, install_hint: 'npm install -g @anthropic-ai/claude-code' },
+      { id: 'codex', name: 'Codex CLI', installed: false, install_hint: 'npm install -g @openai/codex' },
+      { id: 'opencode', name: 'OpenCode', installed: false, install_hint: 'npm install -g opencode-ai' },
+    ];
+    const cliInfo = cliAvailabilityCache || fallbackCliInfo;
+    const cliOptions = cliInfo.map(cli => {
+      const statusIcon = cli.installed ? '✓' : '✗';
+      const statusClass = cli.installed ? '' : ' style="color: var(--text-secondary)"';
+      const label = `${cli.name} ${statusIcon}`;
+      const selected = currentCli === cli.id ? ' selected' : '';
+      return `<option value="${escapeHtml(cli.id)}"${selected}${statusClass}>${escapeHtml(label)}</option>`;
+    }).join('');
+    const selectedCli = cliInfo.find(c => c.id === currentCli);
+    const notInstalledWarning = selectedCli && !selectedCli.installed
+      ? `<div class="cli-not-installed-warning" style="color: #e6453d; font-size: 0.8rem; margin-top: 4px;">⚠️ ${escapeHtml(selectedCli.name)} is not installed. Install: <code style="background: var(--bg-input); padding: 2px 6px; border-radius: 4px;">${escapeHtml(selectedCli.install_hint)}</code></div>`
+      : '';
     configFields = `
-      <div class="step-editor-row"><label>CLI</label><select data-field="cli">
-        <option value="claude"${currentCli === 'claude' ? ' selected' : ''}>Claude Code</option>
-        <option value="codex"${currentCli === 'codex' ? ' selected' : ''}>Codex CLI</option>
-      </select></div>
+      <div class="step-editor-row"><label>CLI</label>
+        <select data-field="cli" class="cli-select">${cliOptions}</select>
+        <button type="button" class="cli-refresh-btn" style="font-size:0.7rem;color:var(--accent);background:none;border:none;cursor:pointer;padding:2px 0;margin-left:8px;" title="Refresh CLI status">Refresh</button>
+        ${notInstalledWarning}
+      </div>
       <div class="step-editor-row"><label>Prompt</label><textarea data-field="prompt" rows="3" placeholder="Instructions for the agent...">${escapeHtml(step.config?.prompt || '')}</textarea></div>
       <div class="step-editor-row"><label>Working Directory</label><input data-field="working_directory" value="${escapeHtml(step.config?.working_directory || '')}" placeholder="~/Projects/my-repo (optional)" /></div>
       <div class="step-editor-row"><label>Timeout (sec)</label><input data-field="timeout_secs" type="number" value="${step.config?.timeout_secs || 300}" min="10" max="3600" /></div>
@@ -1306,6 +1347,47 @@ function showStepEditor(index) {
     });
   }
 
+  // CLI select change → update warning message
+  const cliSelect = editorEl.querySelector('.cli-select');
+  if (cliSelect) {
+    cliSelect.addEventListener('change', async () => {
+      const selectedCliId = cliSelect.value;
+      const cliInfo = cliAvailabilityCache || [];
+      const selectedCli = cliInfo.find(c => c.id === selectedCliId);
+      const warningEl = editorEl.querySelector('.cli-not-installed-warning');
+      if (warningEl) {
+        if (selectedCli && !selectedCli.installed) {
+          warningEl.innerHTML = `⚠️ ${escapeHtml(selectedCli.name)} is not installed. Install: <code style="background: var(--bg-input); padding: 2px 6px; border-radius: 4px;">${escapeHtml(selectedCli.install_hint)}</code>`;
+        } else {
+          warningEl.remove();
+        }
+      } else if (selectedCli && !selectedCli.installed) {
+        const parentRow = cliSelect.closest('.step-editor-row');
+        if (parentRow) {
+          const newWarning = document.createElement('div');
+          newWarning.className = 'cli-not-installed-warning';
+          newWarning.style.cssText = 'color: #e6453d; font-size: 0.8rem; margin-top: 4px;';
+          newWarning.innerHTML = `⚠️ ${escapeHtml(selectedCli.name)} is not installed. Install: <code style="background: var(--bg-input); padding: 2px 6px; border-radius: 4px;">${escapeHtml(selectedCli.install_hint)}</code>`;
+          parentRow.appendChild(newWarning);
+        }
+      }
+    });
+  }
+
+  // CLI refresh button → reload CLI availability
+  const cliRefreshBtn = editorEl.querySelector('.cli-refresh-btn');
+  if (cliRefreshBtn) {
+    cliRefreshBtn.addEventListener('click', async () => {
+      cliRefreshBtn.textContent = 'Refreshing...';
+      cliRefreshBtn.disabled = true;
+      await refreshCliAvailability();
+      cliRefreshBtn.textContent = 'Refresh';
+      cliRefreshBtn.disabled = false;
+      // Re-render the editor to update the dropdown
+      showStepEditor(index);
+    });
+  }
+
   // Done button — save and collapse panel
   editorEl.querySelector('.step-editor-done').addEventListener('click', () => {
     const configFieldsEl = editorEl.querySelector('#step-config-fields');
@@ -1332,6 +1414,15 @@ function showStepEditor(index) {
       }
       if (val !== '') step.config[key] = val;
     });
+    // Validate CLI availability before saving
+    if (step.connector === 'cli_agent' && step.config.cli) {
+      const cliInfo = cliAvailabilityCache || [];
+      const selectedCli = cliInfo.find(c => c.id === step.config.cli);
+      if (selectedCli && !selectedCli.installed) {
+        showToast(`${selectedCli.name} is not installed. Install it first: ${selectedCli.install_hint}`, 'error');
+        return;
+      }
+    }
     // If Slack target dropdown was empty (async not loaded yet), restore previous value
     if (step.connector === 'slack' && !step.config.target && prevTarget) {
       step.config.target = prevTarget;
