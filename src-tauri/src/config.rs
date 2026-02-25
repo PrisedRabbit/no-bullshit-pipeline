@@ -133,9 +133,6 @@ pub struct AppSettings {
     pub save_mix_only: bool,
     #[serde(default)]
     pub integrations: IntegrationsConfig,
-    /// Default pipeline to auto-assign to new recordings (set in Settings > Audio)
-    #[serde(default)]
-    pub default_pipeline: Option<String>,
     /// Last pipeline used — highlighted in chip bar on next launch
     #[serde(default)]
     pub last_used_pipeline: Option<String>,
@@ -196,7 +193,6 @@ impl Default for AppSettings {
             show_recording_notification: true,
             save_mix_only: true,
             integrations: IntegrationsConfig::default(),
-            default_pipeline: None,
             last_used_pipeline: None,
             walkthrough_completed: false,
             local_llm: LocalLlmConfig::default(),

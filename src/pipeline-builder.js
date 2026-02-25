@@ -619,7 +619,6 @@ async function loadPipelineDefs() {
     }
     renderPipelineDefsList();
     if (typeof renderPipelineChips === 'function') renderPipelineChips();
-    if (typeof populateDefaultPipelineSelect === 'function') populateDefaultPipelineSelect();
     // Pre-load CLI availability in background
     loadCliAvailability();
   } catch (err) {

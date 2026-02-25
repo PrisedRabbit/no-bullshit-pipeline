@@ -21,7 +21,6 @@ const AUDIT_ELEMENTS = [
   { id: 'settings-transcription-enabled', desc: 'Auto-transcribe toggle' },
   { id: 'settings-storage-path',     desc: 'Storage path input' },
   { id: 'browse-storage-btn',        desc: 'Browse storage button' },
-  { id: 'settings-default-pipeline', desc: 'Default pipeline select' },
   // Settings > Pipelines
   { id: 'pipeline-defs-list',        desc: 'Pipeline definitions list' },
   { id: 'add-pipeline-def-btn',      desc: 'Add pipeline button' },
