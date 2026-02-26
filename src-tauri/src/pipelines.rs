@@ -344,6 +344,28 @@ fn validate_step_config(step: &PipelineStep) -> Result<(), String> {
                 }
                 _ => {}
             }
+            let model_mode = step.config.get("model_mode").and_then(|v| v.as_str()).unwrap_or("default");
+            if model_mode != "default" && model_mode != "advanced" {
+                return Err(format!(
+                    "Step '{}': CLI agent 'model_mode' must be 'default' or 'advanced', got '{}'",
+                    step.name, model_mode
+                ));
+            }
+            let model_args = step.config.get("model_args").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
+            let model = step.config.get("model").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
+            let provider = step.config.get("provider").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
+            if model_mode == "default" && model_args.is_some() {
+                return Err(format!(
+                    "Step '{}': CLI agent in default mode cannot have 'model_args' - use dropdown selection or switch to advanced mode",
+                    step.name
+                ));
+            }
+            if model_mode == "advanced" && (model.is_some() || provider.is_some()) {
+                return Err(format!(
+                    "Step '{}': CLI agent in advanced mode cannot have 'model' or 'provider' - use 'model_args' for custom CLI arguments",
+                    step.name
+                ));
+            }
         }
     }
     Ok(())

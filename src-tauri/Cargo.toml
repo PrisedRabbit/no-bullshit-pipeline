@@ -53,6 +53,7 @@ notion-client = "1.0.11"
 llama-cpp-2 = { version = "0.1.135", features = ["metal", "sampler"] }
 encoding_rs = "0.8"
 sha2 = "0.10"
+shell-words = "1.1"
 
 [dev-dependencies]
 tempfile = "3.24"
