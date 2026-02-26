@@ -1153,8 +1153,6 @@ window.showDetailView = async (id) => {
           if (active) {
             prBtn.innerHTML = '<span class="btn-spinner"></span><span style="font-weight: 600; font-size: 12px;">Auto-transcribing...</span>';
             prBtn.style.opacity = '0.6';
-          } else if (isAutoTranscribe) {
-            prBtn.style.display = 'none';
           } else {
             prBtn.disabled = false;
             prBtn.style.display = '';
@@ -1162,12 +1160,8 @@ window.showDetailView = async (id) => {
         }
       }).catch(() => {
         if (selectedRecordingId === checkId && prBtn) {
-          if (isAutoTranscribe) {
-            prBtn.style.display = 'none';
-          } else {
-            prBtn.disabled = false;
-            prBtn.style.display = '';
-          }
+          prBtn.disabled = false;
+          prBtn.style.display = '';
         }
       });
     }
