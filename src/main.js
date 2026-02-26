@@ -2786,6 +2786,7 @@ async function init() {
   await loadSettings();
   await loadRecordings();
   await loadPipelineDefs();
+  renderRecordingsList(); // re-render after pipeline defs loaded so flow chips appear
   await loadTemplates();
   await loadPromptTemplates();
   await loadSlackIntegrations();
