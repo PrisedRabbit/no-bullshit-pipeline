@@ -65,9 +65,6 @@ pub struct ProviderConfig {
     /// Unix timestamp when models were last successfully fetched from provider API
     #[serde(default)]
     pub models_fetched_at: Option<i64>,
-    /// Base URL for the provider API (e.g., for Ollama: "http://localhost:11434")
-    #[serde(default)]
-    pub base_url: Option<String>,
 }
 
 impl ProviderConfig {
@@ -78,25 +75,12 @@ impl ProviderConfig {
             models: models.iter().map(|s| s.to_string()).collect(),
             cached_models: vec![],
             models_fetched_at: None,
-            base_url: None,
         }
     }
 
     pub fn with_capabilities(caps: &[&str]) -> Self {
         Self::new(caps, &[])
     }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-pub struct CachedFreshnessInfo {
-    pub model_name: String,
-    pub source: String,
-    pub update_available: bool,
-    pub local_size: Option<u64>,
-    pub remote_size: Option<u64>,
-    pub local_digest: Option<String>,
-    pub remote_digest: Option<String>,
-    pub error: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -166,6 +150,9 @@ pub struct AppSettings {
     pub save_mix_only: bool,
     #[serde(default)]
     pub integrations: IntegrationsConfig,
+    /// Default pipeline to auto-assign to new recordings (set in Settings > Audio)
+    #[serde(default)]
+    pub default_pipeline: Option<String>,
     /// Last pipeline used — highlighted in chip bar on next launch
     #[serde(default)]
     pub last_used_pipeline: Option<String>,
@@ -178,9 +165,9 @@ pub struct AppSettings {
     /// Unix timestamp of last automatic model freshness check
     #[serde(default)]
     pub last_model_freshness_check: Option<i64>,
-    /// Cached model freshness results from last auto-check (model_id → full info)
+    /// Cached model freshness results from last auto-check (model_id → update_available)
     #[serde(default)]
-    pub cached_freshness_results: HashMap<String, CachedFreshnessInfo>,
+    pub cached_freshness_results: HashMap<String, bool>,
     /// Provider-first model config: keyed by provider ID ("openai", "google", "anthropic", "local")
     #[serde(default = "default_providers")]
     pub providers: HashMap<String, ProviderConfig>,
@@ -226,6 +213,7 @@ impl Default for AppSettings {
             show_recording_notification: true,
             save_mix_only: true,
             integrations: IntegrationsConfig::default(),
+            default_pipeline: None,
             last_used_pipeline: None,
             walkthrough_completed: false,
             local_llm: LocalLlmConfig::default(),

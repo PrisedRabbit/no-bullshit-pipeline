@@ -37,16 +37,16 @@ var providerModels = {};
 var providerModelsFetching = false;
 var providerModelsFetchQueue = Promise.resolve();
 
-async function fetchProviderModels(provider, forceRefresh = false) {
+async function fetchProviderModels(provider) {
   return providerModelsFetchQueue = providerModelsFetchQueue.then(async () => {
     try {
-      const response = await window.__TAURI__.core.invoke('fetch_provider_models', { provider, forceRefresh });
+      const response = await window.__TAURI__.core.invoke('fetch_provider_models', { provider });
       providerModels[provider] = {
         models: response.models,
         cached: response.cached,
         fetchedAt: response.fetched_at,
         stale: response.stale,
-        error: response.error || null,
+        error: null,
       };
     } catch (err) {
       providerModels[provider] = { models: [], cached: false, fetchedAt: null, stale: false, error: String(err) };
@@ -92,9 +92,8 @@ function renderProviderModelsList(providerId) {
 
   if (data.error) {
     const storedModels = (appSettings && appSettings.providers && appSettings.providers[providerId] && appSettings.providers[providerId].models) || [];
-    const errorMsg = escapeHtml(data.error);
     if (storedModels.length === 0) {
-      return `<div class="provider-models-section"><span class="provider-models-error" style="display:block;max-width:300px;word-wrap:break-word;">${errorMsg}</span></div>`;
+      return `<div class="provider-models-section"><span class="provider-models-error">Failed to load models</span></div>`;
     }
     const chips = storedModels.map(id => {
       return `<div class="provider-model-item">
@@ -102,7 +101,7 @@ function renderProviderModelsList(providerId) {
     </div>`;
     }).join('');
     return `<div class="provider-models-section">
-    <span class="provider-models-error" style="display:block;max-width:300px;word-wrap:break-word;margin-bottom:4px;">${errorMsg}</span>
+    <span class="provider-models-error">Failed to load models</span>
     <div class="provider-models-header">
       <span class="provider-models-count">${storedModels.length} model${storedModels.length !== 1 ? 's' : ''} available</span>
       <span class="provider-models-freshness" style="margin-left:auto;font-size:0.65rem;color:#e6a700;">offline (cached)</span>
@@ -370,8 +369,6 @@ function renderModelsProviders() {
   const ollamaConfig = providerConfigs['ollama'] || {};
   const localCaps = [...new Set([...(localConfig.capabilities || []), ...(ollamaConfig.capabilities || [])])];
   const ollamaModelsHtml = renderProviderModelsList('ollama');
-  const ollamaBaseUrl = ollamaConfig.base_url || '';
-  const ollamaHostDisplay = ollamaBaseUrl || 'http://localhost:11434';
 
   sections.push(`
     <div class="connections-group" data-provider-section="local">
@@ -393,23 +390,12 @@ function renderModelsProviders() {
           <div class="group-desc">On-device AI processing — no API keys needed</div>
         </div>
       </div>
-      <div class="provider-card" data-provider="ollama" style="border:none;padding:0;background:none;">
-        <div class="provider-card-input" style="width:100%;justify-content:flex-start;gap:8px;flex-wrap:wrap;">
-          <span style="font-size:0.75rem;color:var(--text-secondary);">Ollama host:</span>
-          <input
-            id="settings-ollama-host"
-            type="text"
-            placeholder="http://localhost:11434"
-            class="settings-input-text"
-            value="${escapeHtml(ollamaHostDisplay)}"
-            style="width:180px;"
-          />
-          <button class="mini-action-btn ollama-refresh-btn" style="font-size:0.75rem;">Connect</button>
-        </div>
-      </div>
       ${ollamaModelsHtml ? `<div id="ollama-provider-container"><div class="provider-card-wrapper">${ollamaModelsHtml}</div></div>` : '<div id="ollama-provider-container"></div>'}
       <div id="local-llm-models-list" style="display:flex;flex-direction:column;gap:8px;"></div>
-      <div id="llm-freshness-status" style="margin-top:6px;font-size:0.7rem;color:var(--text-secondary);"></div>
+      <div id="llm-freshness-actions" style="margin-top:6px;display:flex;align-items:center;gap:8px;">
+        <button id="llm-check-freshness-btn" class="mini-action-btn" style="font-size:0.75rem;">Check for Updates</button>
+        <span id="llm-freshness-status" style="font-size:0.7rem;color:var(--text-secondary);"></span>
+      </div>
       <div style="margin-top:4px;">
         <p style="font-size:0.75rem;color:var(--text-secondary);opacity:0.7;margin:0;">
           Location: <span class="mono-font">~/.nbp/models/llm/</span>
@@ -490,40 +476,6 @@ function renderModelsProviders() {
     });
   });
 
-  // Wire Ollama host Connect button
-  el.querySelectorAll('.ollama-refresh-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const input = document.getElementById('settings-ollama-host');
-      if (!input) return;
-      const value = input.value.trim() || 'http://localhost:11434';
-      
-      if (!appSettings.providers) appSettings.providers = {};
-      if (!appSettings.providers['ollama']) appSettings.providers['ollama'] = {};
-      appSettings.providers['ollama'].base_url = value || null;
-
-      btn.disabled = true;
-      btn.textContent = 'Saving...';
-      try {
-        await window.__TAURI__.core.invoke('save_settings', { settings: appSettings });
-        delete providerModels['ollama'];
-        btn.textContent = 'Connecting...';
-        await fetchProviderModels('ollama', true);
-        const data = providerModels['ollama'];
-        if (data && !data.error && data.models.length > 0) {
-          showToast(`Connected to Ollama at ${value}`, 'success');
-        } else if (data && data.error) {
-          showToast(data.error, 'error');
-        }
-        renderModelsProviders();
-      } catch (err) {
-        showToast('Failed to connect: ' + err, 'error');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Connect';
-      }
-    });
-  });
-
   // Wire Show All / Show Less toggle buttons
   el.querySelectorAll('.provider-models-toggle').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -532,6 +484,49 @@ function renderModelsProviders() {
       renderModelsProviders();
     });
   });
+
+  // Wire freshness check button
+  const freshnessBtn = el.querySelector('#llm-check-freshness-btn');
+  if (freshnessBtn) {
+    freshnessBtn.addEventListener('click', async () => {
+      const invoke = window.__TAURI__.core.invoke;
+      const statusEl = document.getElementById('llm-freshness-status');
+      freshnessBtn.disabled = true;
+      freshnessBtn.innerHTML = '<span class="btn-spinner"></span> Checking…';
+      freshnessCheckRunning = true;
+      if (statusEl) statusEl.textContent = '';
+      try {
+        const report = await invoke('check_all_llm_freshness');
+        llmFreshnessData = report.models || {};
+        const updateCount = Object.values(llmFreshnessData).filter(v => v.status === 'update_available').length;
+        if (report.failed > 0 && report.checked === 0) {
+          showToast('Could not check for updates — network error', 'error');
+          if (statusEl) statusEl.textContent = `${report.failed} model(s) could not be checked`;
+        } else if (report.failed > 0) {
+          const msg = updateCount > 0
+            ? `${updateCount} update(s) available, ${report.failed} could not be checked`
+            : `${report.checked} checked, ${report.failed} could not be checked`;
+          if (statusEl) statusEl.textContent = msg;
+        } else if (updateCount > 0) {
+          if (statusEl) statusEl.textContent = `${updateCount} update(s) available`;
+        } else {
+          showToast('All models are up to date', 'success');
+          if (statusEl) statusEl.textContent = 'All up to date';
+        }
+        renderLocalLlmModelsInner();
+      } catch (err) {
+        if (String(err).includes('cancelled')) {
+          if (statusEl) statusEl.textContent = '';
+        } else {
+          showToast('Freshness check failed: ' + err, 'error');
+        }
+      } finally {
+        freshnessCheckRunning = false;
+        freshnessBtn.disabled = false;
+        freshnessBtn.textContent = 'Check for Updates';
+      }
+    });
+  }
 
   // Fill local LLM models
   renderLocalLlmModelsInner();
@@ -562,10 +557,6 @@ async function renderLocalLlmModels() {
       }
     }
   } catch (_) { /* ignore — cached results are optional */ }
-  
-  const lastCheck = appSettings?.last_model_freshness_check || null;
-  updateFreshnessStatusDisplay(lastCheck, false);
-  
   renderLocalLlmModelsInner();
 }
 
@@ -736,21 +727,29 @@ if (window.__TAURI__?.event?.listen) {
     const results = event.payload;
     if (!Array.isArray(results)) return;
     llmFreshnessData = {};
-    let hasError = false;
     for (const info of results) {
-      if (info.error) {
-        llmFreshnessData[info.model_id] = { status: 'error', error: info.error };
-        hasError = true;
-      } else {
-        llmFreshnessData[info.model_id] = { status: info.update_available ? 'update_available' : 'up_to_date' };
-      }
+      llmFreshnessData[info.model_id] = { status: info.update_available ? 'update_available' : 'up_to_date' };
     }
-    const settings = window.appSettings;
-    const lastCheck = settings?.last_model_freshness_check || null;
-    updateFreshnessStatusDisplay(lastCheck, true, hasError);
     renderLocalLlmModelsInner();
   });
 }
+
+// Wire "Check for Updates" button with spinner and cancellation
+let freshnessCheckRunning = false;
+
+function cancelFreshnessCheck() {
+  if (!freshnessCheckRunning) return;
+  window.__TAURI__.core.invoke('cancel_llm_freshness');
+}
+
+// Cancel freshness check when navigating away from settings
+new MutationObserver(() => {
+  if (!document.body.classList.contains('settings-open')) {
+    cancelFreshnessCheck();
+  }
+}).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+
+// Freshness check button wired inside renderModelsProviders()
 
 async function loadNotionProfiles() {
   try {
@@ -2322,7 +2321,6 @@ function initIntegrationsSettings() {
     // Auto-fetch provider models when models tab opens
     if (modelsTab && modelsTab.classList.contains('active')) {
       refreshAllProviderModels();
-      autoCheckModelFreshness();
     }
   });
 
@@ -2330,84 +2328,6 @@ function initIntegrationsSettings() {
   const intTab = document.querySelector('.settings-tab-content[data-tab="integrations"]');
   if (modelsTab) observer.observe(modelsTab, { attributes: true, attributeFilter: ['class'] });
   if (intTab) observer.observe(intTab, { attributes: true, attributeFilter: ['class'] });
-}
-
-let autoFreshnessCheckRunning = false;
-
-async function autoCheckModelFreshness() {
-  if (autoFreshnessCheckRunning) return;
-  autoFreshnessCheckRunning = true;
-
-  const statusEl = document.getElementById('llm-freshness-status');
-  if (statusEl) statusEl.textContent = 'Checking for updates…';
-
-  try {
-    const result = await window.__TAURI__.core.invoke('trigger_freshness_check_if_needed');
-    
-    llmFreshnessData = {};
-    let hasError = false;
-    for (const info of result.results) {
-      if (info.error) {
-        llmFreshnessData[info.model_id] = { status: 'error', error: info.error };
-        hasError = true;
-      } else {
-        llmFreshnessData[info.model_id] = {
-          status: info.update_available ? 'update_available' : 'up_to_date'
-        };
-      }
-    }
-    
-    updateFreshnessStatusDisplay(result.last_check_timestamp, result.checked, hasError);
-    renderLocalLlmModelsInner();
-  } catch (err) {
-    console.error('Auto freshness check failed:', err);
-    if (statusEl) statusEl.innerHTML = `<span style="color:#e74c3c;">Check failed</span>`;
-  } finally {
-    autoFreshnessCheckRunning = false;
-  }
-}
-
-function updateFreshnessStatusDisplay(lastCheckTimestamp, justChecked, hasError = false) {
-  const statusEl = document.getElementById('llm-freshness-status');
-  if (!statusEl) return;
-
-  if (!lastCheckTimestamp) {
-    statusEl.textContent = '';
-    return;
-  }
-
-  const now = Date.now();
-  const lastCheck = lastCheckTimestamp * 1000;
-  const diffMs = now - lastCheck;
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  let ageText;
-  if (justChecked) {
-    ageText = 'just now';
-  } else if (diffMins < 1) {
-    ageText = 'just now';
-  } else if (diffMins < 60) {
-    ageText = `${diffMins}m ago`;
-  } else if (diffHours < 24) {
-    ageText = `${diffHours}h ago`;
-  } else if (diffDays === 1) {
-    ageText = '1d ago';
-  } else {
-    ageText = `${diffDays}d ago`;
-  }
-
-  const updateCount = Object.values(llmFreshnessData).filter(v => v.status === 'update_available').length;
-  const errorCount = Object.values(llmFreshnessData).filter(v => v.status === 'error').length;
-  
-  if (hasError || errorCount > 0) {
-    statusEl.innerHTML = `<span style="color:#e74c3c;">${errorCount} error(s)</span> <span style="opacity:0.6;">· checked ${ageText}</span>`;
-  } else if (updateCount > 0) {
-    statusEl.innerHTML = `<span style="color:#e6a700;">${updateCount} update(s) available</span> <span style="opacity:0.6;">· checked ${ageText}</span>`;
-  } else {
-    statusEl.innerHTML = `<span style="opacity:0.6;">checked ${ageText}</span>`;
-  }
 }
 
 // Auto-init when DOM is ready

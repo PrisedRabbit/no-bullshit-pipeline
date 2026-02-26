@@ -22,7 +22,6 @@ pub struct ProviderModelsResponse {
     pub cached: bool,
     pub fetched_at: Option<i64>,
     pub stale: bool,
-    pub error: Option<String>,
 }
 
 // ===== OpenAI =====
@@ -237,49 +236,26 @@ struct OllamaModel {
     name: String,
 }
 
-const OLLAMA_DEFAULT_URL: &str = "http://localhost:11434";
-
-fn normalize_ollama_base_url(url: &str) -> String {
-    let trimmed = url.trim();
-    trimmed.trim_end_matches('/').to_string()
-}
-
-async fn fetch_ollama_models(base_url: Option<&str>) -> Result<Vec<ProviderModel>, String> {
-    let normalized = normalize_ollama_base_url(base_url.unwrap_or(OLLAMA_DEFAULT_URL));
-    let endpoint = format!("{}/api/tags", normalized);
-
+async fn fetch_ollama_models() -> Result<Vec<ProviderModel>, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+        .map_err(|e| format!("Client error: {}", e))?;
 
     let response = client
-        .get(&endpoint)
+        .get("http://localhost:11434/api/tags")
         .send()
         .await
-        .map_err(|e| {
-            let hint = if e.is_timeout() {
-                "Connection timed out. Is Ollama responding?"
-            } else if e.is_connect() {
-                "Connection refused. Is Ollama running?"
-            } else {
-                "Network error. Check host and port."
-            };
-            format!("Cannot reach Ollama at {}: {} ({})", endpoint, e, hint)
-        })?;
+        .map_err(|e| format!("Cannot reach Ollama (is it running?): {}", e))?;
 
     if !response.status().is_success() {
-        let status = response.status();
-        return Err(format!(
-            "Ollama API returned {} at {}. Is the service healthy?",
-            status, endpoint
-        ));
+        return Err(format!("Ollama API error ({})", response.status()));
     }
 
     let body: OllamaTagsResponse = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse Ollama response from {}: {}", endpoint, e))?;
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
 
     let mut models: Vec<ProviderModel> = body
         .models
@@ -307,8 +283,7 @@ async fn fetch_ollama_models(base_url: Option<&str>) -> Result<Vec<ProviderModel
 // ===== Tauri Command =====
 
 #[tauri::command]
-pub async fn fetch_provider_models(provider: String, force_refresh: Option<bool>) -> Result<ProviderModelsResponse, String> {
-    let force = force_refresh.unwrap_or(false);
+pub async fn fetch_provider_models(provider: String) -> Result<ProviderModelsResponse, String> {
     let settings = crate::config::load_settings();
     let api_keys = &settings.transcription.api_keys;
     let now = chrono::Utc::now().timestamp();
@@ -316,13 +291,12 @@ pub async fn fetch_provider_models(provider: String, force_refresh: Option<bool>
     let provider_config = settings.providers.get(&provider);
     let cached_models = provider_config.map(|c| c.cached_models.clone()).unwrap_or_default();
     let cached_at = provider_config.and_then(|c| c.models_fetched_at);
-    let base_url = provider_config.and_then(|c| c.base_url.as_deref());
 
     let is_stale = cached_at
         .map(|ts| now - ts > MODELS_CACHE_TTL_SECS)
         .unwrap_or(true);
 
-    if !force && !is_stale && !cached_models.is_empty() {
+    if !is_stale && !cached_models.is_empty() {
         let models: Vec<ProviderModel> = cached_models
             .iter()
             .map(|m| ProviderModel {
@@ -337,7 +311,6 @@ pub async fn fetch_provider_models(provider: String, force_refresh: Option<bool>
             cached: true,
             fetched_at: cached_at,
             stale: false,
-            error: None,
         });
     }
 
@@ -354,7 +327,7 @@ pub async fn fetch_provider_models(provider: String, force_refresh: Option<bool>
             let key = api_keys.google.as_ref().ok_or("Google API key not configured")?;
             fetch_google_models(key).await
         }
-        "ollama" => fetch_ollama_models(base_url).await,
+        "ollama" => fetch_ollama_models().await,
         other => Err(format!("Unknown provider: {}", other)),
     };
 
@@ -366,7 +339,6 @@ pub async fn fetch_provider_models(provider: String, force_refresh: Option<bool>
                 cached: false,
                 fetched_at: Some(now),
                 stale: false,
-                error: None,
             })
         }
         Err(e) => {
@@ -385,16 +357,9 @@ pub async fn fetch_provider_models(provider: String, force_refresh: Option<bool>
                     cached: true,
                     fetched_at: cached_at,
                     stale: true,
-                    error: Some(e),
                 })
             } else {
-                Ok(ProviderModelsResponse {
-                    models: vec![],
-                    cached: false,
-                    fetched_at: None,
-                    stale: false,
-                    error: Some(e),
-                })
+                Err(e)
             }
         }
     }
