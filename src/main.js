@@ -1582,7 +1582,9 @@ if (window.__TAURI__) {
       const { recording_id, stage, percent } = event.payload;
       if (recording_id !== transcribingRecordingId || selectedRecordingId !== transcribingRecordingId) return;
       const btn = document.getElementById('process-btn');
-      if (!btn || !btn.disabled) return;
+      if (!btn) return;
+      // Ensure button stays disabled while transcription events are coming in
+      btn.disabled = true;
 
       if (stage === 'Done') {
         clearTranscriptionTimer();
@@ -1590,9 +1592,16 @@ if (window.__TAURI__) {
       }
 
       if (percent > 0) {
-        // Determinate progress (local Whisper)
+        // Determinate progress (local Whisper) — show in button + transcript area
         clearTranscriptionTimer();
         btn.innerHTML = `<span style="font-weight: 600; font-size: 12px;">${escapeHtml(stage)} ${percent}%</span>`;
+        if (detailTranscriptEl) {
+          detailTranscriptEl.innerHTML = `
+            <div class="transcript-processing-state">
+              <div class="transcript-processing-spinner"></div>
+              <span class="transcript-processing-text">${escapeHtml(stage)} ${percent}%</span>
+            </div>`;
+        }
       } else {
         // Indeterminate progress (cloud / loading) — show elapsed time
         transcriptionCurrentStage = stage;
@@ -1607,13 +1616,27 @@ if (window.__TAURI__) {
             }
             const elapsed = Math.floor((Date.now() - transcriptionStartTime) / 1000);
             const b = document.getElementById('process-btn');
-            if (b && b.disabled) {
+            if (b) {
               b.innerHTML = `<span style="font-weight: 600; font-size: 12px;">${escapeHtml(transcriptionCurrentStage)} ${elapsed}s</span>`;
+            }
+            if (detailTranscriptEl) {
+              detailTranscriptEl.innerHTML = `
+                <div class="transcript-processing-state">
+                  <div class="transcript-processing-spinner"></div>
+                  <span class="transcript-processing-text">${escapeHtml(transcriptionCurrentStage)}… ${elapsed}s</span>
+                </div>`;
             }
           }, 1000);
         }
         const elapsed = Math.floor((Date.now() - transcriptionStartTime) / 1000);
         btn.innerHTML = `<span style="font-weight: 600; font-size: 12px;">${escapeHtml(stage)} ${elapsed}s</span>`;
+        if (detailTranscriptEl) {
+          detailTranscriptEl.innerHTML = `
+            <div class="transcript-processing-state">
+              <div class="transcript-processing-spinner"></div>
+              <span class="transcript-processing-text">${escapeHtml(stage)}… ${elapsed}s</span>
+            </div>`;
+        }
       }
     });
   } catch (e) {
