@@ -39,7 +39,9 @@ impl LocalTranscriber {
         let stop_flag = should_stop.clone();
 
         let handle = std::thread::spawn(move || {
-            if let Err(e) = run_local_transcription(app_handle.clone(), &model_path, &recording_id, stop_flag) {
+            if let Err(e) =
+                run_local_transcription(app_handle.clone(), &model_path, &recording_id, stop_flag)
+            {
                 eprintln!("Local transcription error: {}", e);
                 let _ = app_handle.emit(EVENT_TRANSCRIPTION_ERROR, e);
             }
@@ -162,14 +164,19 @@ fn run_local_transcription(
                     format!("{} {}", committed_text, last_text)
                 };
                 if combined.len() > last_write_len {
-                    if let Err(e) = write_transcript_json(&recording_dir, &combined, "whisper-realtime") {
+                    if let Err(e) =
+                        write_transcript_json(&recording_dir, &combined, "whisper-realtime")
+                    {
                         eprintln!("Failed to write incremental transcript: {}", e);
                     } else {
                         last_write_len = combined.len();
-                        let _ = app_handle.emit(EVENT_TRANSCRIPT_UPDATED, TranscriptUpdated {
-                            recording_id: recording_id.to_string(),
-                            text: combined,
-                        });
+                        let _ = app_handle.emit(
+                            EVENT_TRANSCRIPT_UPDATED,
+                            TranscriptUpdated {
+                                recording_id: recording_id.to_string(),
+                                text: combined,
+                            },
+                        );
                     }
                 }
             }
@@ -188,14 +195,19 @@ fn run_local_transcription(
         }
 
         if committed_text.len() > last_write_len {
-            if let Err(e) = write_transcript_json(&recording_dir, &committed_text, "whisper-realtime") {
+            if let Err(e) =
+                write_transcript_json(&recording_dir, &committed_text, "whisper-realtime")
+            {
                 eprintln!("Failed to write transcript: {}", e);
             } else {
                 last_write_len = committed_text.len();
-                let _ = app_handle.emit(EVENT_TRANSCRIPT_UPDATED, TranscriptUpdated {
-                    recording_id: recording_id.to_string(),
-                    text: committed_text.clone(),
-                });
+                let _ = app_handle.emit(
+                    EVENT_TRANSCRIPT_UPDATED,
+                    TranscriptUpdated {
+                        recording_id: recording_id.to_string(),
+                        text: committed_text.clone(),
+                    },
+                );
             }
         }
 
@@ -213,19 +225,26 @@ fn run_local_transcription(
         if let Err(e) = write_transcript_json(&recording_dir, &committed_text, "whisper-realtime") {
             eprintln!("Failed to write final transcript: {}", e);
         } else {
-            let _ = app_handle.emit(EVENT_TRANSCRIPT_UPDATED, TranscriptUpdated {
-                recording_id: recording_id.to_string(),
-                text: committed_text,
-            });
+            let _ = app_handle.emit(
+                EVENT_TRANSCRIPT_UPDATED,
+                TranscriptUpdated {
+                    recording_id: recording_id.to_string(),
+                    text: committed_text,
+                },
+            );
         }
     }
 
     Ok(())
 }
 
-fn write_transcript_json(recording_dir: &std::path::Path, text: &str, model: &str) -> Result<(), String> {
+fn write_transcript_json(
+    recording_dir: &std::path::Path,
+    text: &str,
+    model: &str,
+) -> Result<(), String> {
     use crate::transcript_migration::TranscriptSource;
-    
+
     let transcript = crate::transcription::TranscriptJson::new(
         TranscriptSource::Local,
         model.to_string(),
@@ -245,7 +264,7 @@ fn write_transcript_json(recording_dir: &std::path::Path, text: &str, model: &st
         .map_err(|e| format!("Failed to write transcript: {}", e))?;
     std::fs::rename(&temp_path, &json_path)
         .map_err(|e| format!("Failed to finalize transcript: {}", e))?;
-    
+
     Ok(())
 }
 
@@ -289,16 +308,14 @@ fn sleep_remaining(
 // Managed state and Tauri commands
 // ---------------------------------------------------------------------------
 
-/// Holds either a cloud or local transcriber, abstracts stop().
+/// Holds active realtime transcriber.
 pub enum ActiveTranscriber {
-    Cloud(CloudTranscriber),
     Local(LocalTranscriber),
 }
 
 impl ActiveTranscriber {
     fn stop(&mut self) {
         match self {
-            Self::Cloud(c) => c.stop(),
             Self::Local(l) => l.stop(),
         }
     }
@@ -352,26 +369,13 @@ fn resolve_local_model_path(settings: &crate::config::AppSettings) -> Result<Pat
 fn do_start(
     app_handle: tauri::AppHandle,
     settings: &crate::config::AppSettings,
+    recording_id: Option<String>,
 ) -> Result<ActiveTranscriber, String> {
-    match settings.transcription.realtime_provider {
-        crate::config::RealtimeTranscriptionProvider::OpenAI => {
-            let api_key = crate::config::get_api_key_for_provider(settings, "openai")
-                .ok_or("OpenAI API key not configured")?;
-            let model = settings
-                .transcription
-                .realtime_model
-                .clone()
-                .unwrap_or_else(|| "gpt-4o-mini-transcribe".to_string());
-            let transcriber = CloudTranscriber::start(app_handle, api_key, model, None)?;
-            Ok(ActiveTranscriber::Cloud(transcriber))
-        }
-        crate::config::RealtimeTranscriptionProvider::Local
-        | crate::config::RealtimeTranscriptionProvider::Unknown => {
-            let model_path = resolve_local_model_path(settings)?;
-            let transcriber = LocalTranscriber::start(app_handle, model_path)?;
-            Ok(ActiveTranscriber::Local(transcriber))
-        }
-    }
+    let _provider = settings.transcription.realtime_provider.clone();
+    let model_path = resolve_local_model_path(settings)?;
+    let rid = recording_id.unwrap_or_else(|| "unknown-recording".to_string());
+    let transcriber = LocalTranscriber::start(app_handle, model_path, rid)?;
+    Ok(ActiveTranscriber::Local(transcriber))
 }
 
 /// Auto-start real-time transcription if enabled in settings.
@@ -382,13 +386,16 @@ pub fn auto_start(app_handle: &tauri::AppHandle, state: &RealtimeTranscriptionSt
     if !settings.transcription.realtime_enabled {
         return;
     }
-    match do_start(app_handle.clone(), &settings) {
+    match do_start(app_handle.clone(), &settings, None) {
         Ok(transcriber) => {
             if let Ok(mut guard) = state.active.lock() {
                 *guard = Some(transcriber);
             }
         }
-        Err(e) => eprintln!("WARNING: Failed to auto-start real-time transcription: {}", e),
+        Err(e) => eprintln!(
+            "WARNING: Failed to auto-start real-time transcription: {}",
+            e
+        ),
     }
 }
 
@@ -404,7 +411,6 @@ pub fn auto_stop(state: &RealtimeTranscriptionState) {
 
 /// Start real-time transcription for the given recording.
 /// Checks config for `realtime_enabled` and picks the configured provider/model.
-#[tauri::command]
 pub fn start_realtime_transcription(
     app_handle: tauri::AppHandle,
     recording_id: String,
@@ -424,7 +430,7 @@ pub fn start_realtime_transcription(
         t.stop();
     }
 
-    let transcriber = do_start(app_handle, &settings)?;
+    let transcriber = do_start(app_handle, &settings, Some(recording_id.clone()))?;
     *guard = Some(transcriber);
     drop(guard);
 
@@ -434,7 +440,6 @@ pub fn start_realtime_transcription(
 }
 
 /// Stop the active real-time transcription session, if any.
-#[tauri::command]
 pub fn stop_realtime_transcription(
     state: tauri::State<'_, RealtimeTranscriptionState>,
 ) -> Result<(), String> {

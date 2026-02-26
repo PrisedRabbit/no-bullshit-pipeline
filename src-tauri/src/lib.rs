@@ -261,7 +261,6 @@ pub fn run() {
             local_llm::check_all_llm_freshness,
             local_llm::cancel_llm_freshness,
             local_llm::get_cached_freshness_results,
-            local_llm::trigger_freshness_check_if_needed,
             // Provider models
             cloud_ai::models::fetch_provider_models,
             // Real-time transcription
