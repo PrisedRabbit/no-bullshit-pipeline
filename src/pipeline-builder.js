@@ -94,7 +94,7 @@ const PROVIDER_META = {
   ollama:    { img: 'assets/ollama.svg',    filter: 'invert(1)',                                                          bgColor: 'rgba(142,142,160,0.15)' },
 };
 
-const RECOMMENDED_MODELS = {
+const PB_RECOMMENDED_MODELS = {
   openai: ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'o4-mini'],
   anthropic: ['claude-sonnet-4-20250514', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-opus-4-20250514'],
   google: ['gemini-2.5-pro-preview-06-05', 'gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
@@ -145,7 +145,7 @@ function buildModelOptions(providerId, currentModel, expanded = false) {
   const models = getModelsForProvider(providerId);
   if (models.length === 0) return { html: '<option value="" disabled>No models available</option>', hasMore: false, total: 0 };
 
-  const recommended = RECOMMENDED_MODELS[providerId] || [];
+  const recommended = PB_RECOMMENDED_MODELS[providerId] || [];
   const recommendedSet = new Set(recommended);
   const recommendedModels = models.filter(m => recommendedSet.has(m));
   const otherModels = models.filter(m => !recommendedSet.has(m));
