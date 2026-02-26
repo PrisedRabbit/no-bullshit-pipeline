@@ -2517,12 +2517,12 @@ function renderPromptTemplatesList() {
     const safePreview = escapeHtml((t.prompt || '').substring(0, 100)) + (t.prompt && t.prompt.length > 100 ? '...' : '');
     const updated = t.updated_at ? new Date(t.updated_at).toLocaleDateString() : '';
     return `
-    <div class="prompt-card" data-name="${safeName}">
-      <div class="prompt-card-header">
-        <div class="prompt-card-name">${safeName}</div>
+    <div class="template-item" data-name="${safeName}">
+      <div class="template-item-info">
+        <div class="template-item-name">${safeName}</div>
+        <div class="template-item-desc">${safeDesc}${updated ? ' · ' + updated : ''}</div>
+        ${safePreview ? `<div class="template-item-preview">${safePreview}</div>` : ''}
       </div>
-      <div class="prompt-card-desc">${safeDesc}${updated ? ' · ' + updated : ''}</div>
-      <div class="prompt-card-preview">${safePreview}</div>
     </div>
   `;
   }).join('');
