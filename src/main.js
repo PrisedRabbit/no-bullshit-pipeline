@@ -1605,38 +1605,14 @@ if (window.__TAURI__) {
             </div>`;
         }
       } else {
-        // Indeterminate progress (cloud / loading) — show elapsed time
+        // Indeterminate progress (cloud / loading) — just show spinner + label
         transcriptionCurrentStage = stageLabel;
-        if (!transcriptionStartTime) {
-          transcriptionStartTime = Date.now();
-        }
-        if (!transcriptionElapsedTimer) {
-          transcriptionElapsedTimer = setInterval(() => {
-            if (!transcriptionStartTime || selectedRecordingId !== transcribingRecordingId) {
-              clearTranscriptionTimer();
-              return;
-            }
-            const elapsed = Math.floor((Date.now() - transcriptionStartTime) / 1000);
-            const b = document.getElementById('process-btn');
-            if (b) {
-              b.innerHTML = `<span style="font-weight: 600; font-size: 12px;">${escapeHtml(transcriptionCurrentStage)} ${elapsed}s</span>`;
-            }
-            if (detailTranscriptEl) {
-              detailTranscriptEl.innerHTML = `
-                <div class="transcript-processing-state">
-                  <div class="transcript-processing-spinner"></div>
-                  <span class="transcript-processing-text">${escapeHtml(transcriptionCurrentStage)}… ${elapsed}s</span>
-                </div>`;
-            }
-          }, 1000);
-        }
-        const elapsed = Math.floor((Date.now() - transcriptionStartTime) / 1000);
-        btn.innerHTML = `<span style="font-weight: 600; font-size: 12px;">${stageLabel} ${elapsed}s</span>`;
-        if (detailTranscriptEl) {
+        btn.innerHTML = `<span class="btn-spinner"></span><span style="font-weight: 600; font-size: 12px;">${stageLabel}…</span>`;
+        if (detailTranscriptEl && !detailTranscriptEl.querySelector('.transcript-processing-state')) {
           detailTranscriptEl.innerHTML = `
             <div class="transcript-processing-state">
               <div class="transcript-processing-spinner"></div>
-              <span class="transcript-processing-text">${stageLabel}… ${elapsed}s</span>
+              <span class="transcript-processing-text">${stageLabel}…</span>
             </div>`;
         }
       }
