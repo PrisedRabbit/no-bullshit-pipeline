@@ -121,9 +121,6 @@ function clearTranscriptionTimer() {
 // ===== LIVE TRANSCRIPT STATE =====
 let liveTranscriptGeneration = 0;
 let liveTranscriptUnlisten = null;
-let liveTranscriptFinals = '';
-let liveTranscriptPartial = '';
-let liveTranscriptCurrentItemId = '';
 
 // ===== DOM ELEMENTS =====
 const statusIndicator = document.getElementById("status-indicator");
@@ -280,62 +277,40 @@ function drawSpectrum() {
 }
 
 // ===== LIVE TRANSCRIPT =====
-function renderLiveTranscript() {
+function renderLiveTranscript(text) {
   const content = document.getElementById('live-transcript-content');
   if (!content) return;
-  if (!liveTranscriptFinals && !liveTranscriptPartial) {
+  if (!text) {
     content.innerHTML = '<span style="color: var(--text-secondary); opacity: 0.5; font-style: italic; font-size: 0.85rem;">Listening...</span>';
     return;
   }
-  const finalHtml = liveTranscriptFinals ? escapeHtml(liveTranscriptFinals) : '';
-  const partialHtml = liveTranscriptPartial
-    ? `<span class="live-transcript-partial">${escapeHtml(liveTranscriptPartial)}</span>`
-    : '';
-  content.innerHTML = finalHtml + (finalHtml && partialHtml ? ' ' : '') + partialHtml;
+  content.textContent = text;
   content.scrollTop = content.scrollHeight;
-}
-
-function clearLiveTranscript() {
-  liveTranscriptFinals = '';
-  liveTranscriptPartial = '';
-  liveTranscriptCurrentItemId = '';
 }
 
 async function startLiveTranscript(recordingId) {
   const generation = ++liveTranscriptGeneration;
-  clearLiveTranscript();
 
   if (!appSettings?.transcription?.realtime_enabled) return;
 
   const panel = document.getElementById('live-transcript-panel');
   if (panel) panel.style.display = '';
-  renderLiveTranscript();
+  renderLiveTranscript('');
 
   if (liveTranscriptUnlisten) {
     liveTranscriptUnlisten();
     liveTranscriptUnlisten = null;
   }
 
-  const unlisten = await window.__TAURI__.event.listen('realtime_transcript_delta', (event) => {
+  const unlisten = await window.__TAURI__.event.listen('realtime_transcript_updated', (event) => {
     if (liveTranscriptGeneration !== generation) return;
-    const { text, is_final, item_id } = event.payload;
-    if (is_final) {
-      liveTranscriptFinals += (liveTranscriptFinals ? ' ' : '') + text;
-      if (item_id === liveTranscriptCurrentItemId) {
-        liveTranscriptPartial = '';
-        liveTranscriptCurrentItemId = '';
-      }
-    } else {
-      if (item_id !== liveTranscriptCurrentItemId) {
-        liveTranscriptCurrentItemId = item_id;
-        liveTranscriptPartial = text;
-      } else if (item_id.startsWith('local-')) {
-        liveTranscriptPartial = text; // local: full replacement each step
-      } else {
-        liveTranscriptPartial += text; // cloud: incremental append
-      }
+    const { text } = event.payload;
+    renderLiveTranscript(text);
+    
+    if (detailTranscriptEl && selectedRecordingId === recordingId) {
+      applyMarkdownRendering(detailTranscriptEl, text);
+      detailTranscriptEl.classList.remove('empty');
     }
-    renderLiveTranscript();
   });
 
   if (liveTranscriptGeneration !== generation) {
@@ -363,7 +338,6 @@ function stopLiveTranscript() {
     liveTranscriptUnlisten();
     liveTranscriptUnlisten = null;
   }
-  clearLiveTranscript();
   const panel = document.getElementById('live-transcript-panel');
   if (panel) panel.style.display = 'none';
 }
@@ -522,6 +496,36 @@ async function autoTranscribeAndExecute(recordingId, pipelineNames) {
   if (window.__NBP_setTranscribingId) window.__NBP_setTranscribingId(recordingId);
 
   const prBtn = document.getElementById('process-btn');
+  
+  const existingTranscript = await invoke('get_transcript', { recordingId });
+  
+  if (existingTranscript) {
+    if (detailTranscriptEl && selectedRecordingId === recordingId) {
+      applyMarkdownRendering(detailTranscriptEl, existingTranscript);
+      detailTranscriptEl.classList.remove('empty');
+    }
+    if (prBtn && selectedRecordingId === recordingId) {
+      prBtn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Transcribe</span>';
+      prBtn.disabled = false;
+      prBtn.style.opacity = '1';
+    }
+    if (window.__NBP_setTranscribingId) window.__NBP_setTranscribingId(null);
+    
+    await loadRecordings();
+    if (selectedRecordingId === recordingId) showDetailView(recordingId);
+    
+    for (const pipelineName of pipelineNames) {
+      try {
+        await invoke('execute_pipeline', { recordingId, pipelineName });
+      } catch (err) {
+        console.error(`Auto-pipeline execution failed for "${pipelineName}":`, err);
+      }
+      await loadRecordings();
+      if (selectedRecordingId === recordingId) showDetailView(recordingId);
+    }
+    return;
+  }
+
   if (prBtn && selectedRecordingId === recordingId) {
     prBtn.disabled = true;
     prBtn.innerHTML = '<span class="btn-spinner"></span><span style="font-weight: 600; font-size: 12px;">Auto-transcribing...</span>';
@@ -1796,9 +1800,7 @@ const whisperModelSelect = document.getElementById("settings-whisper-model");
 const downloadModelBtn = document.getElementById("download-model-btn");
 const realtimeEnabledCheckbox = document.getElementById("settings-realtime-enabled");
 const realtimeDetailsEl = document.getElementById("realtime-details");
-const realtimeProviderSelect = document.getElementById("settings-realtime-provider");
 const realtimeModelSelect = document.getElementById("settings-realtime-model");
-const realtimeApiSection = document.getElementById("realtime-api-section");
 const recordingNotificationCheckbox = document.getElementById("settings-recording-notification");
 const saveMixOnlyCheckbox = document.getElementById("settings-save-mix-only");
 
@@ -1844,10 +1846,6 @@ async function loadSettings() {
         realtimeEnabledCheckbox.checked = !!appSettings.transcription.realtime_enabled;
         updateRealtimeVisibility();
       }
-      if (realtimeProviderSelect) {
-        realtimeProviderSelect.value = appSettings.transcription.realtime_provider || 'Local';
-      }
-      updateRealtimeProviderVisibility();
       if (realtimeModelSelect && appSettings.transcription.realtime_model) {
         realtimeModelSelect.value = appSettings.transcription.realtime_model;
       }
@@ -1881,7 +1879,6 @@ async function saveSettings() {
 
     // Real-time transcription
     appSettings.transcription.realtime_enabled = realtimeEnabledCheckbox ? realtimeEnabledCheckbox.checked : false;
-    appSettings.transcription.realtime_provider = realtimeProviderSelect ? realtimeProviderSelect.value : 'Local';
     appSettings.transcription.realtime_model = realtimeModelSelect ? realtimeModelSelect.value || null : null;
 
     // Handle API keys - fresh DOM lookups (cards are dynamically rendered)
@@ -1997,59 +1994,9 @@ async function updateProviderVisibility() {
   }
 }
 
-const REALTIME_MODELS = {
-  Local: [
-    { value: 'base', label: 'Base' },
-    { value: 'small', label: 'Small' },
-  ],
-  OpenAI: [
-    { value: 'gpt-4o-mini-transcribe', label: 'GPT-4o Mini Transcribe' },
-    { value: 'gpt-4o-transcribe', label: 'GPT-4o Transcribe' },
-  ],
-};
-
 function updateRealtimeVisibility() {
   if (!realtimeDetailsEl) return;
   realtimeDetailsEl.style.display = realtimeEnabledCheckbox && realtimeEnabledCheckbox.checked ? 'flex' : 'none';
-}
-
-function updateRealtimeProviderVisibility() {
-  if (!realtimeProviderSelect || !realtimeModelSelect) return;
-  const provider = realtimeProviderSelect.value;
-
-  const models = REALTIME_MODELS[provider] || [];
-  const currentModel = appSettings?.transcription?.realtime_model;
-  realtimeModelSelect.innerHTML = models.map(m =>
-    `<option value="${m.value}"${m.value === currentModel ? ' selected' : ''}>${m.label}</option>`
-  ).join('');
-
-  if (realtimeApiSection) {
-    if (provider === 'OpenAI') {
-      realtimeApiSection.style.display = 'flex';
-      updateRealtimeKeyStatusDot();
-    } else {
-      realtimeApiSection.style.display = 'none';
-    }
-  }
-}
-
-function updateRealtimeKeyStatusDot() {
-  const apiKeys = (appSettings && appSettings.transcription && appSettings.transcription.api_keys) || {};
-  const hasKey = !!apiKeys.openai;
-  const validatedKeys = window.__nbpValidatedKeys || {};
-  const failedKeys = window.__nbpFailedKeys || {};
-  const key = apiKeys.openai || '';
-  const isValidated = validatedKeys.openai === key && !!key;
-  const isFailed = failedKeys.openai === key;
-  const state = !hasKey ? 'missing' : isFailed ? 'failed' : isValidated ? 'valid' : 'saved';
-
-  const statusEl = document.getElementById('realtime-provider-status');
-  updateKeyStatusElement(statusEl, state);
-
-  const label = document.getElementById('realtime-provider-note-label');
-  const detail = document.getElementById('realtime-provider-note-detail');
-  if (label) label.textContent = hasKey ? 'OpenAI key configured' : 'OpenAI key required';
-  if (detail) detail.textContent = hasKey ? 'Using key from Processing above' : 'Add your OpenAI key in Processing above';
 }
 
 async function loadWhisperModelsAndState() {
@@ -2441,10 +2388,6 @@ if (transcriptionProviderSelect) {
 
 if (realtimeEnabledCheckbox) {
   realtimeEnabledCheckbox.addEventListener("change", updateRealtimeVisibility);
-}
-
-if (realtimeProviderSelect) {
-  realtimeProviderSelect.addEventListener("change", updateRealtimeProviderVisibility);
 }
 
 if (browseStorageBtn) {

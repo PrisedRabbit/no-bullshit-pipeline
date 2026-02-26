@@ -195,6 +195,11 @@ const CLOUD_PROVIDERS = [
   { id: 'anthropic', name: 'Anthropic',  desc: 'Claude structured extraction',             placeholder: 'sk-ant-...', icon: { img: 'assets/anthropic.svg', filter: 'invert(55%) sepia(80%) saturate(500%) hue-rotate(10deg)',  bg: 'rgba(217,119,6,0.15)'  } },
 ];
 
+const LOCAL_PROVIDERS = [
+  { id: 'local',  name: 'Local LLM', desc: 'GGUF models stored on device', icon: { img: 'assets/local-llm.svg', filter: 'invert(68%) sepia(60%) saturate(400%) hue-rotate(220deg)', bg: 'rgba(139,92,246,0.15)' } },
+  { id: 'ollama', name: 'Ollama',   desc: 'Local inference via Ollama',    icon: { img: 'assets/ollama.svg',    filter: 'invert(1)',                                                bg: 'rgba(142,142,160,0.15)' } },
+];
+
 const CAP_BADGE_COLORS = {
   'Transcription': 'rgba(16,185,129,0.18)',
   'Processing':    'rgba(59,130,246,0.18)',
@@ -329,28 +334,21 @@ function renderModelsProviders() {
   const ollamaConfig = providerConfigs['ollama'] || {};
   const localCaps = [...new Set([...(localConfig.capabilities || []), ...(ollamaConfig.capabilities || [])])];
   const ollamaModelsHtml = renderProviderModelsList('ollama');
+  const localProvider = LOCAL_PROVIDERS.find(p => p.id === 'local');
+  const ollamaProvider = LOCAL_PROVIDERS.find(p => p.id === 'ollama');
 
   sections.push(`
     <div class="connections-group" data-provider-section="local">
       <div class="connections-group-header">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
-          <rect x="9" y="9" width="6" height="6"></rect>
-          <line x1="9" y1="1" x2="9" y2="4"></line>
-          <line x1="15" y1="1" x2="15" y2="4"></line>
-          <line x1="9" y1="20" x2="9" y2="23"></line>
-          <line x1="15" y1="20" x2="15" y2="23"></line>
-          <line x1="20" y1="9" x2="23" y2="9"></line>
-          <line x1="20" y1="14" x2="23" y2="14"></line>
-          <line x1="1" y1="9" x2="4" y2="9"></line>
-          <line x1="1" y1="14" x2="4" y2="14"></line>
-        </svg>
+        <div class="provider-card-icon local" style="background:${localProvider.icon.bg};display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;">
+          <img src="${localProvider.icon.img}" style="width:18px;height:18px;filter:${localProvider.icon.filter}" />
+        </div>
         <div class="group-info">
           <div class="group-label">Local / Ollama ${renderCapBadges(localCaps)}</div>
           <div class="group-desc">On-device AI processing — no API keys needed</div>
         </div>
       </div>
-      ${ollamaModelsHtml ? `<div id="ollama-provider-container"><div class="provider-card-wrapper">${ollamaModelsHtml}</div></div>` : '<div id="ollama-provider-container"></div>'}
+      ${ollamaModelsHtml ? `<div id="ollama-provider-container"><div class="provider-card-wrapper"><div class="provider-subsection"><div class="provider-subsection-header"><div class="provider-card-icon ollama" style="background:${ollamaProvider.icon.bg};display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:4px;"><img src="${ollamaProvider.icon.img}" style="width:14px;height:14px;filter:${ollamaProvider.icon.filter}" /></div><span class="provider-subsection-label">Ollama</span></div>${ollamaModelsHtml}</div></div></div>` : '<div id="ollama-provider-container"></div>'}
       <div id="local-llm-models-list" style="display:flex;flex-direction:column;gap:8px;"></div>
       <div id="llm-freshness-actions" style="margin-top:6px;display:flex;align-items:center;gap:8px;">
         <button id="llm-check-freshness-btn" class="mini-action-btn" style="font-size:0.75rem;">Check for Updates</button>
