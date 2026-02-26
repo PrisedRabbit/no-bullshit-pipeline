@@ -20,40 +20,15 @@ pub enum ConnectorType {
     CliAgent,
 }
 
-/// Step categories for UI grouping
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum StepCategory {
-    Prompt,
-    Tool,
-    Output,
-}
-
 impl ConnectorType {
-    /// Returns the UI category for this connector type
-    pub fn category(&self) -> StepCategory {
-        match self {
-            ConnectorType::Llm => StepCategory::Prompt,
-            ConnectorType::Mcp | ConnectorType::CliAgent => StepCategory::Tool,
-            _ => StepCategory::Output,
-        }
-    }
-
     /// Delivery connectors send output to external services.
     /// Their failure does not block other independent steps — the pipeline continues
     /// executing subsequent steps whose inputs are not derived from this step.
     ///
-    /// Prompt and Tool connectors produce output consumed by downstream steps.
+    /// Processing connectors (Llm, Mcp) produce output consumed by downstream steps.
     /// Their failure halts all downstream steps because those steps depend on the output.
     pub fn is_delivery(&self) -> bool {
-        matches!(
-            self,
-            ConnectorType::Notion
-                | ConnectorType::Linear
-                | ConnectorType::Slack
-                | ConnectorType::Webhook
-                | ConnectorType::Save
-        )
+        matches!(self, ConnectorType::Notion | ConnectorType::Linear | ConnectorType::Slack | ConnectorType::Webhook | ConnectorType::Save)
     }
 }
 
@@ -62,16 +37,10 @@ impl ConnectorType {
 pub struct PipelineStep {
     pub name: String,
     pub connector: ConnectorType,
-    #[serde(default = "default_step_category")]
-    pub category: StepCategory,
     pub input: String, // "transcript" or previous step name
     pub config: serde_json::Value, // Connector-specific config
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-}
-
-fn default_step_category() -> StepCategory {
-    StepCategory::Output
 }
 
 /// Pipeline definition (stored in pipelines.json)
@@ -249,10 +218,10 @@ fn validate_step_config(step: &PipelineStep) -> Result<(), String> {
             }
             // Validate provider if specified
             if let Some(provider) = step.config.get("provider").and_then(|v| v.as_str())
-                && !["openai", "google", "anthropic", "local", "ollama"].contains(&provider)
+                && !["openai", "google", "anthropic", "local"].contains(&provider)
             {
                 return Err(format!(
-                    "Step '{}': Unknown LLM provider '{}'. Must be openai, google, anthropic, local, or ollama",
+                    "Step '{}': Unknown LLM provider '{}'. Must be openai, google, anthropic, or local",
                     step.name, provider
                 ));
             }
@@ -352,32 +321,35 @@ fn validate_step_config(step: &PipelineStep) -> Result<(), String> {
         ConnectorType::CliAgent => {
             let cli = step.config.get("cli").and_then(|v| v.as_str());
             match cli {
-                Some("claude") | Some("codex") | Some("opencode") => {}
-                Some(other) => {
+                None | Some("") => {
                     return Err(format!(
-                        "Step '{}': CLI agent 'cli' must be 'claude', 'codex', or 'opencode', got '{}'",
-                        step.name, other
-                    ));
-                }
-                None => {
-                    return Err(format!(
-                        "Step '{}': CLI agent connector requires 'cli' in config ('claude', 'codex', or 'opencode')",
+                        "Step '{}': CLI agent connector requires 'cli' in config ('claude' or 'codex')",
                         step.name
                     ));
                 }
+                Some(c) if c != "claude" && c != "codex" => {
+                    return Err(format!(
+                        "Step '{}': CLI agent 'cli' must be 'claude' or 'codex', got '{}'",
+                        step.name, c
+                    ));
+                }
+                _ => {}
             }
-            if step.config.get("prompt").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty()).is_none() {
-                return Err(format!(
-                    "Step '{}': CLI agent connector requires 'prompt' in config",
-                    step.name
-                ));
+            match step.config.get("prompt").and_then(|v| v.as_str()) {
+                None | Some("") => {
+                    return Err(format!(
+                        "Step '{}': CLI agent connector requires 'prompt' in config",
+                        step.name
+                    ));
+                }
+                _ => {}
             }
         }
     }
     Ok(())
 }
 
-/// Load all pipelines from disk, migrating step categories from connector types
+/// Load all pipelines from disk
 pub fn load_pipelines() -> Result<HashMap<String, Pipeline>, String> {
     migrate_pipelines_if_needed();
     let path = get_pipelines_path();
@@ -387,25 +359,8 @@ pub fn load_pipelines() -> Result<HashMap<String, Pipeline>, String> {
     }
 
     let file = File::open(&path).map_err(|e| format!("Failed to open pipelines.json: {}", e))?;
-    let mut pipelines: HashMap<String, Pipeline> =
+    let pipelines: HashMap<String, Pipeline> =
         serde_json::from_reader(file).map_err(|e| format!("Failed to parse pipelines.json: {}", e))?;
-
-    // Migrate: ensure every step's category matches its connector type.
-    // Old pipelines lack the category field — serde default gives Output,
-    // so we overwrite with the correct derived value.
-    let mut migrated = false;
-    for pipeline in pipelines.values_mut() {
-        for step in &mut pipeline.steps {
-            let correct = step.connector.category();
-            if step.category != correct {
-                step.category = correct;
-                migrated = true;
-            }
-        }
-    }
-    if migrated {
-        let _ = save_pipelines_to_disk(&pipelines);
-    }
 
     Ok(pipelines)
 }
@@ -445,11 +400,6 @@ pub fn get_pipeline(name: String) -> Result<Pipeline, String> {
 /// Save (create or update) a pipeline definition
 #[tauri::command]
 pub fn save_pipeline(mut pipeline: Pipeline) -> Result<(), String> {
-    // Ensure category is always derived from connector (authoritative source)
-    for step in &mut pipeline.steps {
-        step.category = step.connector.category();
-    }
-
     validate_pipeline(&pipeline)?;
 
     let mut pipelines = load_pipelines()?;
@@ -487,13 +437,10 @@ mod tests {
         Pipeline {
             name: "test-pipeline".to_string(),
             description: "A test pipeline".to_string(),
-            created_at: default_now(),
-            updated_at: default_now(),
             steps: vec![
                 PipelineStep {
                     name: "summarize".to_string(),
                     connector: ConnectorType::Llm,
-                    category: StepCategory::Prompt,
                     input: "transcript".to_string(),
                     config: serde_json::json!({
                         "prompt_template": "meeting-notes",
@@ -505,7 +452,6 @@ mod tests {
                 PipelineStep {
                     name: "save-to-obsidian".to_string(),
                     connector: ConnectorType::Save,
-                    category: StepCategory::Output,
                     input: "summarize".to_string(),
                     config: serde_json::json!({
                         "path": "~/Documents/{date}-{pipeline-name}.md"
@@ -553,13 +499,10 @@ mod tests {
         let pipeline = Pipeline {
             name: "bad-pipeline".to_string(),
             description: "test".to_string(),
-            created_at: default_now(),
-            updated_at: default_now(),
             steps: vec![
                 PipelineStep {
                     name: "step-a".to_string(),
                     connector: ConnectorType::Llm,
-                    category: StepCategory::Prompt,
                     input: "transcript".to_string(),
                     config: serde_json::json!({"prompt_template": "meeting-notes"}),
                     description: None,
@@ -567,7 +510,6 @@ mod tests {
                 PipelineStep {
                     name: "step-b".to_string(),
                     connector: ConnectorType::Save,
-                    category: StepCategory::Output,
                     input: "step-c".to_string(), // references future step
                     config: serde_json::json!({"path": "~/out.md"}),
                     description: None,
@@ -575,7 +517,6 @@ mod tests {
                 PipelineStep {
                     name: "step-c".to_string(),
                     connector: ConnectorType::Webhook,
-                    category: StepCategory::Output,
                     input: "step-a".to_string(),
                     config: serde_json::json!({"url": "https://example.com/hook"}),
                     description: None,
@@ -592,13 +533,10 @@ mod tests {
         let pipeline = Pipeline {
             name: "dup-pipeline".to_string(),
             description: "test".to_string(),
-            created_at: default_now(),
-            updated_at: default_now(),
             steps: vec![
                 PipelineStep {
                     name: "step-a".to_string(),
                     connector: ConnectorType::Llm,
-                    category: StepCategory::Prompt,
                     input: "transcript".to_string(),
                     config: serde_json::json!({"prompt_template": "meeting-notes"}),
                     description: None,
@@ -606,7 +544,6 @@ mod tests {
                 PipelineStep {
                     name: "step-a".to_string(),
                     connector: ConnectorType::Save,
-                    category: StepCategory::Output,
                     input: "step-a".to_string(),
                     config: serde_json::json!({"path": "~/out.md"}),
                     description: None,
@@ -685,12 +622,9 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
-            created_at: default_now(),
-            updated_at: default_now(),
             steps: vec![PipelineStep {
                 name: "post-to-notion".to_string(),
                 connector: ConnectorType::Notion,
-                category: StepCategory::Output,
                 input: "transcript".to_string(),
                 config: serde_json::json!({}),
                 description: None,
@@ -706,12 +640,9 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
-            created_at: default_now(),
-            updated_at: default_now(),
             steps: vec![PipelineStep {
                 name: "post-to-notion".to_string(),
                 connector: ConnectorType::Notion,
-                category: StepCategory::Output,
                 input: "transcript".to_string(),
                 config: serde_json::json!({"integration_id": "abc-123"}),
                 description: None,
@@ -725,12 +656,9 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
-            created_at: default_now(),
-            updated_at: default_now(),
             steps: vec![PipelineStep {
                 name: "custom".to_string(),
                 connector: ConnectorType::Llm,
-                category: StepCategory::Prompt,
                 input: "transcript".to_string(),
                 config: serde_json::json!({ "prompt_inline": "Summarize this: {transcript}" }),
                 description: None,
@@ -744,12 +672,9 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
-            created_at: default_now(),
-            updated_at: default_now(),
             steps: vec![PipelineStep {
                 name: "summarize".to_string(),
                 connector: ConnectorType::Llm,
-                category: StepCategory::Prompt,
                 input: "transcript".to_string(),
                 config: serde_json::json!({"provider": "openai"}), // missing prompt_template
                 description: None,
@@ -765,12 +690,9 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
-            created_at: default_now(),
-            updated_at: default_now(),
             steps: vec![PipelineStep {
                 name: "summarize".to_string(),
                 connector: ConnectorType::Llm,
-                category: StepCategory::Prompt,
                 input: "transcript".to_string(),
                 config: serde_json::json!({
                     "prompt_template": "meeting-notes",
@@ -789,12 +711,9 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
-            created_at: default_now(),
-            updated_at: default_now(),
             steps: vec![PipelineStep {
                 name: "save-it".to_string(),
                 connector: ConnectorType::Save,
-                category: StepCategory::Output,
                 input: "transcript".to_string(),
                 config: serde_json::json!({}), // missing path
                 description: None,
@@ -810,12 +729,9 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
-            created_at: default_now(),
-            updated_at: default_now(),
             steps: vec![PipelineStep {
                 name: "notify".to_string(),
                 connector: ConnectorType::Webhook,
-                category: StepCategory::Output,
                 input: "transcript".to_string(),
                 config: serde_json::json!({"method": "POST"}), // missing url
                 description: None,
@@ -831,12 +747,9 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
-            created_at: default_now(),
-            updated_at: default_now(),
             steps: vec![PipelineStep {
                 name: "notify".to_string(),
                 connector: ConnectorType::Webhook,
-                category: StepCategory::Output,
                 input: "transcript".to_string(),
                 config: serde_json::json!({"url": "ftp://not-http.com"}),
                 description: None,
@@ -852,12 +765,9 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
-            created_at: default_now(),
-            updated_at: default_now(),
             steps: vec![PipelineStep {
                 name: "notify".to_string(),
                 connector: ConnectorType::Webhook,
-                category: StepCategory::Output,
                 input: "transcript".to_string(),
                 config: serde_json::json!({"url": "https://example.com", "method": "DELETE"}),
                 description: None,
@@ -882,13 +792,10 @@ mod tests {
         let pipeline = Pipeline {
             name: "multi-input".to_string(),
             description: "test".to_string(),
-            created_at: default_now(),
-            updated_at: default_now(),
             steps: vec![
                 PipelineStep {
                     name: "step-a".to_string(),
                     connector: ConnectorType::Llm,
-                    category: StepCategory::Prompt,
                     input: "transcript".to_string(),
                     config: serde_json::json!({"prompt_template": "meeting-notes"}),
                     description: None,
@@ -896,108 +803,11 @@ mod tests {
                 PipelineStep {
                     name: "step-b".to_string(),
                     connector: ConnectorType::Llm,
-                    category: StepCategory::Prompt,
                     input: "transcript".to_string(), // also reads from transcript
                     config: serde_json::json!({"prompt_template": "brainstorm"}),
                     description: None,
                 },
             ],
-        };
-        assert!(validate_pipeline(&pipeline).is_ok());
-    }
-
-    #[test]
-    fn test_cli_agent_connector_type_serialization() {
-        assert_eq!(
-            serde_json::to_string(&ConnectorType::CliAgent).unwrap(),
-            "\"cli_agent\""
-        );
-    }
-
-    #[test]
-    fn test_cli_agent_connector_type_deserialization() {
-        let ct: ConnectorType = serde_json::from_str("\"cli_agent\"").unwrap();
-        assert_eq!(ct, ConnectorType::CliAgent);
-    }
-
-    #[test]
-    fn test_cli_agent_step_missing_cli_fails() {
-        let pipeline = Pipeline {
-            name: "test".to_string(),
-            description: "test".to_string(),
-            created_at: default_now(),
-            updated_at: default_now(),
-            steps: vec![PipelineStep {
-                name: "run-agent".to_string(),
-                connector: ConnectorType::CliAgent,
-                category: StepCategory::Tool,
-                input: "transcript".to_string(),
-                config: serde_json::json!({"prompt": "do stuff"}),
-                description: None,
-            }],
-        };
-        let result = validate_pipeline(&pipeline);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("cli"));
-    }
-
-    #[test]
-    fn test_cli_agent_step_invalid_cli_fails() {
-        let pipeline = Pipeline {
-            name: "test".to_string(),
-            description: "test".to_string(),
-            created_at: default_now(),
-            updated_at: default_now(),
-            steps: vec![PipelineStep {
-                name: "run-agent".to_string(),
-                connector: ConnectorType::CliAgent,
-                category: StepCategory::Tool,
-                input: "transcript".to_string(),
-                config: serde_json::json!({"cli": "gpt", "prompt": "do stuff"}),
-                description: None,
-            }],
-        };
-        let result = validate_pipeline(&pipeline);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("'claude', 'codex', or 'opencode'"));
-    }
-
-    #[test]
-    fn test_cli_agent_step_missing_prompt_fails() {
-        let pipeline = Pipeline {
-            name: "test".to_string(),
-            description: "test".to_string(),
-            created_at: default_now(),
-            updated_at: default_now(),
-            steps: vec![PipelineStep {
-                name: "run-agent".to_string(),
-                connector: ConnectorType::CliAgent,
-                category: StepCategory::Tool,
-                input: "transcript".to_string(),
-                config: serde_json::json!({"cli": "claude"}),
-                description: None,
-            }],
-        };
-        let result = validate_pipeline(&pipeline);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("prompt"));
-    }
-
-    #[test]
-    fn test_cli_agent_step_valid_config_passes() {
-        let pipeline = Pipeline {
-            name: "test".to_string(),
-            description: "test".to_string(),
-            created_at: default_now(),
-            updated_at: default_now(),
-            steps: vec![PipelineStep {
-                name: "run-agent".to_string(),
-                connector: ConnectorType::CliAgent,
-                category: StepCategory::Tool,
-                input: "transcript".to_string(),
-                config: serde_json::json!({"cli": "claude", "prompt": "Analyze this"}),
-                description: None,
-            }],
         };
         assert!(validate_pipeline(&pipeline).is_ok());
     }

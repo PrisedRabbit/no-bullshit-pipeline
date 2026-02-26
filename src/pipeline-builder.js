@@ -9,28 +9,6 @@ let editingStepIndex = null;  // index of step currently open in panel
 let sortableInstance = null;  // Sortable.js instance for drag-and-drop reordering
 let lastAutoName = '';        // Track last auto-generated pipeline name
 const slackTargetCache = {};  // Cache channels+members per integration_id
-let modelSelectExpanded = {}; // Track expanded state per provider in step editor
-let cliAvailabilityCache = null; // Cache for CLI availability (null = not loaded yet)
-
-async function loadCliAvailability() {
-  if (cliAvailabilityCache) return cliAvailabilityCache;
-  try {
-    cliAvailabilityCache = await invoke('check_cli_availability');
-  } catch (err) {
-    console.error('Failed to check CLI availability:', err);
-    cliAvailabilityCache = [
-      { id: 'claude', name: 'Claude Code', installed: false, install_hint: 'npm install -g @anthropic-ai/claude-code' },
-      { id: 'codex', name: 'Codex CLI', installed: false, install_hint: 'npm install -g @openai/codex' },
-      { id: 'opencode', name: 'OpenCode', installed: false, install_hint: 'npm install -g opencode-ai' },
-    ];
-  }
-  return cliAvailabilityCache;
-}
-
-async function refreshCliAvailability() {
-  cliAvailabilityCache = null;
-  return loadCliAvailability();
-}
 
 const SLACK_SVG = `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zm2.521-10.123a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zm0 1.271a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zm10.123 2.521a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zm-1.268 0a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zm-2.523 10.123a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zm0-1.268a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/></svg>`;
 const NOTION_SVG = `<svg viewBox="0 0 100 100" width="18" height="18" fill="currentColor"><path d="M6.017 4.313l55.333-4.087c6.797-.583 8.543-.19 12.817 2.917l17.663 12.443c2.913 2.14 3.883 2.723 3.883 5.053v68.243c0 4.277-1.553 6.807-6.99 7.193L24.467 99.967c-4.08.193-6.023-.39-8.16-3.113L3.3 79.94c-2.333-3.113-3.3-5.443-3.3-8.167V11.113c0-3.497 1.553-6.413 6.017-6.8z" fill="#fff"/><path d="M61.35.227l-55.333 4.087C1.553 4.7 0 7.617 0 11.113v60.66c0 2.723.967 5.053 3.3 8.167l13.007 16.913c2.137 2.723 4.08 3.307 8.16 3.113l64.257-3.89c5.433-.387 6.99-2.917 6.99-7.193V20.64c0-2.21-.81-2.76-3.088-4.587L75.983 3.523C71.71.607 69.96.22 63.163.803L61.35.227z" fill="#000"/><path d="M26.395 18.768c-5.433.39-6.675.477-9.768-1.753L7.997 10.527c-1.163-.913-1.55-1.94-1.55-3.113.39-2.53 1.94-4.47 7.377-4.86l53.39-3.89c4.47-.39 6.603 1.553 8.157 2.723l10.133 7.577c.39.193 1.553 1.553 0 1.553l-55.14 3.11v5.14z" fill="#fff"/><path d="M19.018 88.4V30.173c0-2.527.78-3.697 3.113-3.89l57.277-3.307c2.14-.193 3.113 1.167 3.113 3.693V85.09c0 2.527-.39 4.667-3.887 4.86l-54.943 3.113c-3.5.193-4.673-1.003-4.673-4.663zm54.167-55.13c.39 1.75 0 3.5-1.75 3.697l-2.527.39v40.257c-2.14 1.163-4.277 1.75-5.833 1.75-2.723 0-3.5-.583-5.443-3.113L38.468 45.948V74.7l5.247 1.163s0 3.5-4.86 3.5l-13.393.78c-.39-.78 0-2.723 1.36-3.113l3.497-.97V38.33l-4.86-.39c-.39-1.75.583-4.277 3.307-4.473l14.363-.97 20.603 31.46V35.077l-4.47-.39c-.39-2.14 1.163-3.697 3.113-3.89l14.003-.527z" fill="#fff"/></svg>`;
@@ -39,90 +17,17 @@ const SAVE_SVG = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" st
 const WEBHOOK_SVG = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>`;
 
 const PROVIDER_META = {
-  openai:    { img: 'assets/openai.svg',    filter: 'invert(1)', bgColor: '#000' },
-  google:    { img: 'assets/gemini.svg',    filter: 'invert(1)', bgColor: '#4285F4' },
-  anthropic: { img: 'assets/anthropic.svg', filter: 'invert(1)', bgColor: '#D97706' },
-  local:     { img: 'assets/local-llm.svg', filter: 'invert(1)', bgColor: '#8B5CF6' },
-  ollama:    { img: 'assets/ollama.svg',    filter: 'invert(1)', bgColor: '#000' },
+  openai:    { img: 'assets/openai.svg',    filter: 'invert(1)',                                                          bgColor: 'rgba(142,142,160,0.15)' },
+  google:    { img: 'assets/gemini.svg',    filter: 'invert(48%) sepia(90%) saturate(400%) hue-rotate(190deg)',           bgColor: 'rgba(66,133,244,0.15)' },
+  anthropic: { img: 'assets/anthropic.svg', filter: 'invert(55%) sepia(80%) saturate(500%) hue-rotate(10deg)',            bgColor: 'rgba(217,119,6,0.15)'  },
+  local:     { img: 'assets/local-llm.svg', filter: 'invert(68%) sepia(60%) saturate(400%) hue-rotate(220deg)',           bgColor: 'rgba(139,92,246,0.15)' },
 };
 
-const RECOMMENDED_MODELS = {
-  openai: ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'o4-mini'],
-  anthropic: ['claude-sonnet-4-20250514', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-opus-4-20250514'],
-  google: ['gemini-2.5-pro-preview-06-05', 'gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
-  ollama: [],
+const CLOUD_MODELS = {
+  openai:    ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4o', 'gpt-4o-mini', 'o3-mini'],
+  google:    ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
+  anthropic: ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5-20251001'],
 };
-
-function isChatCapableModel(modelId) {
-  if (!modelId) return false;
-  const id = modelId.toLowerCase();
-  if (id.startsWith('whisper-') || id.includes('-transcribe')) return false;
-  if (id.startsWith('text-embedding-')) return false;
-  if (id.startsWith('tts-')) return false;
-  if (id.startsWith('dall-e-')) return false;
-  return true;
-}
-
-// Model lists read from appSettings.providers (provider-first config).
-// Falls back to fetched providerModels when available (more up-to-date).
-function getModelsForProvider(providerId) {
-  // Check live-fetched models first (from integrations-settings.js)
-  if (typeof providerModels !== 'undefined' && providerModels[providerId] && providerModels[providerId].models && providerModels[providerId].models.length > 0) {
-    return providerModels[providerId].models
-      .filter(m => typeof m === 'string' ? isChatCapableModel(m) : (m.capabilities && m.capabilities.includes('chat')))
-      .map(m => typeof m === 'string' ? m : m.id);
-  }
-  // Fall back to settings-stored models (plain strings, no capability metadata)
-  if (typeof appSettings !== 'undefined' && appSettings.providers && appSettings.providers[providerId]) {
-    return (appSettings.providers[providerId].models || []).filter(isChatCapableModel);
-  }
-  return [];
-}
-
-function buildModelOptions(providerId, currentModel, expanded = false) {
-  const MAX_DEFAULT = 4;
-  if (providerId === 'local') {
-    const models = (typeof llmModelsData !== 'undefined') ? llmModelsData.filter(m => m.downloaded) : [];
-    if (models.length === 0) return { html: '<option value="" disabled>No local models downloaded</option>', hasMore: false, total: 0 };
-    let displayModels = expanded ? models : models.slice(0, MAX_DEFAULT);
-    if (currentModel && !displayModels.some(m => m.id === currentModel)) {
-      const selectedModel = models.find(m => m.id === currentModel);
-      if (selectedModel) displayModels = [...displayModels, selectedModel];
-    }
-    const html = displayModels.map(m =>
-      `<option value="${escapeHtml(m.id)}" ${currentModel === m.id ? 'selected' : ''}>${escapeHtml(m.name)} (${escapeHtml(m.params)})</option>`
-    ).join('');
-    return { html, hasMore: displayModels.length < models.length, total: models.length };
-  }
-  const models = getModelsForProvider(providerId);
-  if (models.length === 0) return { html: '<option value="" disabled>No models available</option>', hasMore: false, total: 0 };
-
-  const recommended = RECOMMENDED_MODELS[providerId] || [];
-  const recommendedSet = new Set(recommended);
-  const recommendedModels = models.filter(m => recommendedSet.has(m));
-  const otherModels = models.filter(m => !recommendedSet.has(m));
-
-  let displayModels;
-  let hasMore = false;
-
-  if (expanded) {
-    displayModels = [...recommendedModels, ...otherModels];
-  } else {
-    displayModels = (recommendedModels.length > 0 ? recommendedModels : otherModels).slice(0, MAX_DEFAULT);
-    if (currentModel && !displayModels.includes(currentModel) && models.includes(currentModel)) {
-      displayModels = [...displayModels, currentModel].filter((v, i, a) => a.indexOf(v) === i);
-    }
-    hasMore = displayModels.length < models.length;
-  }
-
-  const html = displayModels.map(m => {
-    const isRec = recommendedSet.has(m) && !expanded;
-    const label = isRec ? `${escapeHtml(m)}` : escapeHtml(m);
-    return `<option value="${escapeHtml(m)}" ${currentModel === m ? 'selected' : ''}>${label}</option>`;
-  }).join('');
-
-  return { html, hasMore, total: models.length };
-}
 
 function trimModelName(model, provider) {
   if (!model) return '';
@@ -132,14 +37,17 @@ function trimModelName(model, provider) {
   return prefix && model.startsWith(prefix) ? model.slice(prefix.length) : model;
 }
 
+const CLI_AGENT_SVG = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>`;
+
 const CONNECTOR_META = {
-  llm:     { abbr: 'AI', textColor: 'var(--accent)',   bgColor: 'var(--accent-soft)' },
-  save:    { svg: SAVE_SVG,    textColor: '#10b981',         bgColor: 'rgba(16,185,129,0.15)' },
-  slack:   { svg: SLACK_SVG,   textColor: '#fff',         bgColor: '#4A154B' },
-  notion:  { svg: NOTION_SVG,  textColor: '#fff',            bgColor: '#2f2f2f' },
-  webhook: { svg: WEBHOOK_SVG, textColor: '#60a5fa',          bgColor: 'rgba(59,130,246,0.2)' },
-  linear:  { svg: LINEAR_SVG,  textColor: '#fff',            bgColor: '#5E6AD2' },
-  mcp:     { abbr: 'MCP',  textColor: '#f59e0b',         bgColor: 'rgba(245,158,11,0.15)' },
+  llm:       { abbr: 'AI', textColor: 'var(--accent)',   bgColor: 'var(--accent-soft)' },
+  save:      { svg: SAVE_SVG,    textColor: '#10b981',         bgColor: 'rgba(16,185,129,0.15)' },
+  slack:     { svg: SLACK_SVG,   textColor: '#fff',         bgColor: '#4A154B' },
+  notion:    { svg: NOTION_SVG,  textColor: '#fff',            bgColor: '#2f2f2f' },
+  webhook:   { svg: WEBHOOK_SVG, textColor: '#60a5fa',          bgColor: 'rgba(59,130,246,0.2)' },
+  linear:    { svg: LINEAR_SVG,  textColor: '#fff',            bgColor: '#5E6AD2' },
+  mcp:       { abbr: 'MCP',  textColor: '#f59e0b',         bgColor: 'rgba(245,158,11,0.15)' },
+  cli_agent: { svg: CLI_AGENT_SVG, textColor: '#a78bfa',      bgColor: 'rgba(167,139,250,0.15)' },
 };
 
 // Shared pipeline flow renderer — used in both builder preview and recording detail/status views.
@@ -193,46 +101,7 @@ const savePipelineDefBtn = document.getElementById('save-pipeline-def-btn');
 const deletePipelineDefBtn = document.getElementById('delete-pipeline-def-btn');
 const closePipelineEditorBtn = document.getElementById('close-pipeline-editor');
 
-function sanitizeStepName(name) {
-  return name.replace(/[/\\:]/g, '-').replace(/\0/g, '');
-}
-
-function generateStepName(connector, config, index, excludeIndex = null) {
-  const connectorLabels = {
-    llm: 'AI',
-    save: 'Save',
-    slack: 'Slack',
-    notion: 'Notion',
-    linear: 'Linear',
-    webhook: 'Webhook',
-    mcp: 'MCP',
-    cli_agent: 'CLI',
-  };
-  const baseLabel = connectorLabels[connector] || connector.charAt(0).toUpperCase() + connector.slice(1);
-  let baseName;
-  if (connector === 'llm' && config?.prompt_template) {
-    const templateName = config.prompt_template.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-    baseName = sanitizeStepName(templateName);
-  } else if (connector === 'llm' && config?.prompt_inline) {
-    baseName = 'Custom Prompt';
-  } else {
-    baseName = `${baseLabel} ${index + 1}`;
-  }
-  const existingNames = new Set(
-    pipelineEditorSteps
-      .filter((_, i) => i !== excludeIndex)
-      .map(s => s.name)
-  );
-  let candidate = baseName;
-  let suffix = 2;
-  while (existingNames.has(candidate)) {
-    candidate = `${baseName} ${suffix}`;
-    suffix++;
-  }
-  return candidate;
-}
-
-const PROMPT_PRESETS = [
+const PROCESSING_PRESETS = [
   {
     label: 'Meeting Notes',
     icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>',
@@ -278,25 +147,6 @@ const PROMPT_PRESETS = [
     }
   },
   {
-    label: 'Custom Prompt',
-    icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
-    step: null  // handled specially in Plan 05-03
-  }
-];
-
-const TOOL_PRESETS = [
-  {
-    label: 'CLI Agent',
-    icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
-    step: {
-      name: 'cli-agent',
-      connector: 'cli_agent',
-      input: 'transcript',
-      config: { cli: 'claude', prompt: '', timeout_secs: 300 },
-      description: 'Run Claude Code or Codex CLI as agent'
-    }
-  },
-  {
     label: 'MCP Tool',
     icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>',
     step: {
@@ -306,6 +156,22 @@ const TOOL_PRESETS = [
       config: { url: '', tool: '' },
       description: 'Call an MCP tool'
     }
+  },
+  {
+    label: 'CLI Agent',
+    icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+    step: {
+      name: 'cli-agent',
+      connector: 'cli_agent',
+      input: 'transcript',
+      config: { cli: 'claude', prompt: '', working_dir: '~', timeout: 300 },
+      description: 'Run Claude Code or Codex CLI as agent'
+    }
+  },
+  {
+    label: 'Custom Prompt',
+    icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+    step: null  // handled specially in Plan 05-03
   }
 ];
 
@@ -404,9 +270,9 @@ function showPicker() {
   picker.id = 'step-picker';
   picker.className = 'step-picker';
 
-  // Prompt section
-  let html = '<div class="step-picker-section"><div class="step-picker-section-title">Prompt</div>';
-  for (const preset of PROMPT_PRESETS) {
+  // Processing section
+  let html = '<div class="step-picker-section"><div class="step-picker-section-title">Processing</div>';
+  for (const preset of PROCESSING_PRESETS) {
     html += `<button class="step-picker-option" data-preset-label="${escapeHtml(preset.label)}">
       <span class="step-picker-icon">${preset.icon}</span>
       <span class="step-picker-label">${escapeHtml(preset.label)}</span>
@@ -414,21 +280,11 @@ function showPicker() {
   }
   html += '</div>';
 
-  // Tool section
-  html += '<div class="step-picker-section"><div class="step-picker-section-title">Tool</div>';
-  for (const preset of TOOL_PRESETS) {
-    html += `<button class="step-picker-option" data-preset-label="${escapeHtml(preset.label)}">
-      <span class="step-picker-icon">${preset.icon}</span>
-      <span class="step-picker-label">${escapeHtml(preset.label)}</span>
-    </button>`;
-  }
-  html += '</div>';
-
-  // Output section
+  // Delivery section
   const deliveryOptions = buildDeliveryOptions();
-  html += '<div class="step-picker-section"><div class="step-picker-section-title">Output</div>';
+  html += '<div class="step-picker-section"><div class="step-picker-section-title">Delivery</div>';
   if (deliveryOptions.length === 0) {
-    html += '<div class="step-picker-empty">Connect integrations in Settings &gt; Integrations to enable output steps.</div>';
+    html += '<div class="step-picker-empty">Connect integrations in Settings &gt; Integrations to enable delivery steps.</div>';
   } else {
     for (let i = 0; i < deliveryOptions.length; i++) {
       const opt = deliveryOptions[i];
@@ -451,7 +307,7 @@ function showPicker() {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const label = btn.dataset.presetLabel;
-      const preset = PROMPT_PRESETS.find(p => p.label === label) || TOOL_PRESETS.find(p => p.label === label);
+      const preset = PROCESSING_PRESETS.find(p => p.label === label);
       if (!preset) return;
       if (preset.step === null) {
         closePicker();
@@ -498,8 +354,8 @@ function closePicker() {
 
 function addPresetStep(preset) {
   const step = JSON.parse(JSON.stringify(preset.step));
-  step.name = generateStepName(step.connector, step.config, pipelineEditorSteps.length);
-  if (step.connector !== 'llm' && pipelineEditorSteps.length > 0) {
+  // Auto-wire: delivery steps chain from the last step's output, not raw transcript
+  if (step.connector !== 'llm' && step.connector !== 'cli_agent' && pipelineEditorSteps.length > 0) {
     const lastStep = pipelineEditorSteps[pipelineEditorSteps.length - 1];
     if (lastStep.name) step.input = lastStep.name;
   }
@@ -519,7 +375,7 @@ function suggestPipelineName() {
   const processing = [];
   const delivery = [];
   for (const step of pipelineEditorSteps) {
-    if (step.connector === 'llm' || step.connector === 'mcp' || step.connector === 'cli_agent') {
+    if (step.connector === 'llm' || step.connector === 'cli_agent') {
       // Title-case the step name: "meeting-notes" → "Meeting Notes"
       const titleCased = (step.name || 'Untitled')
         .replace(/[-_]/g, ' ')
@@ -627,7 +483,9 @@ function showCustomPromptForm() {
     }
 
     const step = {
-      name: generateStepName('llm', stepConfig, pipelineEditorSteps.length),
+      name: saveAsTemplate
+        ? formEl.querySelector('.custom-prompt-name-input').value.trim()
+        : 'custom-prompt',
       connector: 'llm',
       input: 'transcript',
       config: stepConfig,
@@ -647,17 +505,9 @@ function showCustomPromptForm() {
 async function loadPipelineDefs() {
   try {
     allPipelineDefs = await invoke('list_pipelines');
-    // Prune assigned pipelines that no longer exist (e.g. deleted mid-recording)
-    if (typeof currentAssignedPipelines !== 'undefined' && currentAssignedPipelines.size > 0) {
-      const existingNames = new Set(allPipelineDefs.map(p => p.name));
-      for (const name of [...currentAssignedPipelines]) {
-        if (!existingNames.has(name)) currentAssignedPipelines.delete(name);
-      }
-    }
     renderPipelineDefsList();
     if (typeof renderPipelineChips === 'function') renderPipelineChips();
-    // Pre-load CLI availability in background
-    loadCliAvailability();
+    if (typeof populateDefaultPipelineSelect === 'function') populateDefaultPipelineSelect();
   } catch (err) {
     console.error('Failed to load pipelines:', err);
   }
@@ -774,6 +624,9 @@ function renderPipelineSteps() {
       } else {
         subText = escapeHtml(provider);
       }
+    } else if (step.connector === 'cli_agent') {
+      iconContent = meta.svg;
+      subText = escapeHtml(step.config?.cli || 'claude');
     } else if (meta.svg) {
       iconContent = meta.svg;
     } else {
@@ -900,6 +753,7 @@ function showStepEditor(index) {
     `<option value="${escapeHtml(t.name)}" ${step.config?.prompt_template === t.name ? 'selected' : ''}>${escapeHtml(t.name)}</option>`
   ).join('');
 
+  // Build connector-specific config fields
   let configFields = '';
   if (step.connector === 'llm') {
     let promptField;
@@ -910,13 +764,14 @@ function showStepEditor(index) {
     }
     const currentProvider = step.config?.provider || 'openai';
     const currentModel = step.config?.model || '';
-    const expanded = modelSelectExpanded[currentProvider] || false;
-    const modelResult = buildModelOptions(currentProvider, currentModel, expanded);
-    const toggleBtn = modelResult.hasMore
-      ? `<button type="button" class="model-select-toggle" data-provider="${escapeHtml(currentProvider)}" style="font-size:0.68rem;color:var(--accent);background:none;border:none;cursor:pointer;padding:2px 0;margin-top:2px;">Show all ${modelResult.total} models</button>`
-      : expanded && modelResult.total > 4
-      ? `<button type="button" class="model-select-toggle" data-provider="${escapeHtml(currentProvider)}" style="font-size:0.68rem;color:var(--text-secondary);background:none;border:none;cursor:pointer;padding:2px 0;margin-top:2px;">Show less</button>`
-      : '';
+    const providerModels = CLOUD_MODELS[currentProvider] || [];
+    const modelOptions = currentProvider === 'local'
+      ? (typeof llmModelsData !== 'undefined' ? llmModelsData.filter(m => m.downloaded).map(m =>
+          `<option value="${escapeHtml(m.id)}" ${currentModel === m.id ? 'selected' : ''}>${escapeHtml(m.name)} (${escapeHtml(m.params)})</option>`
+        ).join('') : '')
+      : providerModels.map(m =>
+          `<option value="${escapeHtml(m)}" ${currentModel === m ? 'selected' : ''}>${escapeHtml(m)}</option>`
+        ).join('');
     configFields = `
       ${promptField}
       <div class="step-editor-row"><label>Provider</label><select data-field="provider" class="llm-provider-select">
@@ -924,11 +779,10 @@ function showStepEditor(index) {
         <option value="google" ${currentProvider === 'google' ? 'selected' : ''}>Google</option>
         <option value="anthropic" ${currentProvider === 'anthropic' ? 'selected' : ''}>Anthropic</option>
         <option value="local" ${currentProvider === 'local' ? 'selected' : ''}>Local LLM</option>
-        <option value="ollama" ${currentProvider === 'ollama' ? 'selected' : ''}>Ollama</option>
       </select></div>
-      <div class="step-editor-row"><label>Model</label><div><select data-field="model" class="llm-model-select">
-        ${modelResult.html}
-      </select>${toggleBtn}</div></div>
+      <div class="step-editor-row"><label>Model</label><select data-field="model" class="llm-model-select">
+        ${modelOptions}
+      </select></div>
     `;
   } else if (step.connector === 'save') {
     const savePaths = (typeof savePathIntegrations !== 'undefined') ? savePathIntegrations : [];
@@ -937,7 +791,7 @@ function showStepEditor(index) {
       // No save path integrations — fall back to free-text path input
       configFields = `
         <div class="step-editor-row"><label>Path</label><input data-field="path" value="${escapeHtml(step.config?.path || '')}" placeholder="~/Documents/{date}-{pipeline-name}.md" /></div>
-        <div class="step-editor-row full-width" style="color: var(--text-secondary); font-size: 0.8rem;">Tip: Add named save paths in Settings &gt; Integrations for quick selection.</div>
+        <div class="step-editor-row" style="color: var(--text-secondary); font-size: 0.8rem;">Tip: Add named save paths in Settings &gt; Integrations for quick selection.</div>
       `;
     } else {
       const saveOptions = savePaths.map(sp =>
@@ -959,7 +813,7 @@ function showStepEditor(index) {
 
     if (whProfiles.length === 0) {
       configFields = `
-        <div class="step-editor-row full-width" style="color: var(--text-secondary); font-size: 0.85rem;">No webhook endpoints configured. Add one in Settings &gt; Integrations.</div>
+        <div class="step-editor-row" style="color: var(--text-secondary); font-size: 0.85rem;">No webhook endpoints configured. Add one in Settings &gt; Integrations.</div>
       `;
     } else {
       configFields = `
@@ -991,35 +845,6 @@ function showStepEditor(index) {
         <input data-field="target_custom" value="" placeholder="#channel, email@example.com, or U123456" />
       </div>
     `;
-  } else if (step.connector === 'cli_agent') {
-    const currentCli = step.config?.cli || 'claude';
-    const fallbackCliInfo = [
-      { id: 'claude', name: 'Claude Code', installed: false, install_hint: 'npm install -g @anthropic-ai/claude-code' },
-      { id: 'codex', name: 'Codex CLI', installed: false, install_hint: 'npm install -g @openai/codex' },
-      { id: 'opencode', name: 'OpenCode', installed: false, install_hint: 'npm install -g opencode-ai' },
-    ];
-    const cliInfo = cliAvailabilityCache || fallbackCliInfo;
-    const cliOptions = cliInfo.map(cli => {
-      const statusIcon = cli.installed ? '✓' : '✗';
-      const statusClass = cli.installed ? '' : ' style="color: var(--text-secondary)"';
-      const label = `${cli.name} ${statusIcon}`;
-      const selected = currentCli === cli.id ? ' selected' : '';
-      return `<option value="${escapeHtml(cli.id)}"${selected}${statusClass}>${escapeHtml(label)}</option>`;
-    }).join('');
-    const selectedCli = cliInfo.find(c => c.id === currentCli);
-    const notInstalledWarning = selectedCli && !selectedCli.installed
-      ? `<div class="cli-not-installed-warning" style="color: #e6453d; font-size: 0.8rem; margin-top: 4px;">⚠️ ${escapeHtml(selectedCli.name)} is not installed. Install: <code style="background: var(--bg-input); padding: 2px 6px; border-radius: 4px;">${escapeHtml(selectedCli.install_hint)}</code></div>`
-      : '';
-    configFields = `
-      <div class="step-editor-row"><label>CLI</label>
-        <select data-field="cli" class="cli-select">${cliOptions}</select>
-        <button type="button" class="cli-refresh-btn" style="font-size:0.7rem;color:var(--accent);background:none;border:none;cursor:pointer;padding:2px 0;margin-left:8px;" title="Refresh CLI status">Refresh</button>
-        ${notInstalledWarning}
-      </div>
-      <div class="step-editor-row"><label>Prompt</label><textarea data-field="prompt" rows="3" placeholder="Instructions for the agent...">${escapeHtml(step.config?.prompt || '')}</textarea></div>
-      <div class="step-editor-row"><label>Working Directory</label><input data-field="working_directory" value="${escapeHtml(step.config?.working_directory || '')}" placeholder="~/Projects/my-repo (optional)" /></div>
-      <div class="step-editor-row"><label>Timeout (sec)</label><input data-field="timeout_secs" type="number" value="${step.config?.timeout_secs || 300}" min="10" max="3600" /></div>
-    `;
   } else if (step.connector === 'mcp') {
     configFields = `
       <div class="step-editor-row"><label>URL</label><input data-field="url" value="${escapeHtml(step.config?.url || '')}" placeholder="https://mcp.example.com" /></div>
@@ -1035,7 +860,7 @@ function showStepEditor(index) {
 
     if (profiles.length === 0) {
       configFields = `
-        <div class="step-editor-row full-width" style="color: var(--text-secondary); font-size: 0.85rem;">No Notion integrations connected. Add one in Settings &gt; Integrations.</div>
+        <div class="step-editor-row" style="color: var(--text-secondary); font-size: 0.85rem;">No Notion integrations connected. Add one in Settings &gt; Integrations.</div>
       `;
     } else {
       configFields = `
@@ -1043,7 +868,7 @@ function showStepEditor(index) {
           <option value="">Select Notion database...</option>
           ${notionOptions}
         </select></div>
-        <div class="step-editor-row full-width">
+        <div class="step-editor-row">
           <button class="mini-action-btn resync-notion-schema-btn" style="font-size: 0.8rem;">Re-sync Schema</button>
           <span class="resync-status" style="font-size: 0.8rem; color: var(--text-secondary); margin-left: 8px;"></span>
         </div>
@@ -1058,7 +883,7 @@ function showStepEditor(index) {
 
     if (linProfiles.length === 0) {
       configFields = `
-        <div class="step-editor-row full-width" style="color: var(--text-secondary); font-size: 0.85rem;">No Linear integrations connected. Add one in Settings &gt; Integrations.</div>
+        <div class="step-editor-row" style="color: var(--text-secondary); font-size: 0.85rem;">No Linear integrations connected. Add one in Settings &gt; Integrations.</div>
       `;
     } else {
       configFields = `
@@ -1066,12 +891,24 @@ function showStepEditor(index) {
           <option value="">Select Linear team...</option>
           ${linearOptions}
         </select></div>
-        <div class="step-editor-row full-width">
+        <div class="step-editor-row">
           <button class="mini-action-btn resync-linear-schema-btn" style="font-size: 0.8rem;">Re-sync Schema</button>
           <span class="resync-status" style="font-size: 0.8rem; color: var(--text-secondary); margin-left: 8px;"></span>
         </div>
       `;
     }
+  } else if (step.connector === 'cli_agent') {
+    const currentCli = step.config?.cli || 'claude';
+    const currentTimeout = step.config?.timeout || 300;
+    configFields = `
+      <div class="step-editor-row"><label>CLI</label><select data-field="cli">
+        <option value="claude" ${currentCli === 'claude' ? 'selected' : ''}>Claude Code</option>
+        <option value="codex" ${currentCli === 'codex' ? 'selected' : ''}>Codex CLI</option>
+      </select></div>
+      <div class="step-editor-row"><label>Prompt</label><textarea data-field="prompt" rows="3" placeholder="Instruction for the agent...">${escapeHtml(step.config?.prompt || '')}</textarea></div>
+      <div class="step-editor-row"><label>Working Dir</label><input data-field="working_dir" value="${escapeHtml(step.config?.working_dir || '~')}" placeholder="~/projects/my-app" /></div>
+      <div class="step-editor-row"><label>Timeout (sec)</label><input data-field="timeout" type="number" value="${escapeHtml(String(currentTimeout))}" min="10" max="3600" /></div>
+    `;
   }
 
   // Update editing index and re-render chips to show active state
@@ -1083,10 +920,11 @@ function showStepEditor(index) {
   editorEl.className = 'step-editor';
   editorEl.innerHTML = `
     <div class="step-editor-header">
-      <span class="step-editor-title">${escapeHtml(step.name || 'Unnamed')}</span>
+      <span class="step-editor-title">Step ${index + 1} — ${escapeHtml(step.name || 'Unnamed')}</span>
       <button class="step-editor-close" title="Close editor">×</button>
     </div>
     <div id="step-config-fields">
+      <div class="step-editor-row"><label>Step Name</label><input class="step-name-input" value="${escapeHtml(step.name || '')}" placeholder="Step name" /></div>
       ${configFields}
       ${index > 0 ? (() => {
         const currentInput = step.input || 'transcript';
@@ -1294,31 +1132,10 @@ function showStepEditor(index) {
       }
     }
 
-    // Pre-select workspace dropdown if already configured or only one exists
-    const wsIds = Object.keys(slackIntegrations);
-    if (!step.config?.integration_id && wsIds.length === 1) {
-      wsSelect.value = wsIds[0];
-      step.config = step.config || {};
-      step.config.integration_id = wsIds[0];
-    } else if (step.config?.integration_id && wsSelect) {
-      wsSelect.value = step.config.integration_id;
-    }
-    // Lazy load: only fetch targets when user interacts with target dropdown
-    // This prevents API calls on simple step click
-    let targetsLoadedForWs = null;
-    const loadTargetsLazy = async () => {
-      const currentWs = wsSelect.value;
-      if (!currentWs) return;
-      if (targetsLoadedForWs === currentWs) return;
-      targetsLoadedForWs = currentWs;
-      if (slackTargetCache[currentWs]) {
-        renderSlackTargetOptions(slackTargetCache[currentWs], targetSelect, step.config?.target, customRow);
-        return;
-      }
-      await populateSlackTargets(currentWs);
-    };
-    targetSelect.addEventListener('focus', loadTargetsLazy);
-    targetSelect.addEventListener('mousedown', loadTargetsLazy);
+    wsSelect.addEventListener('change', () => {
+      populateSlackTargets(wsSelect.value);
+    });
+
     targetSelect.addEventListener('change', () => {
       if (targetSelect.value === '__custom__') {
         customRow.style.display = 'block';
@@ -1326,14 +1143,17 @@ function showStepEditor(index) {
         customRow.style.display = 'none';
       }
     });
-    const handleWsChange = () => {
-      targetsLoadedForWs = null;
-      targetSelect.innerHTML = '<option value="">Click to load channels...</option>';
-      customRow.style.display = 'none';
-    };
-    wsSelect.addEventListener('change', handleWsChange);
-    // Show placeholder if targets not yet loaded
-    targetSelect.innerHTML = '<option value="">Click to load channels...</option>';
+
+    // Auto-select workspace if only one exists or already configured
+    const wsIds = Object.keys(slackIntegrations);
+    if (!step.config?.integration_id && wsIds.length === 1) {
+      wsSelect.value = wsIds[0];
+      step.config = step.config || {};
+      step.config.integration_id = wsIds[0];
+    }
+    if (wsSelect.value) {
+      populateSlackTargets(wsSelect.value);
+    }
   }
 
   // LLM provider change → update model dropdown
@@ -1343,83 +1163,20 @@ function showStepEditor(index) {
       const newProvider = llmProviderSelect.value;
       const modelSelect = editorEl.querySelector('.llm-model-select');
       if (!modelSelect) return;
-      const expanded = modelSelectExpanded[newProvider] || false;
-      const modelResult = buildModelOptions(newProvider, '', expanded);
-      modelSelect.innerHTML = modelResult.html;
-      const toggleBtn = editorEl.querySelector('.model-select-toggle');
-      if (toggleBtn) {
-        toggleBtn.dataset.provider = newProvider;
-        if (modelResult.hasMore) {
-          toggleBtn.textContent = `Show all ${modelResult.total} models`;
-          toggleBtn.style.display = '';
-        } else if (expanded && modelResult.total > 4) {
-          toggleBtn.textContent = 'Show less';
-          toggleBtn.style.display = '';
-        } else {
-          toggleBtn.style.display = 'none';
+      let opts = '';
+      if (newProvider === 'local') {
+        const models = (typeof llmModelsData !== 'undefined') ? llmModelsData.filter(m => m.downloaded) : [];
+        opts = models.map(m =>
+          `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)} (${escapeHtml(m.params)})</option>`
+        ).join('');
+        if (models.length === 0) {
+          opts = '<option value="" disabled>No local models downloaded</option>';
         }
+      } else {
+        const models = CLOUD_MODELS[newProvider] || [];
+        opts = models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
       }
-    });
-  }
-
-  // Model select toggle button → show all / show less
-  const modelToggleBtn = editorEl.querySelector('.model-select-toggle');
-  if (modelToggleBtn) {
-    modelToggleBtn.addEventListener('click', () => {
-      const provider = modelToggleBtn.dataset.provider;
-      modelSelectExpanded[provider] = !modelSelectExpanded[provider];
-      const modelSelect = editorEl.querySelector('.llm-model-select');
-      if (!modelSelect) return;
-      const currentModel = modelSelect.value;
-      const expanded = modelSelectExpanded[provider];
-      const modelResult = buildModelOptions(provider, currentModel, expanded);
-      modelSelect.innerHTML = modelResult.html;
-      if (modelResult.hasMore) {
-        modelToggleBtn.textContent = `Show all ${modelResult.total} models`;
-      } else if (expanded && modelResult.total > 4) {
-        modelToggleBtn.textContent = 'Show less';
-      }
-    });
-  }
-
-  // CLI select change → update warning message
-  const cliSelect = editorEl.querySelector('.cli-select');
-  if (cliSelect) {
-    cliSelect.addEventListener('change', async () => {
-      const selectedCliId = cliSelect.value;
-      const cliInfo = cliAvailabilityCache || [];
-      const selectedCli = cliInfo.find(c => c.id === selectedCliId);
-      const warningEl = editorEl.querySelector('.cli-not-installed-warning');
-      if (warningEl) {
-        if (selectedCli && !selectedCli.installed) {
-          warningEl.innerHTML = `⚠️ ${escapeHtml(selectedCli.name)} is not installed. Install: <code style="background: var(--bg-input); padding: 2px 6px; border-radius: 4px;">${escapeHtml(selectedCli.install_hint)}</code>`;
-        } else {
-          warningEl.remove();
-        }
-      } else if (selectedCli && !selectedCli.installed) {
-        const parentRow = cliSelect.closest('.step-editor-row');
-        if (parentRow) {
-          const newWarning = document.createElement('div');
-          newWarning.className = 'cli-not-installed-warning';
-          newWarning.style.cssText = 'color: #e6453d; font-size: 0.8rem; margin-top: 4px;';
-          newWarning.innerHTML = `⚠️ ${escapeHtml(selectedCli.name)} is not installed. Install: <code style="background: var(--bg-input); padding: 2px 6px; border-radius: 4px;">${escapeHtml(selectedCli.install_hint)}</code>`;
-          parentRow.appendChild(newWarning);
-        }
-      }
-    });
-  }
-
-  // CLI refresh button → reload CLI availability
-  const cliRefreshBtn = editorEl.querySelector('.cli-refresh-btn');
-  if (cliRefreshBtn) {
-    cliRefreshBtn.addEventListener('click', async () => {
-      cliRefreshBtn.textContent = 'Refreshing...';
-      cliRefreshBtn.disabled = true;
-      await refreshCliAvailability();
-      cliRefreshBtn.textContent = 'Refresh';
-      cliRefreshBtn.disabled = false;
-      // Re-render the editor to update the dropdown
-      showStepEditor(index);
+      modelSelect.innerHTML = opts;
     });
   }
 
@@ -1434,9 +1191,6 @@ function showStepEditor(index) {
       if (key === 'args') {
         try { val = JSON.parse(val); } catch { val = {}; }
       }
-      if (field.type === 'number' && val !== '') {
-        val = Number(val);
-      }
       // Slack target: if dropdown says "__custom__", use custom input instead
       if (key === 'target' && val === '__custom__') return;
       if (key === 'target_custom') {
@@ -1447,30 +1201,23 @@ function showStepEditor(index) {
         }
         return;
       }
-      if (val !== '') step.config[key] = val;
-    });
-    // Validate CLI availability before saving
-    if (step.connector === 'cli_agent' && step.config.cli) {
-      const cliInfo = cliAvailabilityCache || [];
-      const selectedCli = cliInfo.find(c => c.id === step.config.cli);
-      if (selectedCli && !selectedCli.installed) {
-        showToast(`${selectedCli.name} is not installed. Install it first: ${selectedCli.install_hint}`, 'error');
-        return;
+      if (val !== '') {
+        step.config[key] = (field.type === 'number' && val !== '') ? Number(val) : val;
       }
-    }
+    });
     // If Slack target dropdown was empty (async not loaded yet), restore previous value
     if (step.connector === 'slack' && !step.config.target && prevTarget) {
       step.config.target = prevTarget;
     }
-    const oldName = step.name;
-    step.name = generateStepName(step.connector, step.config, index, index);
-    if (oldName !== step.name) {
-      for (let j = index + 1; j < pipelineEditorSteps.length; j++) {
-        if (pipelineEditorSteps[j].input === oldName) {
-          pipelineEditorSteps[j].input = step.name;
-        }
-      }
+    // Use explicit step name from input, fall back to auto-derive for llm steps
+    const nameInput = editorEl.querySelector('.step-name-input');
+    const nameVal = nameInput ? nameInput.value.trim() : '';
+    if (nameVal) {
+      step.name = nameVal;
+    } else if (step.connector === 'llm' && step.config.prompt_template) {
+      step.name = step.config.prompt_template;
     }
+    // Persist user-selected input source (transcript or previous step name)
     const inputSelect = editorEl.querySelector('.step-input-select');
     if (inputSelect) {
       step.input = inputSelect.value || 'transcript';
