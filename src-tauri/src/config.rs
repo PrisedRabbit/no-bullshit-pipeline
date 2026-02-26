@@ -38,6 +38,15 @@ pub struct ApiKeys {
     pub anthropic: Option<String>,
 }
 
+/// Cached model metadata (preserved across sessions)
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct CachedModel {
+    pub id: String,
+    pub name: String,
+    pub capabilities: Vec<String>,
+    pub deprecated: bool,
+}
+
 /// Per-provider configuration (API key + capabilities + available models)
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct ProviderConfig {
@@ -47,9 +56,18 @@ pub struct ProviderConfig {
     /// Capability badges: e.g. ["Transcription", "Processing", "Embedding"]
     #[serde(default)]
     pub capabilities: Vec<String>,
-    /// Known model IDs for this provider
+    /// Known model IDs for this provider (legacy, kept for migration)
     #[serde(default)]
     pub models: Vec<String>,
+    /// Cached model metadata with full capabilities
+    #[serde(default)]
+    pub cached_models: Vec<CachedModel>,
+    /// Unix timestamp when models were last successfully fetched from provider API
+    #[serde(default)]
+    pub models_fetched_at: Option<i64>,
+    /// Base URL for the provider API (e.g., for Ollama: "http://localhost:11434")
+    #[serde(default)]
+    pub base_url: Option<String>,
 }
 
 impl ProviderConfig {
@@ -58,6 +76,9 @@ impl ProviderConfig {
             api_key: None,
             capabilities: caps.iter().map(|s| s.to_string()).collect(),
             models: models.iter().map(|s| s.to_string()).collect(),
+            cached_models: vec![],
+            models_fetched_at: None,
+            base_url: None,
         }
     }
 

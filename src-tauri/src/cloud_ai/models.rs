@@ -1,4 +1,11 @@
 use serde::{Deserialize, Serialize};
+use std::sync::Mutex;
+
+lazy_static::lazy_static! {
+    static ref PROVIDER_MODELS_CACHE_LOCK: Mutex<()> = Mutex::new(());
+}
+
+const MODELS_CACHE_TTL_SECS: i64 = 24 * 60 * 60;
 
 /// A model available from a provider API
 #[derive(Debug, Serialize, Clone)]
@@ -7,6 +14,15 @@ pub struct ProviderModel {
     pub name: String,
     pub capabilities: Vec<String>,
     pub deprecated: bool,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct ProviderModelsResponse {
+    pub models: Vec<ProviderModel>,
+    pub cached: bool,
+    pub fetched_at: Option<i64>,
+    pub stale: bool,
+    pub error: Option<String>,
 }
 
 // ===== OpenAI =====
@@ -221,26 +237,49 @@ struct OllamaModel {
     name: String,
 }
 
-async fn fetch_ollama_models() -> Result<Vec<ProviderModel>, String> {
+const OLLAMA_DEFAULT_URL: &str = "http://localhost:11434";
+
+fn normalize_ollama_base_url(url: &str) -> String {
+    let trimmed = url.trim();
+    trimmed.trim_end_matches('/').to_string()
+}
+
+async fn fetch_ollama_models(base_url: Option<&str>) -> Result<Vec<ProviderModel>, String> {
+    let normalized = normalize_ollama_base_url(base_url.unwrap_or(OLLAMA_DEFAULT_URL));
+    let endpoint = format!("{}/api/tags", normalized);
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
-        .map_err(|e| format!("Client error: {}", e))?;
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
     let response = client
-        .get("http://localhost:11434/api/tags")
+        .get(&endpoint)
         .send()
         .await
-        .map_err(|e| format!("Cannot reach Ollama (is it running?): {}", e))?;
+        .map_err(|e| {
+            let hint = if e.is_timeout() {
+                "Connection timed out. Is Ollama responding?"
+            } else if e.is_connect() {
+                "Connection refused. Is Ollama running?"
+            } else {
+                "Network error. Check host and port."
+            };
+            format!("Cannot reach Ollama at {}: {} ({})", endpoint, e, hint)
+        })?;
 
     if !response.status().is_success() {
-        return Err(format!("Ollama API error ({})", response.status()));
+        let status = response.status();
+        return Err(format!(
+            "Ollama API returned {} at {}. Is the service healthy?",
+            status, endpoint
+        ));
     }
 
     let body: OllamaTagsResponse = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse response: {}", e))?;
+        .map_err(|e| format!("Failed to parse Ollama response from {}: {}", endpoint, e))?;
 
     let mut models: Vec<ProviderModel> = body
         .models
@@ -268,33 +307,119 @@ async fn fetch_ollama_models() -> Result<Vec<ProviderModel>, String> {
 // ===== Tauri Command =====
 
 #[tauri::command]
-pub async fn fetch_provider_models(provider: String) -> Result<Vec<ProviderModel>, String> {
+pub async fn fetch_provider_models(provider: String, force_refresh: Option<bool>) -> Result<ProviderModelsResponse, String> {
+    let force = force_refresh.unwrap_or(false);
     let settings = crate::config::load_settings();
     let api_keys = &settings.transcription.api_keys;
+    let now = chrono::Utc::now().timestamp();
 
-    match provider.as_str() {
+    let provider_config = settings.providers.get(&provider);
+    let cached_models = provider_config.map(|c| c.cached_models.clone()).unwrap_or_default();
+    let cached_at = provider_config.and_then(|c| c.models_fetched_at);
+    let base_url = provider_config.and_then(|c| c.base_url.as_deref());
+
+    let is_stale = cached_at
+        .map(|ts| now - ts > MODELS_CACHE_TTL_SECS)
+        .unwrap_or(true);
+
+    if !force && !is_stale && !cached_models.is_empty() {
+        let models: Vec<ProviderModel> = cached_models
+            .iter()
+            .map(|m| ProviderModel {
+                id: m.id.clone(),
+                name: m.name.clone(),
+                capabilities: m.capabilities.clone(),
+                deprecated: m.deprecated,
+            })
+            .collect();
+        return Ok(ProviderModelsResponse {
+            models,
+            cached: true,
+            fetched_at: cached_at,
+            stale: false,
+            error: None,
+        });
+    }
+
+    let fetch_result = match provider.as_str() {
         "openai" => {
-            let key = api_keys
-                .openai
-                .as_ref()
-                .ok_or("OpenAI API key not configured")?;
+            let key = api_keys.openai.as_ref().ok_or("OpenAI API key not configured")?;
             fetch_openai_models(key).await
         }
         "anthropic" => {
-            let key = api_keys
-                .anthropic
-                .as_ref()
-                .ok_or("Anthropic API key not configured")?;
+            let key = api_keys.anthropic.as_ref().ok_or("Anthropic API key not configured")?;
             fetch_anthropic_models(key).await
         }
         "google" => {
-            let key = api_keys
-                .google
-                .as_ref()
-                .ok_or("Google API key not configured")?;
+            let key = api_keys.google.as_ref().ok_or("Google API key not configured")?;
             fetch_google_models(key).await
         }
-        "ollama" => fetch_ollama_models().await,
+        "ollama" => fetch_ollama_models(base_url).await,
         other => Err(format!("Unknown provider: {}", other)),
+    };
+
+    match fetch_result {
+        Ok(models) => {
+            save_provider_models_full(&provider, &models, now);
+            Ok(ProviderModelsResponse {
+                models,
+                cached: false,
+                fetched_at: Some(now),
+                stale: false,
+                error: None,
+            })
+        }
+        Err(e) => {
+            if !cached_models.is_empty() {
+                let models: Vec<ProviderModel> = cached_models
+                    .iter()
+                    .map(|m| ProviderModel {
+                        id: m.id.clone(),
+                        name: m.name.clone(),
+                        capabilities: m.capabilities.clone(),
+                        deprecated: m.deprecated,
+                    })
+                    .collect();
+                Ok(ProviderModelsResponse {
+                    models,
+                    cached: true,
+                    fetched_at: cached_at,
+                    stale: true,
+                    error: Some(e),
+                })
+            } else {
+                Ok(ProviderModelsResponse {
+                    models: vec![],
+                    cached: false,
+                    fetched_at: None,
+                    stale: false,
+                    error: Some(e),
+                })
+            }
+        }
     }
+}
+
+
+
+fn save_provider_models_full(provider: &str, models: &[ProviderModel], fetched_at: i64) {
+    let _lock = PROVIDER_MODELS_CACHE_LOCK.lock().unwrap();
+    let mut settings = crate::config::load_settings();
+    let cached: Vec<crate::config::CachedModel> = models
+        .iter()
+        .map(|m| crate::config::CachedModel {
+            id: m.id.clone(),
+            name: m.name.clone(),
+            capabilities: m.capabilities.clone(),
+            deprecated: m.deprecated,
+        })
+        .collect();
+    let entry = settings
+        .providers
+        .entry(provider.to_string())
+        .or_insert_with(crate::config::ProviderConfig::default);
+    entry.models = models.iter().map(|m| m.id.clone()).collect();
+    entry.cached_models = cached;
+    entry.models_fetched_at = Some(fetched_at);
+    let _ = crate::config::save_settings(settings);
 }

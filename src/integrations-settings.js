@@ -35,30 +35,35 @@ async function loadAllIntegrations() {
 // ===== PROVIDER MODELS =====
 var providerModels = {};
 var providerModelsFetching = false;
+var providerModelsFetchQueue = Promise.resolve();
 
-async function fetchProviderModels(provider) {
-  try {
-    const models = await window.__TAURI__.core.invoke('fetch_provider_models', { provider });
-    providerModels[provider] = { models, error: null };
-  } catch (err) {
-    providerModels[provider] = { models: [], error: String(err) };
-  }
+async function fetchProviderModels(provider, forceRefresh = false) {
+  return providerModelsFetchQueue = providerModelsFetchQueue.then(async () => {
+    try {
+      const response = await window.__TAURI__.core.invoke('fetch_provider_models', { provider, forceRefresh });
+      providerModels[provider] = {
+        models: response.models,
+        cached: response.cached,
+        fetchedAt: response.fetched_at,
+        stale: response.stale,
+        error: response.error || null,
+      };
+    } catch (err) {
+      providerModels[provider] = { models: [], cached: false, fetchedAt: null, stale: false, error: String(err) };
+    }
+  });
 }
 
 async function refreshAllProviderModels() {
   if (providerModelsFetching) return;
   providerModelsFetching = true;
   const apiKeys = (appSettings && appSettings.transcription && appSettings.transcription.api_keys) || {};
-  const fetches = [];
-  for (const provider of ['openai', 'google', 'anthropic']) {
-    if (apiKeys[provider]) {
-      fetches.push(fetchProviderModels(provider));
-    }
+  const providers = ['openai', 'google', 'anthropic'].filter(p => apiKeys[p]);
+  providers.push('ollama');
+  for (const provider of providers) {
+    await fetchProviderModels(provider);
+    renderModelsProviders();
   }
-  // Ollama is local — no API key needed
-  fetches.push(fetchProviderModels('ollama'));
-  await Promise.all(fetches);
-  renderModelsProviders();
   providerModelsFetching = false;
 }
 
@@ -79,6 +84,7 @@ function renderProviderModelsList(providerId) {
     return `<div class="provider-models-section">
     <div class="provider-models-header">
       <span class="provider-models-count">${storedModels.length} model${storedModels.length !== 1 ? 's' : ''} available</span>
+      <span class="provider-models-freshness" style="margin-left:auto;font-size:0.65rem;color:var(--text-secondary);opacity:0.7;">cached</span>
     </div>
     <div class="provider-models-list">${chips}</div>
   </div>`;
@@ -86,8 +92,9 @@ function renderProviderModelsList(providerId) {
 
   if (data.error) {
     const storedModels = (appSettings && appSettings.providers && appSettings.providers[providerId] && appSettings.providers[providerId].models) || [];
+    const errorMsg = escapeHtml(data.error);
     if (storedModels.length === 0) {
-      return `<div class="provider-models-section"><span class="provider-models-error">Failed to load models</span></div>`;
+      return `<div class="provider-models-section"><span class="provider-models-error" style="display:block;max-width:300px;word-wrap:break-word;">${errorMsg}</span></div>`;
     }
     const chips = storedModels.map(id => {
       return `<div class="provider-model-item">
@@ -95,9 +102,10 @@ function renderProviderModelsList(providerId) {
     </div>`;
     }).join('');
     return `<div class="provider-models-section">
-    <span class="provider-models-error">Failed to load models</span>
+    <span class="provider-models-error" style="display:block;max-width:300px;word-wrap:break-word;margin-bottom:4px;">${errorMsg}</span>
     <div class="provider-models-header">
       <span class="provider-models-count">${storedModels.length} model${storedModels.length !== 1 ? 's' : ''} available</span>
+      <span class="provider-models-freshness" style="margin-left:auto;font-size:0.65rem;color:#e6a700;">offline (cached)</span>
     </div>
     <div class="provider-models-list">${chips}</div>
   </div>`;
@@ -152,13 +160,46 @@ function renderProviderModelsList(providerId) {
     ? `<button class="provider-models-toggle" data-provider="${escapeHtml(providerId)}" style="font-size:0.68rem;color:var(--text-secondary);background:none;border:none;cursor:pointer;padding:4px 0;">Show less</button>`
     : '';
 
+  const freshnessIndicator = renderFreshnessIndicator(data.cached, data.fetchedAt, data.stale);
+
   return `<div class="provider-models-section">
     <div class="provider-models-header">
       <span class="provider-models-count">${displayModels.length} of ${data.models.length} models</span>
+      ${freshnessIndicator}
     </div>
     <div class="provider-models-list">${chips}</div>
     ${toggleBtn}
   </div>`;
+}
+
+function renderFreshnessIndicator(cached, fetchedAt, stale) {
+  if (stale) {
+    const age = fetchedAt ? formatModelAge(fetchedAt) : 'cached';
+    return `<span class="provider-models-freshness" style="margin-left:auto;font-size:0.65rem;color:#e6a700;" title="Could not refresh from provider API">${age} (stale)</span>`;
+  }
+  if (!cached && fetchedAt) {
+    return `<span class="provider-models-freshness" style="margin-left:auto;font-size:0.65rem;color:rgba(34,197,94,0.8);">fresh</span>`;
+  }
+  if (cached && fetchedAt) {
+    const age = formatModelAge(fetchedAt);
+    return `<span class="provider-models-freshness" style="margin-left:auto;font-size:0.65rem;color:var(--text-secondary);opacity:0.7;">${age}</span>`;
+  }
+  return '';
+}
+
+function formatModelAge(timestamp) {
+  if (!timestamp) return 'cached';
+  const now = Date.now();
+  const fetched = timestamp * 1000;
+  const diffMs = now - fetched;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays === 1) return '1d ago';
+  return `${diffDays}d ago`;
 }
 
 function renderOllamaCard() {
@@ -329,6 +370,8 @@ function renderModelsProviders() {
   const ollamaConfig = providerConfigs['ollama'] || {};
   const localCaps = [...new Set([...(localConfig.capabilities || []), ...(ollamaConfig.capabilities || [])])];
   const ollamaModelsHtml = renderProviderModelsList('ollama');
+  const ollamaBaseUrl = ollamaConfig.base_url || '';
+  const ollamaHostDisplay = ollamaBaseUrl || 'http://localhost:11434';
 
   sections.push(`
     <div class="connections-group" data-provider-section="local">
@@ -348,6 +391,20 @@ function renderModelsProviders() {
         <div class="group-info">
           <div class="group-label">Local / Ollama ${renderCapBadges(localCaps)}</div>
           <div class="group-desc">On-device AI processing — no API keys needed</div>
+        </div>
+      </div>
+      <div class="provider-card" data-provider="ollama" style="border:none;padding:0;background:none;">
+        <div class="provider-card-input" style="width:100%;justify-content:flex-start;gap:8px;flex-wrap:wrap;">
+          <span style="font-size:0.75rem;color:var(--text-secondary);">Ollama host:</span>
+          <input
+            id="settings-ollama-host"
+            type="text"
+            placeholder="http://localhost:11434"
+            class="settings-input-text"
+            value="${escapeHtml(ollamaHostDisplay)}"
+            style="width:180px;"
+          />
+          <button class="mini-action-btn ollama-refresh-btn" style="font-size:0.75rem;">Connect</button>
         </div>
       </div>
       ${ollamaModelsHtml ? `<div id="ollama-provider-container"><div class="provider-card-wrapper">${ollamaModelsHtml}</div></div>` : '<div id="ollama-provider-container"></div>'}
@@ -429,6 +486,40 @@ function renderModelsProviders() {
       } finally {
         btn.disabled = false;
         btn.textContent = 'Save';
+      }
+    });
+  });
+
+  // Wire Ollama host Connect button
+  el.querySelectorAll('.ollama-refresh-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const input = document.getElementById('settings-ollama-host');
+      if (!input) return;
+      const value = input.value.trim() || 'http://localhost:11434';
+      
+      if (!appSettings.providers) appSettings.providers = {};
+      if (!appSettings.providers['ollama']) appSettings.providers['ollama'] = {};
+      appSettings.providers['ollama'].base_url = value || null;
+
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+      try {
+        await window.__TAURI__.core.invoke('save_settings', { settings: appSettings });
+        delete providerModels['ollama'];
+        btn.textContent = 'Connecting...';
+        await fetchProviderModels('ollama', true);
+        const data = providerModels['ollama'];
+        if (data && !data.error && data.models.length > 0) {
+          showToast(`Connected to Ollama at ${value}`, 'success');
+        } else if (data && data.error) {
+          showToast(data.error, 'error');
+        }
+        renderModelsProviders();
+      } catch (err) {
+        showToast('Failed to connect: ' + err, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Connect';
       }
     });
   });
