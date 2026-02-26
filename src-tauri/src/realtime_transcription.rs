@@ -5,7 +5,7 @@ use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolat
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 use tokio_tungstenite::tungstenite;
 
@@ -632,4 +632,164 @@ fn sleep_remaining(
         std::thread::sleep(chunk);
         slept += chunk;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Managed state and Tauri commands
+// ---------------------------------------------------------------------------
+
+/// Holds either a cloud or local transcriber, abstracts stop().
+pub enum ActiveTranscriber {
+    Cloud(CloudTranscriber),
+    Local(LocalTranscriber),
+}
+
+impl ActiveTranscriber {
+    fn stop(&mut self) {
+        match self {
+            Self::Cloud(c) => c.stop(),
+            Self::Local(l) => l.stop(),
+        }
+    }
+}
+
+/// Tauri-managed state for the active real-time transcription session.
+pub struct RealtimeTranscriptionState {
+    pub active: Mutex<Option<ActiveTranscriber>>,
+    pub recording_id: Mutex<Option<String>>,
+}
+
+impl RealtimeTranscriptionState {
+    pub fn new() -> Self {
+        Self {
+            active: Mutex::new(None),
+            recording_id: Mutex::new(None),
+        }
+    }
+}
+
+/// Build a model path for local (Whisper) realtime transcription.
+/// Prefers `realtime_model` setting; falls back to `whisper_model`.
+fn resolve_local_model_path(settings: &crate::config::AppSettings) -> Result<PathBuf, String> {
+    use crate::config::WhisperModelSize;
+
+    let model_size: Option<WhisperModelSize> = settings
+        .transcription
+        .realtime_model
+        .as_deref()
+        .and_then(|name| match name.to_lowercase().as_str() {
+            "tiny" => Some(WhisperModelSize::Tiny),
+            "base" => Some(WhisperModelSize::Base),
+            "small" => Some(WhisperModelSize::Small),
+            "medium" => Some(WhisperModelSize::Medium),
+            "large" | "large-v3" => Some(WhisperModelSize::Large),
+            _ => None,
+        })
+        .or_else(|| settings.transcription.whisper_model.clone());
+
+    let size = model_size.ok_or("No Whisper model configured for real-time transcription")?;
+    let url = crate::transcription::get_model_url(&size);
+    let filename = url.split('/').last().unwrap();
+    let path = crate::config::get_models_dir().join(filename);
+    if !path.exists() {
+        return Err(format!("Whisper model not downloaded: {}", path.display()));
+    }
+    Ok(path)
+}
+
+/// Start a transcriber according to the current settings.
+fn do_start(
+    app_handle: tauri::AppHandle,
+    settings: &crate::config::AppSettings,
+) -> Result<ActiveTranscriber, String> {
+    match settings.transcription.realtime_provider {
+        crate::config::RealtimeTranscriptionProvider::OpenAI => {
+            let api_key = crate::config::get_api_key_for_provider(settings, "openai")
+                .ok_or("OpenAI API key not configured")?;
+            let model = settings
+                .transcription
+                .realtime_model
+                .clone()
+                .unwrap_or_else(|| "gpt-4o-mini-transcribe".to_string());
+            let transcriber = CloudTranscriber::start(app_handle, api_key, model, None)?;
+            Ok(ActiveTranscriber::Cloud(transcriber))
+        }
+        crate::config::RealtimeTranscriptionProvider::Local
+        | crate::config::RealtimeTranscriptionProvider::Unknown => {
+            let model_path = resolve_local_model_path(settings)?;
+            let transcriber = LocalTranscriber::start(app_handle, model_path)?;
+            Ok(ActiveTranscriber::Local(transcriber))
+        }
+    }
+}
+
+/// Auto-start real-time transcription if enabled in settings.
+/// Called from the recording lifecycle when a new recording begins.
+/// Failures are logged as warnings and do not abort recording.
+pub fn auto_start(app_handle: &tauri::AppHandle, state: &RealtimeTranscriptionState) {
+    let settings = crate::config::load_settings();
+    if !settings.transcription.realtime_enabled {
+        return;
+    }
+    match do_start(app_handle.clone(), &settings) {
+        Ok(transcriber) => {
+            if let Ok(mut guard) = state.active.lock() {
+                *guard = Some(transcriber);
+            }
+        }
+        Err(e) => eprintln!("WARNING: Failed to auto-start real-time transcription: {}", e),
+    }
+}
+
+/// Stop any active real-time transcription session.
+/// Called from the recording lifecycle when a recording stops.
+pub fn auto_stop(state: &RealtimeTranscriptionState) {
+    if let Ok(mut guard) = state.active.lock() {
+        if let Some(mut t) = guard.take() {
+            t.stop();
+        }
+    }
+}
+
+/// Start real-time transcription for the given recording.
+/// Checks config for `realtime_enabled` and picks the configured provider/model.
+#[tauri::command]
+pub fn start_realtime_transcription(
+    app_handle: tauri::AppHandle,
+    recording_id: String,
+    state: tauri::State<'_, RealtimeTranscriptionState>,
+) -> Result<(), String> {
+    if recording_id.is_empty() {
+        return Err("recording_id must not be empty".to_string());
+    }
+
+    let settings = crate::config::load_settings();
+    if !settings.transcription.realtime_enabled {
+        return Err("Real-time transcription is disabled in settings".to_string());
+    }
+
+    let mut guard = state.active.lock().map_err(|e| e.to_string())?;
+    if let Some(mut t) = guard.take() {
+        t.stop();
+    }
+
+    let transcriber = do_start(app_handle, &settings)?;
+    *guard = Some(transcriber);
+    drop(guard);
+
+    let mut rid_guard = state.recording_id.lock().map_err(|e| e.to_string())?;
+    *rid_guard = Some(recording_id);
+    Ok(())
+}
+
+/// Stop the active real-time transcription session, if any.
+#[tauri::command]
+pub fn stop_realtime_transcription(
+    state: tauri::State<'_, RealtimeTranscriptionState>,
+) -> Result<(), String> {
+    let mut guard = state.active.lock().map_err(|e| e.to_string())?;
+    if let Some(mut t) = guard.take() {
+        t.stop();
+    }
+    Ok(())
 }
