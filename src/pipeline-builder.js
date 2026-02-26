@@ -1,5 +1,5 @@
 // ===== PIPELINE DEFINITION MANAGEMENT =====
-// Globals from main.js (loaded before this script): escapeHtml, invoke, allPromptTemplates, slackIntegrations
+// Globals from main.js (loaded after this script, available by call-time): escapeHtml, invoke, allPromptTemplates, slackIntegrations
 // Globals from integrations-settings.js (loaded before this script): notionProfiles, linearProfiles, savePathIntegrations, webhookProfiles (all via typeof guard)
 
 var allPipelineDefs = [];
@@ -12,17 +12,65 @@ const slackTargetCache = {};  // Cache channels+members per integration_id
 let modelSelectExpanded = {}; // Track expanded state per provider in step editor
 let cliAvailabilityCache = null; // Cache for CLI availability (null = not loaded yet)
 
+const FALLBACK_CLI_INFO = [
+  {
+    id: 'claude',
+    name: 'Claude Code',
+    installed: false,
+    install_hint: 'npm install -g @anthropic-ai/claude-code',
+    models: [
+      { id: 'sonnet', name: 'Claude Sonnet (latest)' },
+      { id: 'opus', name: 'Claude Opus (latest)' },
+      { id: 'haiku', name: 'Claude Haiku (latest)' },
+      { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
+      { id: 'claude-opus-4-20250514', name: 'Claude Opus 4' },
+    ],
+    providers: [],
+  },
+  {
+    id: 'codex',
+    name: 'Codex CLI',
+    installed: false,
+    install_hint: 'npm install -g @openai/codex',
+    models: [
+      { id: 'o3', name: 'O3' },
+      { id: 'o4-mini', name: 'O4 Mini' },
+      { id: 'o3-mini', name: 'O3 Mini' },
+    ],
+    providers: [],
+  },
+  {
+    id: 'opencode',
+    name: 'OpenCode',
+    installed: false,
+    install_hint: 'npm install -g opencode-ai',
+    models: [
+      { id: 'openai/gpt-4o', name: 'GPT-4o' },
+      { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini' },
+      { id: 'openai/o3-mini', name: 'O3 Mini' },
+      { id: 'anthropic/claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
+      { id: 'anthropic/claude-opus-4-20250514', name: 'Claude Opus 4' },
+      { id: 'anthropic/claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet' },
+      { id: 'google/gemini-2.5-pro-preview-06-05', name: 'Gemini 2.5 Pro' },
+      { id: 'google/gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
+    ],
+    providers: [
+      { id: 'openai', name: 'OpenAI' },
+      { id: 'anthropic', name: 'Anthropic' },
+      { id: 'google', name: 'Google' },
+      { id: 'opencode', name: 'OpenCode (free)' },
+      { id: 'zai-coding-plan', name: 'ZAI Coding Plan' },
+    ],
+  },
+];
+
 async function loadCliAvailability() {
   if (cliAvailabilityCache) return cliAvailabilityCache;
   try {
     cliAvailabilityCache = await invoke('check_cli_availability');
   } catch (err) {
     console.error('Failed to check CLI availability:', err);
-    cliAvailabilityCache = [
-      { id: 'claude', name: 'Claude Code', installed: false, install_hint: 'npm install -g @anthropic-ai/claude-code' },
-      { id: 'codex', name: 'Codex CLI', installed: false, install_hint: 'npm install -g @openai/codex' },
-      { id: 'opencode', name: 'OpenCode', installed: false, install_hint: 'npm install -g opencode-ai' },
-    ];
+    cliAvailabilityCache = FALLBACK_CLI_INFO;
   }
   return cliAvailabilityCache;
 }
@@ -132,14 +180,17 @@ function trimModelName(model, provider) {
   return prefix && model.startsWith(prefix) ? model.slice(prefix.length) : model;
 }
 
+const CLI_SVG = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>`;
+
 const CONNECTOR_META = {
-  llm:     { abbr: 'AI', textColor: 'var(--accent)',   bgColor: 'var(--accent-soft)' },
-  save:    { svg: SAVE_SVG,    textColor: '#10b981',         bgColor: 'rgba(16,185,129,0.15)' },
-  slack:   { svg: SLACK_SVG,   textColor: '#fff',         bgColor: '#4A154B' },
-  notion:  { svg: NOTION_SVG,  textColor: '#fff',            bgColor: '#2f2f2f' },
-  webhook: { svg: WEBHOOK_SVG, textColor: '#60a5fa',          bgColor: 'rgba(59,130,246,0.2)' },
-  linear:  { svg: LINEAR_SVG,  textColor: '#fff',            bgColor: '#5E6AD2' },
-  mcp:     { abbr: 'MCP',  textColor: '#f59e0b',         bgColor: 'rgba(245,158,11,0.15)' },
+  llm:       { abbr: 'AI',  textColor: 'var(--accent)',  bgColor: 'var(--accent-soft)' },
+  cli_agent: { svg: CLI_SVG, textColor: '#fff',          bgColor: 'rgba(99,102,241,0.9)' },
+  save:      { svg: SAVE_SVG,    textColor: '#10b981',   bgColor: 'rgba(16,185,129,0.15)' },
+  slack:     { svg: SLACK_SVG,   textColor: '#fff',      bgColor: '#4A154B' },
+  notion:    { svg: NOTION_SVG,  textColor: '#fff',      bgColor: '#2f2f2f' },
+  webhook:   { svg: WEBHOOK_SVG, textColor: '#60a5fa',   bgColor: 'rgba(59,130,246,0.2)' },
+  linear:    { svg: LINEAR_SVG,  textColor: '#fff',      bgColor: '#5E6AD2' },
+  mcp:       { abbr: 'MCP', textColor: '#f59e0b',        bgColor: 'rgba(245,158,11,0.15)' },
 };
 
 // Shared pipeline flow renderer — used in both builder preview and recording detail/status views.
@@ -624,6 +675,9 @@ async function loadPipelineDefs() {
     loadCliAvailability();
   } catch (err) {
     console.error('Failed to load pipelines:', err);
+    if (pipelineDefsListEl) {
+      pipelineDefsListEl.innerHTML = `<div style="color: var(--danger); opacity: 0.9; font-size: 0.85rem;">Failed to load pipelines: ${escapeHtml(String(err))}</div>`;
+    }
   }
 }
 
@@ -961,37 +1015,7 @@ function showStepEditor(index) {
     const currentModel = step.config?.model || '';
     const currentProvider = step.config?.provider || '';
     const currentModelArgs = step.config?.model_args || '';
-    const fallbackCliInfo = [
-      { id: 'claude', name: 'Claude Code', installed: false, install_hint: 'npm install -g @anthropic-ai/claude-code', models: [
-        { id: 'sonnet', name: 'Claude Sonnet (latest)' },
-        { id: 'opus', name: 'Claude Opus (latest)' },
-        { id: 'haiku', name: 'Claude Haiku (latest)' },
-        { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
-        { id: 'claude-opus-4-20250514', name: 'Claude Opus 4' },
-      ], providers: [] },
-      { id: 'codex', name: 'Codex CLI', installed: false, install_hint: 'npm install -g @openai/codex', models: [
-        { id: 'o3', name: 'O3' },
-        { id: 'o4-mini', name: 'O4 Mini' },
-        { id: 'o3-mini', name: 'O3 Mini' },
-      ], providers: [] },
-      { id: 'opencode', name: 'OpenCode', installed: false, install_hint: 'npm install -g opencode-ai', models: [
-        { id: 'openai/gpt-4o', name: 'GPT-4o' },
-        { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini' },
-        { id: 'openai/o3-mini', name: 'O3 Mini' },
-        { id: 'anthropic/claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
-        { id: 'anthropic/claude-opus-4-20250514', name: 'Claude Opus 4' },
-        { id: 'anthropic/claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet' },
-        { id: 'google/gemini-2.5-pro-preview-06-05', name: 'Gemini 2.5 Pro' },
-        { id: 'google/gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
-      ], providers: [
-        { id: 'openai', name: 'OpenAI' },
-        { id: 'anthropic', name: 'Anthropic' },
-        { id: 'google', name: 'Google' },
-        { id: 'opencode', name: 'OpenCode (free)' },
-        { id: 'zai-coding-plan', name: 'ZAI Coding Plan' },
-      ] },
-    ];
-    const cliInfo = cliAvailabilityCache || fallbackCliInfo;
+    const cliInfo = cliAvailabilityCache || FALLBACK_CLI_INFO;
     const cliOptions = cliInfo.map(cli => {
       const statusIcon = cli.installed ? '✓' : '✗';
       const statusClass = cli.installed ? '' : ' style="color: var(--text-secondary)"';
@@ -1552,7 +1576,7 @@ function showStepEditor(index) {
     step.config = {};
     const modelModeRadio = editorEl.querySelector('.model-mode-radio:checked');
     const modelMode = modelModeRadio ? modelModeRadio.value : 'default';
-    if (modelMode) step.config.model_mode = modelMode;
+    if (step.connector === 'cli_agent' && modelMode) step.config.model_mode = modelMode;
     configFieldsEl.querySelectorAll('[data-field]').forEach(field => {
       const key = field.dataset.field;
       let val = field.value.trim();
@@ -1655,5 +1679,15 @@ if (deletePipelineDefBtn) {
       console.error('Failed to delete pipeline:', err);
       showToast('Failed to delete: ' + err, 'error');
     }
+  });
+}
+
+window.loadPipelineDefs = loadPipelineDefs;
+window.openPipelineEditor = openPipelineEditor;
+if (window.NBPModuleLoader) {
+  window.NBPModuleLoader.register('pipeline-builder', {
+    loadPipelineDefs,
+    openPipelineEditor,
+    renderPipelineDefsList,
   });
 }

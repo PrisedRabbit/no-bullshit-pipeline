@@ -1,10 +1,10 @@
+use crate::integrations::IntegrationsConfig;
+use crate::storage::get_data_dir;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::path::PathBuf;
 use std::os::unix::fs::PermissionsExt;
-use crate::storage::get_data_dir;
-use crate::integrations::IntegrationsConfig;
+use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub enum TranscriptionProvider {
@@ -65,6 +65,9 @@ pub struct ProviderConfig {
     /// Unix timestamp when models were last successfully fetched from provider API
     #[serde(default)]
     pub models_fetched_at: Option<i64>,
+    /// Optional custom base URL for provider APIs (currently used by Ollama)
+    #[serde(default)]
+    pub base_url: Option<String>,
 }
 
 impl ProviderConfig {
@@ -75,6 +78,7 @@ impl ProviderConfig {
             models: models.iter().map(|s| s.to_string()).collect(),
             cached_models: vec![],
             models_fetched_at: None,
+            base_url: None,
         }
     }
 
@@ -179,26 +183,35 @@ fn default_true() -> bool {
 
 fn default_providers() -> HashMap<String, ProviderConfig> {
     let mut map = HashMap::new();
-    map.insert("openai".to_string(), ProviderConfig::new(
-        &["Transcription", "Processing"],
-        &["whisper-1", "gpt-4o", "gpt-4o-mini"],
-    ));
-    map.insert("google".to_string(), ProviderConfig::new(
-        &["Transcription", "Processing"],
-        &["gemini-1.5-pro", "gemini-1.5-flash"],
-    ));
-    map.insert("anthropic".to_string(), ProviderConfig::new(
-        &["Processing"],
-        &["claude-3-5-sonnet-20241022", "claude-3-haiku-20240307"],
-    ));
-    map.insert("local".to_string(), ProviderConfig::new(
-        &["Processing"],
-        &[],
-    ));
-    map.insert("ollama".to_string(), ProviderConfig::new(
-        &["Processing"],
-        &[],
-    ));
+    map.insert(
+        "openai".to_string(),
+        ProviderConfig::new(
+            &["Transcription", "Processing"],
+            &["whisper-1", "gpt-4o", "gpt-4o-mini"],
+        ),
+    );
+    map.insert(
+        "google".to_string(),
+        ProviderConfig::new(
+            &["Transcription", "Processing"],
+            &["gemini-1.5-pro", "gemini-1.5-flash"],
+        ),
+    );
+    map.insert(
+        "anthropic".to_string(),
+        ProviderConfig::new(
+            &["Processing"],
+            &["claude-3-5-sonnet-20241022", "claude-3-haiku-20240307"],
+        ),
+    );
+    map.insert(
+        "local".to_string(),
+        ProviderConfig::new(&["Processing"], &[]),
+    );
+    map.insert(
+        "ollama".to_string(),
+        ProviderConfig::new(&["Processing"], &[]),
+    );
     map
 }
 
@@ -303,7 +316,10 @@ pub fn load_settings() -> AppSettings {
             for (provider_id, legacy_key) in [
                 ("openai", settings.transcription.api_keys.openai.clone()),
                 ("google", settings.transcription.api_keys.google.clone()),
-                ("anthropic", settings.transcription.api_keys.anthropic.clone()),
+                (
+                    "anthropic",
+                    settings.transcription.api_keys.anthropic.clone(),
+                ),
             ] {
                 if let Some(key) = legacy_key {
                     if let Some(entry) = settings.providers.get_mut(provider_id) {
@@ -327,7 +343,7 @@ pub fn load_settings() -> AppSettings {
             }
 
             settings
-        },
+        }
         Err(_) => AppSettings::default(),
     }
 }
@@ -340,10 +356,14 @@ pub fn save_settings(mut settings: AppSettings) -> Result<(), String> {
     for (provider_id, legacy_key) in [
         ("openai", settings.transcription.api_keys.openai.clone()),
         ("google", settings.transcription.api_keys.google.clone()),
-        ("anthropic", settings.transcription.api_keys.anthropic.clone()),
+        (
+            "anthropic",
+            settings.transcription.api_keys.anthropic.clone(),
+        ),
     ] {
         if let Some(key) = legacy_key {
-            settings.providers
+            settings
+                .providers
                 .entry(provider_id.to_string())
                 .or_insert_with(ProviderConfig::default)
                 .api_key = if key.is_empty() { None } else { Some(key) };
@@ -360,7 +380,9 @@ pub fn save_settings(mut settings: AppSettings) -> Result<(), String> {
     serde_json::to_writer_pretty(file, &settings).map_err(|e| e.to_string())?;
 
     // Set file permissions to 600 (user read/write only) for security
-    let mut perms = fs::metadata(&path).map_err(|e| e.to_string())?.permissions();
+    let mut perms = fs::metadata(&path)
+        .map_err(|e| e.to_string())?
+        .permissions();
     perms.set_mode(0o600);
     fs::set_permissions(&path, perms).map_err(|e| e.to_string())?;
 

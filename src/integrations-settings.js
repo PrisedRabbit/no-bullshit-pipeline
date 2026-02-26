@@ -36,9 +36,9 @@ async function loadAllIntegrations() {
 var providerModels = {};
 var providerModelsFetching = false;
 
-async function fetchProviderModels(provider) {
+async function fetchProviderModels(provider, forceRefresh = false) {
   try {
-    const models = await window.__TAURI__.core.invoke('fetch_provider_models', { provider });
+    const models = await window.__TAURI__.core.invoke('fetch_provider_models', { provider, forceRefresh });
     providerModels[provider] = { models, error: null };
   } catch (err) {
     providerModels[provider] = { models: [], error: String(err) };
@@ -56,7 +56,7 @@ async function refreshAllProviderModels() {
     }
   }
   // Ollama is local — no API key needed
-  fetches.push(fetchProviderModels('ollama'));
+  fetches.push(fetchProviderModels('ollama', true));
   await Promise.all(fetches);
   renderModelsProviders();
   providerModelsFetching = false;
@@ -332,6 +332,7 @@ function renderModelsProviders() {
   // Local / Ollama section
   const localConfig = providerConfigs['local'] || {};
   const ollamaConfig = providerConfigs['ollama'] || {};
+  const ollamaBaseUrl = ollamaConfig.base_url || 'http://localhost:11434';
   const localCaps = [...new Set([...(localConfig.capabilities || []), ...(ollamaConfig.capabilities || [])])];
   const ollamaModelsHtml = renderProviderModelsList('ollama');
   const localProvider = LOCAL_PROVIDERS.find(p => p.id === 'local');
@@ -346,6 +347,12 @@ function renderModelsProviders() {
         <div class="group-info">
           <div class="group-label">Local / Ollama ${renderCapBadges(localCaps)}</div>
           <div class="group-desc">On-device AI processing — no API keys needed</div>
+        </div>
+      </div>
+      <div class="provider-card" data-provider="ollama" style="border:none;padding:0;background:none;">
+        <div class="provider-card-input" style="width:100%;justify-content:flex-start;gap:8px;">
+          <input id="settings-ollama-host" type="text" class="settings-input-text" value="${escapeHtml(ollamaBaseUrl)}" placeholder="http://localhost:11434" style="width:240px;" />
+          <button class="mini-action-btn save-ollama-host-btn">Save Host</button>
         </div>
       </div>
       ${ollamaModelsHtml ? `<div id="ollama-provider-container"><div class="provider-card-wrapper"><div class="provider-subsection"><div class="provider-subsection-header"><div class="provider-card-icon ollama" style="background:${ollamaProvider.icon.bg};display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:4px;"><img src="${ollamaProvider.icon.img}" style="width:14px;height:14px;filter:${ollamaProvider.icon.filter}" /></div><span class="provider-subsection-label">Ollama</span></div>${ollamaModelsHtml}</div></div></div>` : '<div id="ollama-provider-container"></div>'}
@@ -371,7 +378,7 @@ function renderModelsProviders() {
       btn.disabled = true;
       btn.textContent = 'Refreshing...';
       try {
-        await fetchProviderModels(providerId);
+        await fetchProviderModels(providerId, providerId === 'ollama');
         renderModelsProviders();
       } finally {
         btn.disabled = false;
@@ -379,6 +386,39 @@ function renderModelsProviders() {
       }
     });
   });
+
+  // Wire Ollama host save button
+  const saveOllamaHostBtn = el.querySelector('.save-ollama-host-btn');
+  if (saveOllamaHostBtn) {
+    saveOllamaHostBtn.addEventListener('click', async () => {
+      const input = document.getElementById('settings-ollama-host');
+      if (!input) return;
+      const raw = input.value.trim();
+      const withScheme = raw === ''
+        ? 'http://localhost:11434'
+        : (raw.startsWith('http://') || raw.startsWith('https://') ? raw : `http://${raw}`);
+      const normalized = withScheme.replace(/\/+$/, '');
+
+      if (!appSettings.providers) appSettings.providers = {};
+      if (!appSettings.providers.ollama) appSettings.providers.ollama = {};
+      appSettings.providers.ollama.base_url = normalized;
+
+      saveOllamaHostBtn.disabled = true;
+      saveOllamaHostBtn.textContent = 'Saving...';
+      try {
+        await window.__TAURI__.core.invoke('save_settings', { settings: appSettings });
+        input.value = normalized;
+        await fetchProviderModels('ollama', true);
+        renderModelsProviders();
+        showToast('Ollama host saved', 'success');
+      } catch (err) {
+        showToast('Failed to save Ollama host: ' + err, 'error');
+      } finally {
+        saveOllamaHostBtn.disabled = false;
+        saveOllamaHostBtn.textContent = 'Save Host';
+      }
+    });
+  }
 
   // Wire Save buttons
   el.querySelectorAll('.provider-save-btn').forEach(btn => {
@@ -526,6 +566,20 @@ function renderLocalLlmModelsInner() {
   const invoke = window.__TAURI__.core.invoke;
   const selectedId = appSettings?.local_llm?.model_id || null;
 
+  function setDownloadUi(card, downloading) {
+    if (!card) return;
+    const cancelBtn = card.querySelector('.llm-cancel-btn');
+    card.querySelectorAll('.provider-card-input button').forEach(btn => {
+      if (btn.classList.contains('llm-cancel-btn')) return;
+      btn.style.display = downloading ? 'none' : '';
+    });
+    if (cancelBtn) {
+      cancelBtn.style.display = downloading ? '' : 'none';
+      cancelBtn.disabled = false;
+      cancelBtn.textContent = 'Cancel';
+    }
+  }
+
   el.innerHTML = llmModelsData.map(m => {
     const isSelected = m.id === selectedId;
     const sizeStr = m.size_mb >= 1000 ? `${(m.size_mb / 1000).toFixed(1)} GB` : `${m.size_mb} MB`;
@@ -558,8 +612,10 @@ function renderLocalLlmModelsInner() {
                </button>
                <button class="mini-action-btn llm-delete-btn" data-llm-id="${escapeHtml(m.id)}" title="Delete model" style="width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;">
                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="m19 6-.867 12.14A2 2 0 0 1 16.138 20H7.862a2 2 0 0 1-1.995-1.86L5 6m5 0V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2"/></svg>
-               </button>`
-            : `<button class="mini-action-btn llm-download-btn" data-llm-id="${escapeHtml(m.id)}" style="font-size:0.75rem;">Download</button>`
+                </button>
+                <button class="mini-action-btn llm-cancel-btn" data-llm-id="${escapeHtml(m.id)}" style="font-size:0.75rem;display:none;">Cancel</button>`
+            : `<button class="mini-action-btn llm-download-btn" data-llm-id="${escapeHtml(m.id)}" style="font-size:0.75rem;">Download</button>
+               <button class="mini-action-btn llm-cancel-btn" data-llm-id="${escapeHtml(m.id)}" style="font-size:0.75rem;display:none;">Cancel</button>`
           }
         </div>
         <div id="llm-progress-${escapeHtml(m.id)}" class="llm-progress-container">
@@ -577,7 +633,8 @@ function renderLocalLlmModelsInner() {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const modelId = btn.dataset.llmId;
-      btn.style.display = 'none';
+      const card = btn.closest('.provider-card');
+      setDownloadUi(card, true);
 
       activeDownloads[modelId] = { percent: 0, downloaded: 0, total: 0 };
       const progressEl = document.getElementById(`llm-progress-${modelId}`);
@@ -595,14 +652,38 @@ function renderLocalLlmModelsInner() {
         delete activeDownloads[modelId];
         await renderLocalLlmModels();
       } catch (err) {
-        showToast('Download failed: ' + err, 'error');
-        activeDownloads[modelId] = { error: 'Download failed' };
+        if (String(err).includes('cancelled')) {
+          activeDownloads[modelId] = { error: 'Cancelled' };
+        } else {
+          showToast('Download failed: ' + err, 'error');
+          activeDownloads[modelId] = { error: 'Download failed' };
+        }
         if (progressEl) {
           progressEl.classList.add('visible', 'error');
           progressEl.classList.remove('complete');
           const text = progressEl.querySelector('.llm-progress-text');
-          if (text) text.innerHTML = '<span class="llm-progress-percent">Error</span> • Download failed';
+          if (text) {
+            text.innerHTML = String(err).includes('cancelled')
+              ? '<span class="llm-progress-percent">Cancelled</span> • Download cancelled'
+              : '<span class="llm-progress-percent">Error</span> • Download failed';
+          }
         }
+        setDownloadUi(card, false);
+      }
+    });
+  });
+
+  // Wire cancel buttons
+  el.querySelectorAll('.llm-cancel-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const modelId = btn.dataset.llmId;
+      btn.disabled = true;
+      btn.textContent = 'Cancelling...';
+      try {
+        await invoke('cancel_llm_download', { modelId });
+      } catch (_) {
+        // Best effort; UI will settle based on download result.
       }
     });
   });
@@ -635,7 +716,7 @@ function renderLocalLlmModelsInner() {
       if (!ok) return;
 
       const card = btn.closest('.provider-card');
-      if (card) card.querySelectorAll('.provider-card-input button').forEach(b => { b.style.display = 'none'; });
+      setDownloadUi(card, true);
 
       activeDownloads[modelId] = { percent: 0, downloaded: 0, total: 0 };
       const progressEl = document.getElementById(`llm-progress-${modelId}`);
@@ -655,14 +736,23 @@ function renderLocalLlmModelsInner() {
         delete activeDownloads[modelId];
         await renderLocalLlmModels();
       } catch (err) {
-        showToast('Update failed: ' + err, 'error');
-        activeDownloads[modelId] = { error: 'Update failed' };
+        if (String(err).includes('cancelled')) {
+          activeDownloads[modelId] = { error: 'Cancelled' };
+        } else {
+          showToast('Update failed: ' + err, 'error');
+          activeDownloads[modelId] = { error: 'Update failed' };
+        }
         if (progressEl) {
           progressEl.classList.add('visible', 'error');
           progressEl.classList.remove('complete');
           const text = progressEl.querySelector('.llm-progress-text');
-          if (text) text.innerHTML = '<span class="llm-progress-percent">Error</span> • Update failed';
+          if (text) {
+            text.innerHTML = String(err).includes('cancelled')
+              ? '<span class="llm-progress-percent">Cancelled</span> • Update cancelled'
+              : '<span class="llm-progress-percent">Error</span> • Update failed';
+          }
         }
+        setDownloadUi(card, false);
       }
     });
   });
@@ -693,6 +783,19 @@ function restoreProgressState() {
   for (const [modelId, state] of Object.entries(activeDownloads)) {
     const progressEl = document.getElementById(`llm-progress-${modelId}`);
     if (!progressEl) continue;
+    const card = progressEl.closest('.provider-card');
+    const cancelBtn = card ? card.querySelector('.llm-cancel-btn') : null;
+    if (card) {
+      card.querySelectorAll('.provider-card-input button').forEach(btn => {
+        if (btn.classList.contains('llm-cancel-btn')) return;
+        btn.style.display = (state.error || state.complete) ? '' : 'none';
+      });
+    }
+    if (cancelBtn) {
+      cancelBtn.style.display = (state.error || state.complete) ? 'none' : '';
+      cancelBtn.disabled = false;
+      cancelBtn.textContent = 'Cancel';
+    }
 
     const fill = progressEl.querySelector('.llm-progress-fill');
     const text = progressEl.querySelector('.llm-progress-text');
@@ -723,6 +826,8 @@ if (window.__TAURI__?.event?.listen) {
     const { model_id, downloaded, total, percent } = event.payload;
     const progressEl = document.getElementById(`llm-progress-${model_id}`);
     if (!progressEl) return;
+    const card = progressEl.closest('.provider-card');
+    const cancelBtn = card ? card.querySelector('.llm-cancel-btn') : null;
 
     const fill = progressEl.querySelector('.llm-progress-fill');
     const text = progressEl.querySelector('.llm-progress-text');
@@ -736,12 +841,30 @@ if (window.__TAURI__?.event?.listen) {
       activeDownloads[model_id] = { percent: 100, downloaded: total, total, complete: true };
       progressEl.classList.add('visible', 'complete');
       progressEl.classList.remove('error');
+      if (card) {
+        card.querySelectorAll('.provider-card-input button').forEach(btn => {
+          if (btn.classList.contains('llm-cancel-btn')) return;
+          btn.style.display = '';
+        });
+      }
+      if (cancelBtn) cancelBtn.style.display = 'none';
       if (fill) fill.style.width = '100%';
       if (text) text.innerHTML = '<span class="llm-progress-percent">100%</span> • Download complete';
     } else {
       activeDownloads[model_id] = { percent, downloaded, total };
       progressEl.classList.add('visible');
       progressEl.classList.remove('complete', 'error');
+      if (card) {
+        card.querySelectorAll('.provider-card-input button').forEach(btn => {
+          if (btn.classList.contains('llm-cancel-btn')) return;
+          btn.style.display = 'none';
+        });
+      }
+      if (cancelBtn) {
+        cancelBtn.style.display = '';
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = 'Cancel';
+      }
       if (fill) fill.style.width = `${pct}%`;
       if (text) text.innerHTML = `<span class="llm-progress-percent">${pct}%</span> • ${dlMB} / ${totalMB} MB`;
     }
@@ -2369,4 +2492,13 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initIntegrationsSettings);
 } else {
   initIntegrationsSettings();
+}
+
+if (window.NBPModuleLoader) {
+  window.NBPModuleLoader.register('integrations-settings', {
+    loadAllIntegrations,
+    renderConnectedIntegrations,
+    renderAvailableIntegrations,
+    renderModelsProviders,
+  });
 }

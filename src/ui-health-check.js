@@ -262,3 +262,11 @@ async function finishWalkthrough() {
     console.error('Failed to save walkthrough_completed:', e);
   }
 }
+
+if (window.NBPModuleLoader) {
+  window.NBPModuleLoader.register('ui-health-check', {
+    runHealthAudit,
+    initHealthCheck,
+    startWalkthrough,
+  });
+}

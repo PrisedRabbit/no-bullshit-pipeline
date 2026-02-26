@@ -219,6 +219,7 @@ pub fn run() {
             pipeline_engine::get_step_outputs,
             pipeline_engine::assign_pipeline,
             pipeline_engine::remove_pipeline_run,
+            connectors::cli_agent::check_cli_availability,
             // Integrations
             integrations::list_slack_integrations,
             integrations::add_slack_integration,

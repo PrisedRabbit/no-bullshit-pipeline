@@ -236,20 +236,33 @@ struct OllamaModel {
     name: String,
 }
 
-async fn fetch_ollama_models() -> Result<Vec<ProviderModel>, String> {
+fn normalize_ollama_base_url(raw: Option<&str>) -> String {
+    let trimmed = raw.unwrap_or("http://localhost:11434").trim();
+    let with_scheme = if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        trimmed.to_string()
+    } else {
+        format!("http://{}", trimmed)
+    };
+    with_scheme.trim_end_matches('/').to_string()
+}
+
+async fn fetch_ollama_models_for_base_url(base_url: Option<&str>) -> Result<Vec<ProviderModel>, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
         .map_err(|e| format!("Client error: {}", e))?;
 
+    let base = normalize_ollama_base_url(base_url);
+    let tags_url = format!("{}/api/tags", base);
+
     let response = client
-        .get("http://localhost:11434/api/tags")
+        .get(&tags_url)
         .send()
         .await
-        .map_err(|e| format!("Cannot reach Ollama (is it running?): {}", e))?;
+        .map_err(|e| format!("Cannot reach Ollama at {} (is it running?): {}", base, e))?;
 
     if !response.status().is_success() {
-        return Err(format!("Ollama API error ({})", response.status()));
+        return Err(format!("Ollama API error at {} ({})", base, response.status()));
     }
 
     let body: OllamaTagsResponse = response
@@ -283,10 +296,14 @@ async fn fetch_ollama_models() -> Result<Vec<ProviderModel>, String> {
 // ===== Tauri Command =====
 
 #[tauri::command]
-pub async fn fetch_provider_models(provider: String) -> Result<ProviderModelsResponse, String> {
+pub async fn fetch_provider_models(
+    provider: String,
+    force_refresh: Option<bool>,
+) -> Result<ProviderModelsResponse, String> {
     let settings = crate::config::load_settings();
     let api_keys = &settings.transcription.api_keys;
     let now = chrono::Utc::now().timestamp();
+    let force_refresh = force_refresh.unwrap_or(false);
 
     let provider_config = settings.providers.get(&provider);
     let cached_models = provider_config.map(|c| c.cached_models.clone()).unwrap_or_default();
@@ -296,7 +313,9 @@ pub async fn fetch_provider_models(provider: String) -> Result<ProviderModelsRes
         .map(|ts| now - ts > MODELS_CACHE_TTL_SECS)
         .unwrap_or(true);
 
-    if !is_stale && !cached_models.is_empty() {
+    let allow_cached_short_circuit = !force_refresh && provider != "ollama";
+
+    if allow_cached_short_circuit && !is_stale && !cached_models.is_empty() {
         let models: Vec<ProviderModel> = cached_models
             .iter()
             .map(|m| ProviderModel {
@@ -327,7 +346,11 @@ pub async fn fetch_provider_models(provider: String) -> Result<ProviderModelsRes
             let key = api_keys.google.as_ref().ok_or("Google API key not configured")?;
             fetch_google_models(key).await
         }
-        "ollama" => fetch_ollama_models().await,
+        "ollama" => {
+            let base_url = provider_config
+                .and_then(|c| c.base_url.as_deref());
+            fetch_ollama_models_for_base_url(base_url).await
+        }
         other => Err(format!("Unknown provider: {}", other)),
     };
 

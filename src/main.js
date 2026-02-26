@@ -1327,7 +1327,8 @@ window.showDetailView = async (id) => {
         });
       });
     } else {
-      detailPipelineAssignment.style.display = 'none';
+      pipelineCardsEl.innerHTML = '<div style="color: var(--text-secondary); opacity: 0.75; font-size: 0.82rem;">No pipelines yet. Add one in Settings -> Pipelines.</div>';
+      detailPipelineAssignment.style.display = '';
     }
   }
 
@@ -1338,13 +1339,17 @@ window.showDetailView = async (id) => {
     if (isRecording && typeof allPipelineDefs !== 'undefined' && allPipelineDefs.length > 0) {
       recordingPipelinePanel.style.display = '';
       renderRecordingPipelineCards(recordingPipelineCardsEl, id);
+    } else if (isRecording) {
+      recordingPipelinePanel.style.display = '';
+      recordingPipelineCardsEl.innerHTML = '<div style="color: var(--text-secondary); opacity: 0.75; font-size: 0.78rem; padding: 6px 2px;">No pipelines available. Create one in Settings -> Pipelines.</div>';
     } else {
       recordingPipelinePanel.style.display = 'none';
     }
   }
 
-  // Hide transcript section if currently recording or processing (keep pipeline assignment visible)
-  const hideContent = isRecording || isProcessing;
+  // Keep transcript section visible during recording so detail view is never empty.
+  // Only hide while post-recording processing is running.
+  const hideContent = isProcessing;
   const transcriptSection = document.getElementById('transcript-section');
   if (transcriptSection) transcriptSection.style.display = hideContent ? 'none' : '';
 
@@ -2187,6 +2192,13 @@ function switchSettingsTab(tabName) {
   document.querySelectorAll('.settings-tab-content').forEach(c => {
     c.classList.toggle('active', c.dataset.tab === tabName);
   });
+
+  // Lazy-refresh tab data on activation as a hard safety net.
+  if (tabName === 'pipelines') {
+    loadPromptTemplates();
+    if (typeof loadPipelineDefs === 'function') loadPipelineDefs();
+  }
+
   const scroller = document.querySelector('#settings-view .detail-scroller');
   if (scroller) scroller.scrollTop = 0;
 }
@@ -2437,40 +2449,46 @@ const deletePromptViewBtn = document.getElementById('delete-prompt-view-btn');
 const closePromptEditorBtn = document.getElementById('close-prompt-editor');
 const closePromptViewBtn = document.getElementById('close-prompt-view-btn');
 
+function pickVisible(primaryEl, secondaryEl) {
+  if (primaryEl && primaryEl.offsetParent !== null) return primaryEl;
+  if (secondaryEl && secondaryEl.offsetParent !== null) return secondaryEl;
+  return primaryEl || secondaryEl;
+}
+
 function getActivePromptList() {
-  return promptsListEl || promptTemplatesListEl;
+  return pickVisible(promptTemplatesListEl, promptsListEl);
 }
 
 function getActivePromptEditor() {
-  return promptViewEditor || promptTemplateEditor;
+  return pickVisible(promptTemplateEditor, promptViewEditor);
 }
 
 function getActivePromptTitle() {
-  return promptViewEditorTitle || promptEditorTitle;
+  return pickVisible(promptEditorTitle, promptViewEditorTitle);
 }
 
 function getActivePromptName() {
-  return promptViewName || promptEditorName;
+  return pickVisible(promptEditorName, promptViewName);
 }
 
 function getActivePromptDesc() {
-  return promptViewDesc || promptEditorDesc;
+  return pickVisible(promptEditorDesc, promptViewDesc);
 }
 
 function getActivePromptText() {
-  return promptViewText || promptEditorText;
+  return pickVisible(promptEditorText, promptViewText);
 }
 
 function getActiveSaveBtn() {
-  return savePromptViewBtn || savePromptTemplateBtn;
+  return pickVisible(savePromptTemplateBtn, savePromptViewBtn);
 }
 
 function getActiveDeleteBtn() {
-  return deletePromptViewBtn || deletePromptTemplateBtn;
+  return pickVisible(deletePromptTemplateBtn, deletePromptViewBtn);
 }
 
 function getActiveCloseBtn() {
-  return closePromptViewBtn || closePromptEditorBtn;
+  return pickVisible(closePromptEditorBtn, closePromptViewBtn);
 }
 
 async function loadPromptTemplates() {
@@ -2479,6 +2497,10 @@ async function loadPromptTemplates() {
     renderPromptTemplatesList();
   } catch (err) {
     console.error('Failed to load prompt templates:', err);
+    const listEl = getActivePromptList();
+    if (listEl) {
+      listEl.innerHTML = `<div style="color: var(--danger); opacity: 0.9; font-size: 0.85rem; text-align: center; padding: 1rem;">Failed to load templates: ${escapeHtml(String(err))}</div>`;
+    }
   }
 }
 
@@ -2768,8 +2790,8 @@ async function loadTemplates() {
 // ===== INIT =====
 async function init() {
   await loadSettings();
-  await loadPipelineDefs();
   await loadRecordings();
+  await loadPipelineDefs();
   await loadTemplates();
   await loadPromptTemplates();
   await loadSlackIntegrations();
@@ -2804,7 +2826,9 @@ async function init() {
   }
 }
 
-init().catch(e => console.error('Init failed:', e)).finally(() => {
+async function bootstrapApp() {
+  await init().catch(e => console.error('Init failed:', e));
+
   // Initialize health check controls (event listeners wired once)
   if (typeof initHealthCheck === 'function') initHealthCheck();
 
@@ -2827,4 +2851,10 @@ init().catch(e => console.error('Init failed:', e)).finally(() => {
   } else {
     setTimeout(scheduleAudit, 500);
   }
-});
+}
+
+if (document.readyState === 'complete') {
+  setTimeout(() => { bootstrapApp(); }, 0);
+} else {
+  window.addEventListener('load', () => { bootstrapApp(); }, { once: true });
+}
