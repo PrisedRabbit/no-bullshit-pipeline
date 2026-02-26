@@ -4,27 +4,12 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
-use crate::config::{get_llm_models_dir, load_settings, CachedFreshnessInfo};
+use tokio::sync::broadcast;
+use crate::config::{get_llm_models_dir, load_settings};
 
 static FRESHNESS_CANCELLED: AtomicBool = AtomicBool::new(false);
-static FRESHNESS_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
-
-struct FreshnessGuard;
-
-impl FreshnessGuard {
-    fn try_acquire() -> Option<Self> {
-        if FRESHNESS_IN_FLIGHT.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
-            Some(Self)
-        } else {
-            None
-        }
-    }
-}
-
-impl Drop for FreshnessGuard {
-    fn drop(&mut self) {
-        FRESHNESS_IN_FLIGHT.store(false, Ordering::SeqCst);
-    }
+lazy_static::lazy_static! {
+    static ref DOWNLOAD_CANCEL_TX: broadcast::Sender<String> = broadcast::channel::<String>(16).0;
 }
 
 // ── Model Registry ──────────────────────────────────────────────────────────
@@ -129,6 +114,11 @@ struct LlmDownloadProgress {
 }
 
 #[tauri::command]
+pub fn cancel_llm_download(model_id: String) {
+    let _ = DOWNLOAD_CANCEL_TX.send(model_id);
+}
+
+#[tauri::command]
 pub async fn download_llm_model(
     app_handle: tauri::AppHandle,
     model_id: String,
@@ -149,12 +139,22 @@ pub async fn download_llm_model(
 
     let file_path = models_dir.join(model_def.filename);
 
+    let mut cancel_rx = DOWNLOAD_CANCEL_TX.subscribe();
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(3600))
         .build()
         .map_err(|e| e.to_string())?;
 
-    let res = client.get(model_def.url).send().await.map_err(|e| e.to_string())?;
+    let res = tokio::select! {
+        res = client.get(model_def.url).send() => res.map_err(|e| e.to_string())?,
+        Ok(msg) = cancel_rx.recv() => {
+            if msg == model_id {
+                return Err("cancelled".to_string());
+            }
+            return Err("cancelled".to_string());
+        }
+    };
 
     if !res.status().is_success() {
         return Err(format!("Download failed: HTTP {}", res.status()));
@@ -168,8 +168,24 @@ pub async fn download_llm_model(
     let mut downloaded: u64 = 0;
     let mut last_emit = Instant::now();
 
-    while let Some(item) = stream.next().await {
-        let chunk = item.map_err(|e| e.to_string())?;
+    loop {
+        let chunk = tokio::select! {
+            item = stream.next() => {
+                match item {
+                    Some(c) => c.map_err(|e| e.to_string())?,
+                    None => break,
+                }
+            }
+            Ok(msg) = cancel_rx.recv() => {
+                if msg == model_id {
+                    drop(file);
+                    let _ = tokio::fs::remove_file(&file_path).await;
+                    return Err("cancelled".to_string());
+                }
+                continue;
+            }
+        };
+
         file.write_all(&chunk).await.map_err(|e| e.to_string())?;
         downloaded += chunk.len() as u64;
 
@@ -192,7 +208,6 @@ pub async fn download_llm_model(
         }
     }
 
-    // Hash the downloaded file and save sidecar
     file.flush().await.map_err(|e| e.to_string())?;
     drop(file);
     if let Err(e) = compute_and_cache_sha256(&file_path) {
@@ -896,7 +911,7 @@ pub async fn check_model_freshness() -> Result<Vec<ModelFreshnessInfo>, String> 
 }
 
 #[tauri::command]
-pub fn get_cached_freshness_results() -> HashMap<String, CachedFreshnessInfo> {
+pub fn get_cached_freshness_results() -> std::collections::HashMap<String, bool> {
     crate::config::load_settings().cached_freshness_results
 }
 
@@ -905,11 +920,6 @@ pub fn get_cached_freshness_results() -> HashMap<String, CachedFreshnessInfo> {
 /// Updates `last_model_freshness_check` timestamp in settings on completion.
 pub async fn auto_check_model_freshness(app_handle: tauri::AppHandle) {
     use tauri::Emitter;
-
-    let _guard = match FreshnessGuard::try_acquire() {
-        Some(g) => g,
-        None => return,
-    };
 
     let results = match check_model_freshness().await {
         Ok(r) => r,
@@ -921,114 +931,12 @@ pub async fn auto_check_model_freshness(app_handle: tauri::AppHandle) {
 
     let _ = app_handle.emit("model_freshness_auto_result", &results);
 
+    // Persist results and timestamp in settings
     let mut settings = crate::config::load_settings();
     settings.last_model_freshness_check = Some(chrono::Utc::now().timestamp());
     settings.cached_freshness_results = results
         .iter()
-        .map(|r| (r.model_id.clone(), CachedFreshnessInfo {
-            model_name: r.model_name.clone(),
-            source: r.source.clone(),
-            update_available: r.update_available,
-            local_size: r.local_size,
-            remote_size: r.remote_size,
-            local_digest: r.local_digest.clone(),
-            remote_digest: r.remote_digest.clone(),
-            error: r.error.clone(),
-        }))
+        .map(|r| (r.model_id.clone(), r.update_available))
         .collect();
     let _ = crate::config::save_settings(settings);
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct FreshnessCheckResult {
-    pub checked: bool,
-    pub results: Vec<ModelFreshnessInfo>,
-    pub last_check_timestamp: Option<i64>,
-}
-
-#[tauri::command]
-pub async fn trigger_freshness_check_if_needed(
-    app_handle: tauri::AppHandle,
-) -> Result<FreshnessCheckResult, String> {
-    use tauri::Emitter;
-
-    let settings = crate::config::load_settings();
-    let now = chrono::Utc::now().timestamp();
-    let throttle_seconds: i64 = 86400;
-
-    let last_check = settings.last_model_freshness_check;
-    let needs_check = match last_check {
-        Some(last) => now - last > throttle_seconds,
-        None => true,
-    };
-
-    let cached_to_model_info = |(model_id, cached): (&String, &CachedFreshnessInfo)| ModelFreshnessInfo {
-        model_id: model_id.clone(),
-        model_name: cached.model_name.clone(),
-        source: cached.source.clone(),
-        update_available: cached.update_available,
-        local_size: cached.local_size,
-        remote_size: cached.remote_size,
-        local_digest: cached.local_digest.clone(),
-        remote_digest: cached.remote_digest.clone(),
-        error: cached.error.clone(),
-    };
-
-    if !needs_check {
-        let cached: Vec<ModelFreshnessInfo> = settings
-            .cached_freshness_results
-            .iter()
-            .map(cached_to_model_info)
-            .collect();
-
-        return Ok(FreshnessCheckResult {
-            checked: false,
-            results: cached,
-            last_check_timestamp: last_check,
-        });
-    }
-
-    let _guard = match FreshnessGuard::try_acquire() {
-        Some(g) => g,
-        None => {
-            let cached: Vec<ModelFreshnessInfo> = settings
-                .cached_freshness_results
-                .iter()
-                .map(cached_to_model_info)
-                .collect();
-
-            return Ok(FreshnessCheckResult {
-                checked: false,
-                results: cached,
-                last_check_timestamp: last_check,
-            });
-        }
-    };
-
-    let results = check_model_freshness().await?;
-
-    let _ = app_handle.emit("model_freshness_auto_result", &results);
-
-    let mut settings = crate::config::load_settings();
-    settings.last_model_freshness_check = Some(now);
-    settings.cached_freshness_results = results
-        .iter()
-        .map(|r| (r.model_id.clone(), CachedFreshnessInfo {
-            model_name: r.model_name.clone(),
-            source: r.source.clone(),
-            update_available: r.update_available,
-            local_size: r.local_size,
-            remote_size: r.remote_size,
-            local_digest: r.local_digest.clone(),
-            remote_digest: r.remote_digest.clone(),
-            error: r.error.clone(),
-        }))
-        .collect();
-    let _ = crate::config::save_settings(settings);
-
-    Ok(FreshnessCheckResult {
-        checked: true,
-        results,
-        last_check_timestamp: Some(now),
-    })
 }

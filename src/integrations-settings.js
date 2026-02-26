@@ -607,7 +607,10 @@ function renderLocalLlmModelsInner() {
           <div style="height:4px;background:var(--border-color);border-radius:2px;overflow:hidden;">
             <div class="llm-progress-fill" style="height:100%;width:0%;background:var(--accent-color);transition:width 0.2s;border-radius:2px;"></div>
           </div>
-          <div class="llm-progress-text" style="font-size:0.7rem;color:var(--text-secondary);margin-top:4px;"></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+            <div class="llm-progress-text" style="flex:1;font-size:0.7rem;color:var(--text-secondary);"></div>
+            <button class="mini-action-btn llm-cancel-download-btn" data-llm-id="${escapeHtml(m.id)}" style="font-size:0.7rem;padding:2px 8px;">Cancel</button>
+          </div>
         </div>
       </div>
     `;
@@ -627,9 +630,28 @@ function renderLocalLlmModelsInner() {
         await invoke('download_llm_model', { modelId });
         await renderLocalLlmModels();
       } catch (err) {
-        showToast('Download failed: ' + err, 'error');
-        btn.style.display = '';
-        if (progressEl) progressEl.style.display = 'none';
+        if (String(err).includes('cancelled')) {
+          showToast('Download cancelled', 'info');
+        } else {
+          showToast('Download failed: ' + err, 'error');
+        }
+        renderLocalLlmModels();
+      }
+    });
+  });
+
+  el.querySelectorAll('.llm-cancel-download-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const modelId = btn.dataset.llmId;
+      btn.disabled = true;
+      btn.textContent = 'Cancelling...';
+      try {
+        await invoke('cancel_llm_download', { modelId });
+      } catch (err) {
+        console.error('Failed to cancel download:', err);
+        btn.disabled = false;
+        btn.textContent = 'Cancel';
       }
     });
   });
@@ -672,7 +694,11 @@ function renderLocalLlmModelsInner() {
         await invoke('download_llm_model', { modelId });
         await renderLocalLlmModels();
       } catch (err) {
-        showToast('Update failed: ' + err, 'error');
+        if (String(err).includes('cancelled')) {
+          showToast('Download cancelled', 'info');
+        } else {
+          showToast('Update failed: ' + err, 'error');
+        }
         if (progressEl) progressEl.style.display = 'none';
         await renderLocalLlmModels();
       }
