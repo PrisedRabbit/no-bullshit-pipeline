@@ -931,7 +931,6 @@ pub async fn auto_check_model_freshness(app_handle: tauri::AppHandle) {
 
     let _ = app_handle.emit("model_freshness_auto_result", &results);
 
-    // Persist results and timestamp in settings
     let mut settings = crate::config::load_settings();
     settings.last_model_freshness_check = Some(chrono::Utc::now().timestamp());
     settings.cached_freshness_results = results

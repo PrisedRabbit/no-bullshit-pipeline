@@ -35,35 +35,30 @@ async function loadAllIntegrations() {
 // ===== PROVIDER MODELS =====
 var providerModels = {};
 var providerModelsFetching = false;
-var providerModelsFetchQueue = Promise.resolve();
 
 async function fetchProviderModels(provider) {
-  return providerModelsFetchQueue = providerModelsFetchQueue.then(async () => {
-    try {
-      const response = await window.__TAURI__.core.invoke('fetch_provider_models', { provider });
-      providerModels[provider] = {
-        models: response.models,
-        cached: response.cached,
-        fetchedAt: response.fetched_at,
-        stale: response.stale,
-        error: null,
-      };
-    } catch (err) {
-      providerModels[provider] = { models: [], cached: false, fetchedAt: null, stale: false, error: String(err) };
-    }
-  });
+  try {
+    const models = await window.__TAURI__.core.invoke('fetch_provider_models', { provider });
+    providerModels[provider] = { models, error: null };
+  } catch (err) {
+    providerModels[provider] = { models: [], error: String(err) };
+  }
 }
 
 async function refreshAllProviderModels() {
   if (providerModelsFetching) return;
   providerModelsFetching = true;
   const apiKeys = (appSettings && appSettings.transcription && appSettings.transcription.api_keys) || {};
-  const providers = ['openai', 'google', 'anthropic'].filter(p => apiKeys[p]);
-  providers.push('ollama');
-  for (const provider of providers) {
-    await fetchProviderModels(provider);
-    renderModelsProviders();
+  const fetches = [];
+  for (const provider of ['openai', 'google', 'anthropic']) {
+    if (apiKeys[provider]) {
+      fetches.push(fetchProviderModels(provider));
+    }
   }
+  // Ollama is local — no API key needed
+  fetches.push(fetchProviderModels('ollama'));
+  await Promise.all(fetches);
+  renderModelsProviders();
   providerModelsFetching = false;
 }
 
@@ -84,7 +79,6 @@ function renderProviderModelsList(providerId) {
     return `<div class="provider-models-section">
     <div class="provider-models-header">
       <span class="provider-models-count">${storedModels.length} model${storedModels.length !== 1 ? 's' : ''} available</span>
-      <span class="provider-models-freshness" style="margin-left:auto;font-size:0.65rem;color:var(--text-secondary);opacity:0.7;">cached</span>
     </div>
     <div class="provider-models-list">${chips}</div>
   </div>`;
@@ -104,7 +98,6 @@ function renderProviderModelsList(providerId) {
     <span class="provider-models-error">Failed to load models</span>
     <div class="provider-models-header">
       <span class="provider-models-count">${storedModels.length} model${storedModels.length !== 1 ? 's' : ''} available</span>
-      <span class="provider-models-freshness" style="margin-left:auto;font-size:0.65rem;color:#e6a700;">offline (cached)</span>
     </div>
     <div class="provider-models-list">${chips}</div>
   </div>`;
@@ -159,46 +152,13 @@ function renderProviderModelsList(providerId) {
     ? `<button class="provider-models-toggle" data-provider="${escapeHtml(providerId)}" style="font-size:0.68rem;color:var(--text-secondary);background:none;border:none;cursor:pointer;padding:4px 0;">Show less</button>`
     : '';
 
-  const freshnessIndicator = renderFreshnessIndicator(data.cached, data.fetchedAt, data.stale);
-
   return `<div class="provider-models-section">
     <div class="provider-models-header">
       <span class="provider-models-count">${displayModels.length} of ${data.models.length} models</span>
-      ${freshnessIndicator}
     </div>
     <div class="provider-models-list">${chips}</div>
     ${toggleBtn}
   </div>`;
-}
-
-function renderFreshnessIndicator(cached, fetchedAt, stale) {
-  if (stale) {
-    const age = fetchedAt ? formatModelAge(fetchedAt) : 'cached';
-    return `<span class="provider-models-freshness" style="margin-left:auto;font-size:0.65rem;color:#e6a700;" title="Could not refresh from provider API">${age} (stale)</span>`;
-  }
-  if (!cached && fetchedAt) {
-    return `<span class="provider-models-freshness" style="margin-left:auto;font-size:0.65rem;color:rgba(34,197,94,0.8);">fresh</span>`;
-  }
-  if (cached && fetchedAt) {
-    const age = formatModelAge(fetchedAt);
-    return `<span class="provider-models-freshness" style="margin-left:auto;font-size:0.65rem;color:var(--text-secondary);opacity:0.7;">${age}</span>`;
-  }
-  return '';
-}
-
-function formatModelAge(timestamp) {
-  if (!timestamp) return 'cached';
-  const now = Date.now();
-  const fetched = timestamp * 1000;
-  const diffMs = now - fetched;
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays === 1) return '1d ago';
-  return `${diffDays}d ago`;
 }
 
 function renderOllamaCard() {
@@ -538,6 +498,7 @@ function renderProcessingProviders() { renderModelsProviders(); }
 // ===== LOCAL LLM MODELS =====
 var llmModelsData = [];
 var llmFreshnessData = {};
+var activeDownloads = {};
 
 async function renderLocalLlmModels() {
   const invoke = window.__TAURI__.core.invoke;
@@ -603,14 +564,11 @@ function renderLocalLlmModelsInner() {
             : `<button class="mini-action-btn llm-download-btn" data-llm-id="${escapeHtml(m.id)}" style="font-size:0.75rem;">Download</button>`
           }
         </div>
-        <div id="llm-progress-${escapeHtml(m.id)}" style="display:none;flex-basis:100%;padding:8px 0 0;">
-          <div style="height:4px;background:var(--border-color);border-radius:2px;overflow:hidden;">
-            <div class="llm-progress-fill" style="height:100%;width:0%;background:var(--accent-color);transition:width 0.2s;border-radius:2px;"></div>
+        <div id="llm-progress-${escapeHtml(m.id)}" class="llm-progress-container">
+          <div class="llm-progress-track">
+            <div class="llm-progress-fill"></div>
           </div>
-          <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
-            <div class="llm-progress-text" style="flex:1;font-size:0.7rem;color:var(--text-secondary);"></div>
-            <button class="mini-action-btn llm-cancel-download-btn" data-llm-id="${escapeHtml(m.id)}" style="font-size:0.7rem;padding:2px 8px;">Cancel</button>
-          </div>
+          <div class="llm-progress-text"><span class="llm-progress-percent">0%</span> • Preparing...</div>
         </div>
       </div>
     `;
@@ -623,35 +581,30 @@ function renderLocalLlmModelsInner() {
       const modelId = btn.dataset.llmId;
       btn.style.display = 'none';
 
+      activeDownloads[modelId] = { percent: 0, downloaded: 0, total: 0 };
       const progressEl = document.getElementById(`llm-progress-${modelId}`);
-      if (progressEl) progressEl.style.display = 'block';
+      if (progressEl) {
+        progressEl.classList.add('visible');
+        progressEl.classList.remove('complete', 'error');
+        const fill = progressEl.querySelector('.llm-progress-fill');
+        if (fill) fill.style.width = '0%';
+        const text = progressEl.querySelector('.llm-progress-text');
+        if (text) text.innerHTML = '<span class="llm-progress-percent">0%</span> • Preparing...';
+      }
 
       try {
         await invoke('download_llm_model', { modelId });
+        delete activeDownloads[modelId];
         await renderLocalLlmModels();
       } catch (err) {
-        if (String(err).includes('cancelled')) {
-          showToast('Download cancelled', 'info');
-        } else {
-          showToast('Download failed: ' + err, 'error');
+        showToast('Download failed: ' + err, 'error');
+        activeDownloads[modelId] = { error: 'Download failed' };
+        if (progressEl) {
+          progressEl.classList.add('visible', 'error');
+          progressEl.classList.remove('complete');
+          const text = progressEl.querySelector('.llm-progress-text');
+          if (text) text.innerHTML = '<span class="llm-progress-percent">Error</span> • Download failed';
         }
-        renderLocalLlmModels();
-      }
-    });
-  });
-
-  el.querySelectorAll('.llm-cancel-download-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const modelId = btn.dataset.llmId;
-      btn.disabled = true;
-      btn.textContent = 'Cancelling...';
-      try {
-        await invoke('cancel_llm_download', { modelId });
-      } catch (err) {
-        console.error('Failed to cancel download:', err);
-        btn.disabled = false;
-        btn.textContent = 'Cancel';
       }
     });
   });
@@ -685,22 +638,33 @@ function renderLocalLlmModelsInner() {
 
       const card = btn.closest('.provider-card');
       if (card) card.querySelectorAll('.provider-card-input button').forEach(b => { b.style.display = 'none'; });
+
+      activeDownloads[modelId] = { percent: 0, downloaded: 0, total: 0 };
       const progressEl = document.getElementById(`llm-progress-${modelId}`);
-      if (progressEl) progressEl.style.display = 'block';
+      if (progressEl) {
+        progressEl.classList.add('visible');
+        progressEl.classList.remove('complete', 'error');
+        const fill = progressEl.querySelector('.llm-progress-fill');
+        if (fill) fill.style.width = '0%';
+        const text = progressEl.querySelector('.llm-progress-text');
+        if (text) text.innerHTML = '<span class="llm-progress-percent">0%</span> • Preparing...';
+      }
 
       try {
         await invoke('delete_llm_model', { modelId });
         delete llmFreshnessData[modelId];
         await invoke('download_llm_model', { modelId });
+        delete activeDownloads[modelId];
         await renderLocalLlmModels();
       } catch (err) {
-        if (String(err).includes('cancelled')) {
-          showToast('Download cancelled', 'info');
-        } else {
-          showToast('Update failed: ' + err, 'error');
+        showToast('Update failed: ' + err, 'error');
+        activeDownloads[modelId] = { error: 'Update failed' };
+        if (progressEl) {
+          progressEl.classList.add('visible', 'error');
+          progressEl.classList.remove('complete');
+          const text = progressEl.querySelector('.llm-progress-text');
+          if (text) text.innerHTML = '<span class="llm-progress-percent">Error</span> • Update failed';
         }
-        if (progressEl) progressEl.style.display = 'none';
-        await renderLocalLlmModels();
       }
     });
   });
@@ -723,6 +687,36 @@ function renderLocalLlmModelsInner() {
       }
     });
   });
+
+  restoreProgressState();
+}
+
+function restoreProgressState() {
+  for (const [modelId, state] of Object.entries(activeDownloads)) {
+    const progressEl = document.getElementById(`llm-progress-${modelId}`);
+    if (!progressEl) continue;
+
+    const fill = progressEl.querySelector('.llm-progress-fill');
+    const text = progressEl.querySelector('.llm-progress-text');
+
+    progressEl.classList.add('visible');
+    progressEl.classList.remove('complete', 'error');
+
+    if (state.error) {
+      progressEl.classList.add('error');
+      if (text) text.innerHTML = '<span class="llm-progress-percent">Error</span> • ' + state.error;
+    } else if (state.complete) {
+      progressEl.classList.add('complete');
+      if (fill) fill.style.width = '100%';
+      if (text) text.innerHTML = '<span class="llm-progress-percent">100%</span> • Download complete';
+    } else {
+      const pct = Math.min(100, Math.max(0, state.percent || 0)).toFixed(1);
+      const dlMB = state.downloaded ? (state.downloaded / 1024 / 1024).toFixed(1) : '0';
+      const totalMB = state.total ? (state.total / 1024 / 1024).toFixed(1) : '?';
+      if (fill) fill.style.width = `${pct}%`;
+      if (text) text.innerHTML = `<span class="llm-progress-percent">${pct}%</span> • ${dlMB} / ${totalMB} MB`;
+    }
+  }
 }
 
 // Listen for LLM download progress events
@@ -731,12 +725,28 @@ if (window.__TAURI__?.event?.listen) {
     const { model_id, downloaded, total, percent } = event.payload;
     const progressEl = document.getElementById(`llm-progress-${model_id}`);
     if (!progressEl) return;
+
     const fill = progressEl.querySelector('.llm-progress-fill');
     const text = progressEl.querySelector('.llm-progress-text');
-    if (fill) fill.style.width = `${percent.toFixed(1)}%`;
-    const dlMB = (downloaded / 1024 / 1024).toFixed(0);
-    const totalMB = (total / 1024 / 1024).toFixed(0);
-    if (text) text.textContent = `${dlMB} / ${totalMB} MB (${percent.toFixed(1)}%)`;
+
+    const isComplete = percent >= 100 || (total > 0 && downloaded >= total);
+    const pct = Math.min(100, Math.max(0, percent || 0)).toFixed(1);
+    const dlMB = downloaded ? (downloaded / 1024 / 1024).toFixed(1) : '0';
+    const totalMB = total ? (total / 1024 / 1024).toFixed(1) : '?';
+
+    if (isComplete) {
+      activeDownloads[model_id] = { percent: 100, downloaded: total, total, complete: true };
+      progressEl.classList.add('visible', 'complete');
+      progressEl.classList.remove('error');
+      if (fill) fill.style.width = '100%';
+      if (text) text.innerHTML = '<span class="llm-progress-percent">100%</span> • Download complete';
+    } else {
+      activeDownloads[model_id] = { percent, downloaded, total };
+      progressEl.classList.add('visible');
+      progressEl.classList.remove('complete', 'error');
+      if (fill) fill.style.width = `${pct}%`;
+      if (text) text.innerHTML = `<span class="llm-progress-percent">${pct}%</span> • ${dlMB} / ${totalMB} MB`;
+    }
   });
 }
 
