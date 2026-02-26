@@ -2,14 +2,6 @@
 // State-first full re-render pattern. This module owns the Connected/Available layout.
 
 // Brand SVGs for integration icons
-// Asset sources and licensing:
-// - OpenAI logo: Official trademark, used with permission per OpenAI brand guidelines
-// - Google/Gemini logo: Google brand assets, used per Google brand guidelines
-// - Anthropic logo: Official trademark, used per Anthropic brand guidelines
-// - Notion logo: Official trademark, used per Notion brand guidelines
-// - Linear logo: Official trademark, used per Linear brand guidelines
-// - Slack logo: Official trademark, used per Slack brand guidelines
-// All icons displayed with brand-consistent colors: solid background with white (inverted) icon
 const INT_NOTION_SVG = `<svg viewBox="0 0 100 100" width="18" height="18" fill="currentColor"><path d="M6.017 4.313l55.333-4.087c6.797-.583 8.543-.19 12.817 2.917l17.663 12.443c2.913 2.14 3.883 2.723 3.883 5.053v68.243c0 4.277-1.553 6.807-6.99 7.193L24.467 99.967c-4.08.193-6.023-.39-8.16-3.113L3.3 79.94c-2.333-3.113-3.3-5.443-3.3-8.167V11.113c0-3.497 1.553-6.413 6.017-6.8z" fill="#fff"/><path d="M61.35.227l-55.333 4.087C1.553 4.7 0 7.617 0 11.113v60.66c0 2.723.967 5.053 3.3 8.167l13.007 16.913c2.137 2.723 4.08 3.307 8.16 3.113l64.257-3.89c5.433-.387 6.99-2.917 6.99-7.193V20.64c0-2.21-.81-2.76-3.088-4.587L75.983 3.523C71.71.607 69.96.22 63.163.803L61.35.227z" fill="#000"/><path d="M26.395 18.768c-5.433.39-6.675.477-9.768-1.753L7.997 10.527c-1.163-.913-1.55-1.94-1.55-3.113.39-2.53 1.94-4.47 7.377-4.86l53.39-3.89c4.47-.39 6.603 1.553 8.157 2.723l10.133 7.577c.39.193 1.553 1.553 0 1.553l-55.14 3.11v5.14z" fill="#fff"/><path d="M19.018 88.4V30.173c0-2.527.78-3.697 3.113-3.89l57.277-3.307c2.14-.193 3.113 1.167 3.113 3.693V85.09c0 2.527-.39 4.667-3.887 4.86l-54.943 3.113c-3.5.193-4.673-1.003-4.673-4.663zm54.167-55.13c.39 1.75 0 3.5-1.75 3.697l-2.527.39v40.257c-2.14 1.163-4.277 1.75-5.833 1.75-2.723 0-3.5-.583-5.443-3.113L38.468 45.948V74.7l5.247 1.163s0 3.5-4.86 3.5l-13.393.78c-.39-.78 0-2.723 1.36-3.113l3.497-.97V38.33l-4.86-.39c-.39-2.14 1.163-3.697 3.307-4.473l14.363-.97 20.603 31.46V35.077l-4.47-.39c-.39-2.14 1.163-3.697 3.113-3.89l14.003-.527z" fill="#fff"/></svg>`;
 const INT_LINEAR_SVG = `<svg viewBox="0 0 100 100" width="18" height="18"><path d="M2.76 62.7a50.1 50.1 0 0 1-1.52-4.44L62.7 2.76a50.1 50.1 0 0 0-4.44-1.52L2.76 62.7zm7.66 12.48a50 50 0 0 1-3.54-4.3L75.18 4.58a50 50 0 0 0-4.3-3.54L10.42 75.18zm11.44 8.96a50 50 0 0 1-4.82-4.1L83.14 13.94a50 50 0 0 0-4.1-4.82L21.86 84.14zM0 50a49.9 49.9 0 0 0 .26 5L55 .26A50 50 0 1 0 0 50zm35.42 36.64a50 50 0 0 1-5.36-3.72L86.92 16.64a50 50 0 0 0-3.72-5.36L35.42 86.64z" fill="#5E6AD2"/></svg>`;
 const INT_SLACK_SVG = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zm2.521-10.123a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zm0 1.271a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zm10.123 2.521a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zm-1.268 0a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zm-2.523 10.123a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zm0-1.268a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/></svg>`;
@@ -86,7 +78,7 @@ function renderProviderModelsList(providerId) {
     }).join('');
     return `<div class="provider-models-section">
     <div class="provider-models-header">
-      <span class="provider-models-count">${storedModels.length} LLM${storedModels.length !== 1 ? 's' : ''} available</span>
+      <span class="provider-models-count">${storedModels.length} model${storedModels.length !== 1 ? 's' : ''} available</span>
     </div>
     <div class="provider-models-list">${chips}</div>
   </div>`;
@@ -95,7 +87,7 @@ function renderProviderModelsList(providerId) {
   if (data.error) {
     const storedModels = (appSettings && appSettings.providers && appSettings.providers[providerId] && appSettings.providers[providerId].models) || [];
     if (storedModels.length === 0) {
-      return `<div class="provider-models-section"><span class="provider-models-error">Failed to load LLMs</span></div>`;
+      return `<div class="provider-models-section"><span class="provider-models-error">Failed to load models</span></div>`;
     }
     const chips = storedModels.map(id => {
       return `<div class="provider-model-item">
@@ -103,9 +95,9 @@ function renderProviderModelsList(providerId) {
     </div>`;
     }).join('');
     return `<div class="provider-models-section">
-    <span class="provider-models-error">Failed to load LLMs</span>
+    <span class="provider-models-error">Failed to load models</span>
     <div class="provider-models-header">
-      <span class="provider-models-count">${storedModels.length} LLM${storedModels.length !== 1 ? 's' : ''} available</span>
+      <span class="provider-models-count">${storedModels.length} model${storedModels.length !== 1 ? 's' : ''} available</span>
     </div>
     <div class="provider-models-list">${chips}</div>
   </div>`;
@@ -155,14 +147,14 @@ function renderProviderModelsList(providerId) {
   }).join('');
 
   const toggleBtn = showToggle
-    ? `<button class="provider-models-toggle" data-provider="${escapeHtml(providerId)}" style="font-size:0.68rem;color:var(--accent);background:none;border:none;cursor:pointer;padding:4px 0;">Show all ${data.models.length} LLMs</button>`
+    ? `<button class="provider-models-toggle" data-provider="${escapeHtml(providerId)}" style="font-size:0.68rem;color:var(--accent);background:none;border:none;cursor:pointer;padding:4px 0;">Show all ${data.models.length} models</button>`
     : expanded && (otherModels.length > 0 || recommendedModels.length < data.models.length)
     ? `<button class="provider-models-toggle" data-provider="${escapeHtml(providerId)}" style="font-size:0.68rem;color:var(--text-secondary);background:none;border:none;cursor:pointer;padding:4px 0;">Show less</button>`
     : '';
 
   return `<div class="provider-models-section">
     <div class="provider-models-header">
-      <span class="provider-models-count">${displayModels.length} of ${data.models.length} LLMs</span>
+      <span class="provider-models-count">${displayModels.length} of ${data.models.length} models</span>
     </div>
     <div class="provider-models-list">${chips}</div>
     ${toggleBtn}
@@ -198,9 +190,9 @@ async function validateApiKey(provider, key) {
 // ===== PROVIDER-FIRST MODELS UI =====
 
 const CLOUD_PROVIDERS = [
-  { id: 'openai',    name: 'OpenAI',    desc: 'GPT-4o, Whisper, real-time transcription', placeholder: 'sk-...',     icon: { img: 'assets/openai.svg',    filter: 'invert(1)', bg: '#000' } },
-  { id: 'google',    name: 'Google AI',  desc: 'Gemini long-context processing',           placeholder: 'AIza...',    icon: { img: 'assets/gemini.svg',    filter: 'invert(1)', bg: '#4285F4' } },
-  { id: 'anthropic', name: 'Anthropic',  desc: 'Claude structured extraction',             placeholder: 'sk-ant-...', icon: { img: 'assets/anthropic.svg', filter: 'invert(1)', bg: '#D97706' } },
+  { id: 'openai',    name: 'OpenAI',    desc: 'GPT-4o, Whisper, real-time transcription', placeholder: 'sk-...',     icon: { img: 'assets/openai.svg',    filter: 'invert(1)',                                                bg: 'rgba(142,142,160,0.15)' } },
+  { id: 'google',    name: 'Google AI',  desc: 'Gemini long-context processing',           placeholder: 'AIza...',    icon: { img: 'assets/gemini.svg',    filter: 'invert(48%) sepia(90%) saturate(400%) hue-rotate(190deg)', bg: 'rgba(66,133,244,0.15)'  } },
+  { id: 'anthropic', name: 'Anthropic',  desc: 'Claude structured extraction',             placeholder: 'sk-ant-...', icon: { img: 'assets/anthropic.svg', filter: 'invert(55%) sepia(80%) saturate(500%) hue-rotate(10deg)',  bg: 'rgba(217,119,6,0.15)'  } },
 ];
 
 const CAP_BADGE_COLORS = {
@@ -303,11 +295,8 @@ function renderModelsProviders() {
     sections.push(`
       <div class="connections-group" data-provider-section="${escapeHtml(p.id)}">
         <div class="connections-group-header">
-          <div class="provider-card-icon-wrapper">
-            <div class="provider-card-icon ${escapeHtml(p.id)}" style="background:${p.icon.bg};display:flex;align-items:center;justify-content:center;">
-              <img src="${escapeHtml(p.icon.img)}" style="width:20px;height:20px;filter:${p.icon.filter}" />
-            </div>
-            <span class="provider-card-icon-label">${escapeHtml(p.name)}</span>
+          <div class="provider-card-icon ${escapeHtml(p.id)}" style="background:${p.icon.bg};display:flex;align-items:center;justify-content:center;">
+            <img src="${escapeHtml(p.icon.img)}" style="width:20px;height:20px;filter:${p.icon.filter}" />
           </div>
           <div class="group-info">
             <div class="group-label">${escapeHtml(p.name)} ${renderCapBadges(caps)}</div>
@@ -330,7 +319,7 @@ function renderModelsProviders() {
           </div>
         </div>
         ${modelsHtml ? `<div class="provider-card-wrapper">${modelsHtml}</div>` : ''}
-        <button class="mini-action-btn refresh-provider-btn" data-provider="${escapeHtml(p.id)}" style="align-self:flex-start;margin-top:4px;font-size:0.75rem;">Refresh LLMs</button>
+        <button class="mini-action-btn refresh-provider-btn" data-provider="${escapeHtml(p.id)}" style="align-self:flex-start;margin-top:4px;font-size:0.75rem;">Refresh Models</button>
       </div>
     `);
   }
@@ -344,12 +333,18 @@ function renderModelsProviders() {
   sections.push(`
     <div class="connections-group" data-provider-section="local">
       <div class="connections-group-header">
-        <div class="provider-card-icon-wrapper">
-          <div class="provider-card-icon ollama" style="background:#000;display:flex;align-items:center;justify-content:center;">
-            <img src="assets/ollama.svg" style="width:20px;height:20px;filter:invert(1)" />
-          </div>
-          <span class="provider-card-icon-label">Ollama</span>
-        </div>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+          <rect x="9" y="9" width="6" height="6"></rect>
+          <line x1="9" y1="1" x2="9" y2="4"></line>
+          <line x1="15" y1="1" x2="15" y2="4"></line>
+          <line x1="9" y1="20" x2="9" y2="23"></line>
+          <line x1="15" y1="20" x2="15" y2="23"></line>
+          <line x1="20" y1="9" x2="23" y2="9"></line>
+          <line x1="20" y1="14" x2="23" y2="14"></line>
+          <line x1="1" y1="9" x2="4" y2="9"></line>
+          <line x1="1" y1="14" x2="4" y2="14"></line>
+        </svg>
         <div class="group-info">
           <div class="group-label">Local / Ollama ${renderCapBadges(localCaps)}</div>
           <div class="group-desc">On-device AI processing — no API keys needed</div>
@@ -357,10 +352,7 @@ function renderModelsProviders() {
       </div>
       ${ollamaModelsHtml ? `<div id="ollama-provider-container"><div class="provider-card-wrapper">${ollamaModelsHtml}</div></div>` : '<div id="ollama-provider-container"></div>'}
       <div id="local-llm-models-list" style="display:flex;flex-direction:column;gap:8px;"></div>
-      <div id="llm-freshness-actions" style="margin-top:6px;display:flex;align-items:center;gap:8px;">
-        <button id="llm-check-freshness-btn" class="mini-action-btn" style="font-size:0.75rem;">Check for Updates</button>
-        <span id="llm-freshness-status" style="font-size:0.7rem;color:var(--text-secondary);"></span>
-      </div>
+      <div id="llm-freshness-status" style="margin-top:6px;font-size:0.7rem;color:var(--text-secondary);"></div>
       <div style="margin-top:4px;">
         <p style="font-size:0.75rem;color:var(--text-secondary);opacity:0.7;margin:0;">
           Location: <span class="mono-font">~/.nbp/models/llm/</span>
@@ -382,7 +374,7 @@ function renderModelsProviders() {
         renderModelsProviders();
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Refresh LLMs';
+        btn.textContent = 'Refresh Models';
       }
     });
   });
@@ -450,49 +442,6 @@ function renderModelsProviders() {
     });
   });
 
-  // Wire freshness check button
-  const freshnessBtn = el.querySelector('#llm-check-freshness-btn');
-  if (freshnessBtn) {
-    freshnessBtn.addEventListener('click', async () => {
-      const invoke = window.__TAURI__.core.invoke;
-      const statusEl = document.getElementById('llm-freshness-status');
-      freshnessBtn.disabled = true;
-      freshnessBtn.innerHTML = '<span class="btn-spinner"></span> Checking…';
-      freshnessCheckRunning = true;
-      if (statusEl) statusEl.textContent = '';
-      try {
-        const report = await invoke('check_all_llm_freshness');
-        llmFreshnessData = report.models || {};
-        const updateCount = Object.values(llmFreshnessData).filter(v => v.status === 'update_available').length;
-        if (report.failed > 0 && report.checked === 0) {
-          showToast('Could not check for updates — network error', 'error');
-          if (statusEl) statusEl.textContent = `${report.failed} LLM${report.failed !== 1 ? 's' : ''} could not be checked`;
-        } else if (report.failed > 0) {
-          const msg = updateCount > 0
-            ? `${updateCount} update(s) available, ${report.failed} could not be checked`
-            : `${report.checked} checked, ${report.failed} could not be checked`;
-          if (statusEl) statusEl.textContent = msg;
-        } else if (updateCount > 0) {
-          if (statusEl) statusEl.textContent = `${updateCount} update(s) available`;
-        } else {
-          showToast('All LLMs are up to date', 'success');
-          if (statusEl) statusEl.textContent = 'All up to date';
-        }
-        renderLocalLlmModelsInner();
-      } catch (err) {
-        if (String(err).includes('cancelled')) {
-          if (statusEl) statusEl.textContent = '';
-        } else {
-          showToast('Freshness check failed: ' + err, 'error');
-        }
-      } finally {
-        freshnessCheckRunning = false;
-        freshnessBtn.disabled = false;
-        freshnessBtn.textContent = 'Check for Updates';
-      }
-    });
-  }
-
   // Fill local LLM models
   renderLocalLlmModelsInner();
 }
@@ -522,6 +471,10 @@ async function renderLocalLlmModels() {
       }
     }
   } catch (_) { /* ignore — cached results are optional */ }
+  
+  const lastCheck = appSettings?.last_model_freshness_check || null;
+  updateFreshnessStatusDisplay(lastCheck, false);
+  
   renderLocalLlmModelsInner();
 }
 
@@ -562,13 +515,13 @@ function renderLocalLlmModelsInner() {
                <button class="mini-action-btn llm-update-btn${hasUpdate ? ' update-available' : ''}" data-llm-id="${escapeHtml(m.id)}" title="${hasUpdate ? 'Update available — download latest version' : 'Re-download latest version'}" style="width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;">
                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
                </button>
-               <button class="mini-action-btn llm-delete-btn" data-llm-id="${escapeHtml(m.id)}" title="Delete LLM" style="width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;">
+               <button class="mini-action-btn llm-delete-btn" data-llm-id="${escapeHtml(m.id)}" title="Delete model" style="width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;">
                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="m19 6-.867 12.14A2 2 0 0 1 16.138 20H7.862a2 2 0 0 1-1.995-1.86L5 6m5 0V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2"/></svg>
                </button>`
             : `<button class="mini-action-btn llm-download-btn" data-llm-id="${escapeHtml(m.id)}" style="font-size:0.75rem;">Download</button>`
           }
         </div>
-        <div id="llm-progress-${escapeHtml(m.id)}" class="llm-progress-region" style="display:none;flex-basis:100%;padding:8px 0 0;">
+        <div id="llm-progress-${escapeHtml(m.id)}" style="display:none;flex-basis:100%;padding:8px 0 0;">
           <div style="height:4px;background:var(--border-color);border-radius:2px;overflow:hidden;">
             <div class="llm-progress-fill" style="height:100%;width:0%;background:var(--accent-color);transition:width 0.2s;border-radius:2px;"></div>
           </div>
@@ -619,7 +572,7 @@ function renderLocalLlmModelsInner() {
       const modelId = btn.dataset.llmId;
       const model = llmModelsData.find(m => m.id === modelId);
       const hasUpdate = llmFreshnessData[modelId]?.status === 'update_available';
-      const title = hasUpdate ? 'Update LLM?' : 'Re-download LLM?';
+      const title = hasUpdate ? 'Update Model?' : 'Re-download Model?';
       const msg = hasUpdate
         ? `A newer version of ${model?.name || modelId} is available. Download it now?`
         : `Re-download ${model?.name || modelId}? This will replace the current file.`;
@@ -650,7 +603,7 @@ function renderLocalLlmModelsInner() {
       e.stopPropagation();
       const modelId = btn.dataset.llmId;
       const model = llmModelsData.find(m => m.id === modelId);
-      const ok2 = await showConfirm('Delete LLM?', `Delete ${model?.name || modelId}? The LLM file will be removed.`);
+      const ok2 = await showConfirm('Delete Model?', `Delete ${model?.name || modelId}? The model file will be removed.`);
       if (!ok2) return;
       try {
         await invoke('delete_llm_model', { modelId });
@@ -692,29 +645,21 @@ if (window.__TAURI__?.event?.listen) {
     const results = event.payload;
     if (!Array.isArray(results)) return;
     llmFreshnessData = {};
+    let hasError = false;
     for (const info of results) {
-      llmFreshnessData[info.model_id] = { status: info.update_available ? 'update_available' : 'up_to_date' };
+      if (info.error) {
+        llmFreshnessData[info.model_id] = { status: 'error', error: info.error };
+        hasError = true;
+      } else {
+        llmFreshnessData[info.model_id] = { status: info.update_available ? 'update_available' : 'up_to_date' };
+      }
     }
+    const settings = window.appSettings;
+    const lastCheck = settings?.last_model_freshness_check || null;
+    updateFreshnessStatusDisplay(lastCheck, true, hasError);
     renderLocalLlmModelsInner();
   });
 }
-
-// Wire "Check for Updates" button with spinner and cancellation
-let freshnessCheckRunning = false;
-
-function cancelFreshnessCheck() {
-  if (!freshnessCheckRunning) return;
-  window.__TAURI__.core.invoke('cancel_llm_freshness');
-}
-
-// Cancel freshness check when navigating away from settings
-new MutationObserver(() => {
-  if (!document.body.classList.contains('settings-open')) {
-    cancelFreshnessCheck();
-  }
-}).observe(document.body, { attributes: true, attributeFilter: ['class'] });
-
-// Freshness check button wired inside renderModelsProviders()
 
 async function loadNotionProfiles() {
   try {
@@ -786,12 +731,9 @@ function renderConnectedIntegrations() {
     }
     cards.push(`
       <div class="integration-card" data-type="notion" data-id="${escapeHtml(profile.id)}">
-        <div class="integration-card-icon-wrapper">
-          ${profile.icon_url
-            ? `<img class="integration-card-icon notion" src="${escapeHtml(profile.icon_url)}" alt="N" style="object-fit: cover;" />`
-            : `<div class="integration-card-icon notion">${INT_NOTION_SVG}</div>`}
-          <span class="integration-card-icon-label">Notion</span>
-        </div>
+        ${profile.icon_url
+          ? `<img class="integration-card-icon notion" src="${escapeHtml(profile.icon_url)}" alt="N" style="object-fit: cover;" />`
+          : `<div class="integration-card-icon notion">${INT_NOTION_SVG}</div>`}
         <div class="integration-card-info">
           <div class="integration-card-name">${safeName}</div>
           <div class="integration-card-detail">${cardDetail}</div>
@@ -825,10 +767,7 @@ function renderConnectedIntegrations() {
     }
     cards.push(`
       <div class="integration-card" data-type="linear" data-id="${escapeHtml(profile.id)}">
-        <div class="integration-card-icon-wrapper">
-          <div class="integration-card-icon linear">${INT_LINEAR_SVG}</div>
-          <span class="integration-card-icon-label">Linear</span>
-        </div>
+        <div class="integration-card-icon linear">${INT_LINEAR_SVG}</div>
         <div class="integration-card-info">
           <div class="integration-card-name">${safeName}</div>
           <div class="integration-card-detail">${cardDetail}</div>
@@ -848,12 +787,9 @@ function renderConnectedIntegrations() {
     const safeWorkspace = escapeHtml(data.workspace_name || 'Unknown workspace');
     cards.push(`
       <div class="integration-card" data-type="slack" data-id="${escapeHtml(id)}">
-        <div class="integration-card-icon-wrapper">
-          ${data.icon_url
-            ? `<img class="integration-card-icon slack" src="${escapeHtml(data.icon_url)}" alt="S" style="object-fit: cover;" />`
-            : `<div class="integration-card-icon slack">${INT_SLACK_SVG}</div>`}
-          <span class="integration-card-icon-label">Slack</span>
-        </div>
+        ${data.icon_url
+          ? `<img class="integration-card-icon slack" src="${escapeHtml(data.icon_url)}" alt="S" style="object-fit: cover;" />`
+          : `<div class="integration-card-icon slack">${INT_SLACK_SVG}</div>`}
         <div class="integration-card-info">
           <div class="integration-card-name">${safeName}</div>
           <div class="integration-card-detail">${safeWorkspace}</div>
@@ -872,10 +808,7 @@ function renderConnectedIntegrations() {
     const safePath = escapeHtml(sp.path);
     cards.push(`
       <div class="integration-card" data-type="save-path" data-id="${escapeHtml(sp.id)}">
-        <div class="integration-card-icon-wrapper">
-          <div class="integration-card-icon save-path">${INT_FOLDER_SVG}</div>
-          <span class="integration-card-icon-label">Folder</span>
-        </div>
+        <div class="integration-card-icon save-path">${INT_FOLDER_SVG}</div>
         <div class="integration-card-info">
           <div class="integration-card-name">${safeName}</div>
           <div class="integration-card-detail">${safePath}</div>
@@ -895,10 +828,7 @@ function renderConnectedIntegrations() {
     const safeMethod = escapeHtml(wh.method || 'POST');
     cards.push(`
       <div class="integration-card" data-type="webhook" data-id="${escapeHtml(wh.id)}">
-        <div class="integration-card-icon-wrapper">
-          <div class="integration-card-icon webhook">${INT_LINK_SVG}</div>
-          <span class="integration-card-icon-label">Webhook</span>
-        </div>
+        <div class="integration-card-icon webhook">${INT_LINK_SVG}</div>
         <div class="integration-card-info">
           <div class="integration-card-name">${safeName}</div>
           <div class="integration-card-detail">${safeMethod} ${safeUrl}</div>
@@ -1066,10 +996,7 @@ function renderConnectedIntegrations() {
       const safeId = escapeHtml(sp.id);
       card.outerHTML = `
         <div class="integration-card save-path-editor" data-id="${safeId}">
-          <div class="integration-card-icon-wrapper">
-            <div class="integration-card-icon save-path">${INT_FOLDER_SVG}</div>
-            <span class="integration-card-icon-label">Folder</span>
-          </div>
+          <div class="integration-card-icon save-path"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4l2 2h10a2 2 0 0 1 2 2z"></path></svg></div>
           <div class="integration-card-info" style="flex: 1; gap: 6px; display: flex; flex-direction: column;">
             <input id="edit-sp-name-${safeId}" type="text" value="${escapeHtml(sp.name)}" placeholder="Folder name" style="width: 100%;" />
             <div style="display: flex; align-items: center; gap: 8px;">
@@ -1188,10 +1115,7 @@ function renderAvailableIntegrations() {
   // Notion is always available to add (user can have multiple databases)
   available.push(`
     <div class="available-integration-card" data-type="notion" id="add-notion-integration-btn">
-      <div class="integration-card-icon-wrapper">
-        <div class="integration-card-icon notion">${INT_NOTION_SVG}</div>
-        <span class="integration-card-icon-label">Notion</span>
-      </div>
+      <div class="integration-card-icon notion">${INT_NOTION_SVG}</div>
       <div class="integration-card-info">
         <div class="integration-card-name">Notion</div>
         <div class="integration-card-detail">Connect a Notion database for automatic page creation</div>
@@ -1203,10 +1127,7 @@ function renderAvailableIntegrations() {
   // Linear is always available to add (user can have multiple team connections)
   available.push(`
     <div class="available-integration-card" data-type="linear" id="add-linear-integration-btn">
-      <div class="integration-card-icon-wrapper">
-        <div class="integration-card-icon linear">${INT_LINEAR_SVG}</div>
-        <span class="integration-card-icon-label">Linear</span>
-      </div>
+      <div class="integration-card-icon linear">${INT_LINEAR_SVG}</div>
       <div class="integration-card-info">
         <div class="integration-card-name">Linear</div>
         <div class="integration-card-detail">Connect Linear to create issues from pipeline output</div>
@@ -1218,10 +1139,7 @@ function renderAvailableIntegrations() {
   // Slack is always available to add
   available.push(`
     <div class="available-integration-card" data-type="slack" id="add-slack-integration-btn">
-      <div class="integration-card-icon-wrapper">
-        <div class="integration-card-icon slack">${INT_SLACK_SVG}</div>
-        <span class="integration-card-icon-label">Slack</span>
-      </div>
+      <div class="integration-card-icon slack">${INT_SLACK_SVG}</div>
       <div class="integration-card-info">
         <div class="integration-card-name">Slack</div>
         <div class="integration-card-detail">Send pipeline output to Slack channels or DMs</div>
@@ -1233,10 +1151,7 @@ function renderAvailableIntegrations() {
   // Save Path is always available to add (multiple can exist)
   available.push(`
     <div class="available-integration-card" data-type="save-path" id="add-save-path-btn">
-      <div class="integration-card-icon-wrapper">
-        <div class="integration-card-icon save-path">${INT_FOLDER_SVG}</div>
-        <span class="integration-card-icon-label">Folder</span>
-      </div>
+      <div class="integration-card-icon save-path">${INT_FOLDER_SVG}</div>
       <div class="integration-card-info">
         <div class="integration-card-name">Save Path</div>
         <div class="integration-card-detail">Save pipeline output to a named folder location</div>
@@ -1248,10 +1163,7 @@ function renderAvailableIntegrations() {
   // Webhook is always available to add
   available.push(`
     <div class="available-integration-card" data-type="webhook" id="add-webhook-btn">
-      <div class="integration-card-icon-wrapper">
-        <div class="integration-card-icon webhook">${INT_LINK_SVG}</div>
-        <span class="integration-card-icon-label">Webhook</span>
-      </div>
+      <div class="integration-card-icon webhook">${INT_LINK_SVG}</div>
       <div class="integration-card-info">
         <div class="integration-card-name">Webhook</div>
         <div class="integration-card-detail">Send pipeline output to any HTTP endpoint</div>
@@ -1306,10 +1218,7 @@ function renderAvailableIntegrations() {
       let selectedPath = '';
       addSavePathBtn.outerHTML = `
         <div class="available-integration-card save-path-add-form" id="add-save-path-form">
-          <div class="integration-card-icon-wrapper">
-            <div class="integration-card-icon save-path">${INT_FOLDER_SVG}</div>
-            <span class="integration-card-icon-label">Folder</span>
-          </div>
+          <div class="integration-card-icon save-path"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4l2 2h10a2 2 0 0 1 2 2z"></path></svg></div>
           <div class="integration-card-info" style="flex: 1; gap: 6px; display: flex; flex-direction: column;">
             <input id="new-sp-name" type="text" placeholder="Folder name (e.g. Notes)" style="width: 100%;" />
             <div style="display: flex; align-items: center; gap: 8px;">
@@ -1373,10 +1282,7 @@ function renderAvailableIntegrations() {
     addWebhookBtn.addEventListener('click', () => {
       addWebhookBtn.outerHTML = `
         <div class="available-integration-card webhook-add-form" id="add-webhook-form">
-          <div class="integration-card-icon-wrapper">
-            <div class="integration-card-icon webhook">${INT_LINK_SVG}</div>
-            <span class="integration-card-icon-label">Webhook</span>
-          </div>
+          <div class="integration-card-icon webhook"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></div>
           <div class="integration-card-info" style="flex: 1; gap: 6px; display: flex; flex-direction: column;">
             <input id="new-wh-name" type="text" placeholder="Endpoint name (e.g. n8n Meetings)" style="width: 100%;" />
             <input id="new-wh-url" type="text" placeholder="https://hooks.example.com/..." style="width: 100%;" />
@@ -2325,6 +2231,7 @@ function initIntegrationsSettings() {
     // Auto-fetch provider models when models tab opens
     if (modelsTab && modelsTab.classList.contains('active')) {
       refreshAllProviderModels();
+      autoCheckModelFreshness();
     }
   });
 
@@ -2332,6 +2239,84 @@ function initIntegrationsSettings() {
   const intTab = document.querySelector('.settings-tab-content[data-tab="integrations"]');
   if (modelsTab) observer.observe(modelsTab, { attributes: true, attributeFilter: ['class'] });
   if (intTab) observer.observe(intTab, { attributes: true, attributeFilter: ['class'] });
+}
+
+let autoFreshnessCheckRunning = false;
+
+async function autoCheckModelFreshness() {
+  if (autoFreshnessCheckRunning) return;
+  autoFreshnessCheckRunning = true;
+
+  const statusEl = document.getElementById('llm-freshness-status');
+  if (statusEl) statusEl.textContent = 'Checking for updates…';
+
+  try {
+    const result = await window.__TAURI__.core.invoke('trigger_freshness_check_if_needed');
+    
+    llmFreshnessData = {};
+    let hasError = false;
+    for (const info of result.results) {
+      if (info.error) {
+        llmFreshnessData[info.model_id] = { status: 'error', error: info.error };
+        hasError = true;
+      } else {
+        llmFreshnessData[info.model_id] = {
+          status: info.update_available ? 'update_available' : 'up_to_date'
+        };
+      }
+    }
+    
+    updateFreshnessStatusDisplay(result.last_check_timestamp, result.checked, hasError);
+    renderLocalLlmModelsInner();
+  } catch (err) {
+    console.error('Auto freshness check failed:', err);
+    if (statusEl) statusEl.innerHTML = `<span style="color:#e74c3c;">Check failed</span>`;
+  } finally {
+    autoFreshnessCheckRunning = false;
+  }
+}
+
+function updateFreshnessStatusDisplay(lastCheckTimestamp, justChecked, hasError = false) {
+  const statusEl = document.getElementById('llm-freshness-status');
+  if (!statusEl) return;
+
+  if (!lastCheckTimestamp) {
+    statusEl.textContent = '';
+    return;
+  }
+
+  const now = Date.now();
+  const lastCheck = lastCheckTimestamp * 1000;
+  const diffMs = now - lastCheck;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  let ageText;
+  if (justChecked) {
+    ageText = 'just now';
+  } else if (diffMins < 1) {
+    ageText = 'just now';
+  } else if (diffMins < 60) {
+    ageText = `${diffMins}m ago`;
+  } else if (diffHours < 24) {
+    ageText = `${diffHours}h ago`;
+  } else if (diffDays === 1) {
+    ageText = '1d ago';
+  } else {
+    ageText = `${diffDays}d ago`;
+  }
+
+  const updateCount = Object.values(llmFreshnessData).filter(v => v.status === 'update_available').length;
+  const errorCount = Object.values(llmFreshnessData).filter(v => v.status === 'error').length;
+  
+  if (hasError || errorCount > 0) {
+    statusEl.innerHTML = `<span style="color:#e74c3c;">${errorCount} error(s)</span> <span style="opacity:0.6;">· checked ${ageText}</span>`;
+  } else if (updateCount > 0) {
+    statusEl.innerHTML = `<span style="color:#e6a700;">${updateCount} update(s) available</span> <span style="opacity:0.6;">· checked ${ageText}</span>`;
+  } else {
+    statusEl.innerHTML = `<span style="opacity:0.6;">checked ${ageText}</span>`;
+  }
 }
 
 // Auto-init when DOM is ready

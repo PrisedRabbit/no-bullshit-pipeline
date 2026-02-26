@@ -66,6 +66,18 @@ impl ProviderConfig {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct CachedFreshnessInfo {
+    pub model_name: String,
+    pub source: String,
+    pub update_available: bool,
+    pub local_size: Option<u64>,
+    pub remote_size: Option<u64>,
+    pub local_digest: Option<String>,
+    pub remote_digest: Option<String>,
+    pub error: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum WhisperModelSize {
     Tiny,
@@ -145,9 +157,9 @@ pub struct AppSettings {
     /// Unix timestamp of last automatic model freshness check
     #[serde(default)]
     pub last_model_freshness_check: Option<i64>,
-    /// Cached model freshness results from last auto-check (model_id → update_available)
+    /// Cached model freshness results from last auto-check (model_id → full info)
     #[serde(default)]
-    pub cached_freshness_results: HashMap<String, bool>,
+    pub cached_freshness_results: HashMap<String, CachedFreshnessInfo>,
     /// Provider-first model config: keyed by provider ID ("openai", "google", "anthropic", "local")
     #[serde(default = "default_providers")]
     pub providers: HashMap<String, ProviderConfig>,

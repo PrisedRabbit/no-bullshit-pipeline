@@ -54,6 +54,7 @@ mod integrations;
 pub mod local_llm;
 pub mod realtime_transcription;
 use audio::AudioState;
+use transcription::TranscriptionState;
 use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
 use tauri::Manager;
 
@@ -93,10 +94,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .manage(AudioState::new())
+        .manage(TranscriptionState::new())
         .manage(permissions::PermissionsStateCache(std::sync::Arc::new(std::sync::Mutex::new(
             permissions::PermissionsState::default()
         ))))
-        .manage(realtime_transcription::RealtimeTranscriptionState::new())
         .manage(settings)
         .setup(|app| {
             // Create custom menu with only NBP submenu (no File, Edit, etc.)
@@ -145,6 +146,20 @@ pub fn run() {
             // Run transcript migration on startup
             transcript_migration::run_migration_if_needed();
 
+            // Auto-check model freshness if >24h since last check
+            let settings = config::load_settings();
+            let now = chrono::Utc::now().timestamp();
+            let needs_check = match settings.last_model_freshness_check {
+                Some(last) => now - last > 86400,
+                None => true,
+            };
+            if needs_check {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    local_llm::auto_check_model_freshness(handle).await;
+                });
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -170,6 +185,7 @@ pub fn run() {
             transcription::download_whisper_model,
             transcription::delete_whisper_model,
             transcription::transcribe_recording,
+            transcription::is_transcribing,
             transcription::get_transcript,
             transcription::export_transcript_md,
             transcription::summarize_recording,
@@ -243,11 +259,13 @@ pub fn run() {
             local_llm::check_model_freshness,
             local_llm::check_all_llm_freshness,
             local_llm::cancel_llm_freshness,
+            local_llm::get_cached_freshness_results,
+            local_llm::trigger_freshness_check_if_needed,
             // Provider models
             cloud_ai::models::fetch_provider_models,
             // Real-time transcription
-            realtime_transcription::start_realtime_transcription,
-            realtime_transcription::stop_realtime_transcription,
+            audio::start_realtime_transcription,
+            audio::stop_realtime_transcription,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
@@ -262,13 +280,12 @@ pub fn run() {
                         if let Some(mut r) = mic.take() { r.stop(); }
                         let mut sys = state.system_recorder.lock().unwrap_or_else(|e| e.into_inner());
                         if let Some(mut r) = sys.take() { r.stop(); }
+                        let mut rt = state.realtime_transcriber.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Some(mut h) = rt.take() { h.stop(); }
                         let mut mix = state.realtime_mixer.lock().unwrap_or_else(|e| e.into_inner());
                         if let Some(mut m) = mix.take() { m.stop(); }
                     }
                 }
-                // Stop real-time transcription if active
-                let rt_state = window.state::<realtime_transcription::RealtimeTranscriptionState>();
-                realtime_transcription::auto_stop(&*rt_state);
                 state.wait_for_finalization();
             }
         })
