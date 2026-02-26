@@ -1591,20 +1591,22 @@ if (window.__TAURI__) {
         return;
       }
 
+      const stageLabel = { 'Starting': 'Transcribing', 'Loading model': 'Loading model', 'Transcribing': 'Transcribing' }[stage] || 'Transcribing';
+
       if (percent > 0) {
         // Determinate progress (local Whisper) — show in button + transcript area
         clearTranscriptionTimer();
-        btn.innerHTML = `<span style="font-weight: 600; font-size: 12px;">${escapeHtml(stage)} ${percent}%</span>`;
+        btn.innerHTML = `<span style="font-weight: 600; font-size: 12px;">${stageLabel} ${percent}%</span>`;
         if (detailTranscriptEl) {
           detailTranscriptEl.innerHTML = `
             <div class="transcript-processing-state">
               <div class="transcript-processing-spinner"></div>
-              <span class="transcript-processing-text">${escapeHtml(stage)} ${percent}%</span>
+              <span class="transcript-processing-text">${stageLabel} ${percent}%</span>
             </div>`;
         }
       } else {
         // Indeterminate progress (cloud / loading) — show elapsed time
-        transcriptionCurrentStage = stage;
+        transcriptionCurrentStage = stageLabel;
         if (!transcriptionStartTime) {
           transcriptionStartTime = Date.now();
         }
@@ -1629,12 +1631,12 @@ if (window.__TAURI__) {
           }, 1000);
         }
         const elapsed = Math.floor((Date.now() - transcriptionStartTime) / 1000);
-        btn.innerHTML = `<span style="font-weight: 600; font-size: 12px;">${escapeHtml(stage)} ${elapsed}s</span>`;
+        btn.innerHTML = `<span style="font-weight: 600; font-size: 12px;">${stageLabel} ${elapsed}s</span>`;
         if (detailTranscriptEl) {
           detailTranscriptEl.innerHTML = `
             <div class="transcript-processing-state">
               <div class="transcript-processing-spinner"></div>
-              <span class="transcript-processing-text">${escapeHtml(stage)}… ${elapsed}s</span>
+              <span class="transcript-processing-text">${stageLabel}… ${elapsed}s</span>
             </div>`;
         }
       }
