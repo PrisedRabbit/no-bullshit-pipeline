@@ -415,9 +415,7 @@ async function startRecording() {
     showDetailView(metadata.id);
     startLiveTranscript(metadata.id);
 
-    if (appSettings?.show_recording_notification !== false) {
-      showToast('Recording started', 'info');
-    }
+    showToast('Recording started', 'info');
 
   } catch (error) {
     // Revert all state on failure
@@ -450,9 +448,7 @@ async function stopRecording() {
     isRecording = false;
     currentAssignedPipelines = new Set(); // Clear global after capturing to local
 
-    if (appSettings?.show_recording_notification !== false) {
-      showToast('Recording stopped', 'info');
-    }
+    showToast('Recording stopped', 'info');
 
     // Stash pipelines BEFORE async UI work so recording_complete handler always finds them
     pendingAutoExec.set(currentId, stoppedPipelines);
@@ -1476,31 +1472,38 @@ if (confirmModal) confirmModal.addEventListener('click', (e) => { if (e.target =
 
 // ===== TOAST NOTIFICATIONS =====
 function showToast(message, type = 'info') {
+  const ICONS = {
+    success: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
+    error:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+    warning: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+    info:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`,
+  };
+
   let container = document.getElementById('toast-container');
   if (!container) {
     container = document.createElement('div');
     container.id = 'toast-container';
     document.body.appendChild(container);
   }
+
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
-  toast.textContent = message;
-  const closeBtn = document.createElement('button');
-  closeBtn.className = 'toast-close';
-  closeBtn.innerHTML = '&times;';
-  closeBtn.setAttribute('aria-label', 'Dismiss');
-  closeBtn.onclick = () => {
+  toast.innerHTML = `
+    <span class="toast-icon">${ICONS[type] || ICONS.info}</span>
+    <span class="toast-body">${escapeHtml(message)}</span>
+    <button class="toast-close" aria-label="Dismiss">&times;</button>
+  `;
+
+  const closeBtn = toast.querySelector('.toast-close');
+  const dismiss = () => {
     toast.classList.remove('show');
-    toast.addEventListener('transitionend', () => toast.remove());
+    toast.addEventListener('transitionend', () => toast.remove(), { once: true });
   };
-  toast.appendChild(closeBtn);
+  const timeout = setTimeout(dismiss, 3500);
+  closeBtn.onclick = () => { clearTimeout(timeout); dismiss(); };
+
   container.appendChild(toast);
   requestAnimationFrame(() => toast.classList.add('show'));
-  const timeout = setTimeout(() => {
-    toast.classList.remove('show');
-    toast.addEventListener('transitionend', () => toast.remove());
-  }, 3000);
-  closeBtn.addEventListener('click', () => clearTimeout(timeout), { once: true });
 }
 
 // ===== DELETE RECORDING =====
@@ -1812,7 +1815,6 @@ const downloadModelBtn = document.getElementById("download-model-btn");
 const realtimeEnabledCheckbox = document.getElementById("settings-realtime-enabled");
 const realtimeDetailsEl = document.getElementById("realtime-details");
 const realtimeModelSelect = document.getElementById("settings-realtime-model");
-const recordingNotificationCheckbox = document.getElementById("settings-recording-notification");
 const saveMixOnlyCheckbox = document.getElementById("settings-save-mix-only");
 
 // Helper to mask API keys (show last 4 chars)
@@ -1862,11 +1864,6 @@ async function loadSettings() {
       }
     }
 
-    // Recording notification setting
-    if (recordingNotificationCheckbox) {
-      recordingNotificationCheckbox.checked = appSettings.show_recording_notification !== false;
-    }
-
     // Save mix only setting
     if (saveMixOnlyCheckbox) {
       saveMixOnlyCheckbox.checked = appSettings.save_mix_only !== false; // default true
@@ -1905,11 +1902,6 @@ async function saveSettings() {
         if (!appSettings.providers[providerId]) appSettings.providers[providerId] = {};
         appSettings.providers[providerId].api_key = keyValue;
       }
-    }
-
-    // Recording notification
-    if (recordingNotificationCheckbox) {
-      appSettings.show_recording_notification = recordingNotificationCheckbox.checked;
     }
 
     // Save mix only setting
@@ -2346,9 +2338,7 @@ async function startRecordingWithPipeline(pipelineName) {
     renderPipelineChips(); // Update chip visual state (show assigned chip)
     startLiveTranscript(metadata.id);
 
-    if (appSettings?.show_recording_notification !== false) {
-      showToast('Recording started', 'info');
-    }
+    showToast('Recording started', 'info');
   } catch (error) {
     // Revert all state on failure
     isRecording = false;
@@ -2383,17 +2373,10 @@ document.querySelectorAll('.sidebar-nav-item').forEach(item => {
   });
 });
 
-// Auto-save: any change in settings triggers save + flash "Saved" indicator
-const settingsSavedIndicator = document.getElementById('settings-saved-indicator');
-function flashSaved() {
-  if (!settingsSavedIndicator) return;
-  settingsSavedIndicator.style.opacity = '1';
-  clearTimeout(settingsSavedIndicator._t);
-  settingsSavedIndicator._t = setTimeout(() => { settingsSavedIndicator.style.opacity = '0'; }, 1500);
-}
+// Auto-save: any change in settings triggers save + toast
 const settingsContainer = document.getElementById('settings-view');
 if (settingsContainer) {
-  settingsContainer.addEventListener('change', async () => { await saveSettings(); flashSaved(); });
+  settingsContainer.addEventListener('change', async () => { await saveSettings(); showToast('Saved', 'success'); });
 }
 
 if (transcriptionEnabledCheckbox) {

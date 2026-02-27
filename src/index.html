@@ -240,7 +240,6 @@
               Back
             </button>
             <h1 class="settings-header-title">Settings</h1>
-            <span id="settings-saved-indicator" class="settings-saved-indicator" style="opacity:0">Saved</span>
           </div>
           <div class="settings-tabs" id="settings-tabs">
             <button class="settings-tab active" data-tab="audio">Audio</button>
@@ -296,52 +295,8 @@
                 </div>
               </div>
 
-              <!-- Cleanup Configuration -->
-              <div class="settings-section">
-                <h3>Processing</h3>
-                <!-- Auto-discard: hardcoded to 3s, no UI needed -->
-              </div>
-
-              <!-- Recording Notification -->
-              <div class="settings-section">
-                <h3>Notifications</h3>
-                <div class="settings-item">
-                  <div class="settings-info">
-                    <label>Recording Notifications</label>
-                    <p>Show in-app toast when recording starts or stops</p>
-                  </div>
-                  <div
-                    class="settings-input-group"
-                    style="justify-content: flex-end"
-                  >
-                    <label class="toggle-switch">
-                      <input
-                        type="checkbox"
-                        id="settings-recording-notification"
-                        checked
-                      />
-                      <span class="slider round"></span>
-                    </label>
-                  </div>
-                </div>
-              </div>
 
               <!-- Recording Defaults -->
-              <div class="settings-section">
-                <h3>Recording</h3>
-                <div class="settings-item">
-                  <div class="settings-info">
-                    <label>Default Pipeline</label>
-                    <p>Auto-assign to new recordings when no chip is clicked</p>
-                  </div>
-                  <div class="settings-input-group">
-                    <select id="settings-default-pipeline" class="settings-select">
-                      <option value="">None</option>
-                      <!-- Options populated by JS -->
-                    </select>
-                  </div>
-                </div>
-              </div>
 
               <!-- Walkthrough removed - one-time feature, no longer needed in menu -->
 

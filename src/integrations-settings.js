@@ -32,138 +32,8 @@ async function loadAllIntegrations() {
   renderAvailableIntegrations();
 }
 
-// ===== PROVIDER MODELS =====
-var providerModels = {};
-var providerModelsFetching = false;
-
-async function fetchProviderModels(provider, forceRefresh = false) {
-  try {
-    const models = await window.__TAURI__.core.invoke('fetch_provider_models', { provider, forceRefresh });
-    providerModels[provider] = { models, error: null };
-  } catch (err) {
-    providerModels[provider] = { models: [], error: String(err) };
-  }
-}
-
-async function refreshAllProviderModels() {
-  if (providerModelsFetching) return;
-  providerModelsFetching = true;
-  const apiKeys = (appSettings && appSettings.transcription && appSettings.transcription.api_keys) || {};
-  const fetches = [];
-  for (const provider of ['openai', 'google', 'anthropic']) {
-    if (apiKeys[provider]) {
-      fetches.push(fetchProviderModels(provider));
-    }
-  }
-  // Ollama is local — no API key needed
-  fetches.push(fetchProviderModels('ollama', true));
-  await Promise.all(fetches);
-  renderModelsProviders();
-  providerModelsFetching = false;
-}
-
-var providerModelsExpanded = {};
-
-function renderProviderModelsList(providerId) {
-  const data = providerModels[providerId];
-  const expanded = providerModelsExpanded[providerId] || false;
-
-  if (!data) {
-    const storedModels = (appSettings && appSettings.providers && appSettings.providers[providerId] && appSettings.providers[providerId].models) || [];
-    if (storedModels.length === 0) return '';
-    const chips = storedModels.map(id => {
-      return `<div class="provider-model-item">
-      <span class="provider-model-id">${escapeHtml(id)}</span>
-    </div>`;
-    }).join('');
-    return `<div class="provider-models-section">
-    <div class="provider-models-header">
-      <span class="provider-models-count">${storedModels.length} model${storedModels.length !== 1 ? 's' : ''} available</span>
-    </div>
-    <div class="provider-models-list">${chips}</div>
-  </div>`;
-  }
-
-  if (data.error) {
-    const storedModels = (appSettings && appSettings.providers && appSettings.providers[providerId] && appSettings.providers[providerId].models) || [];
-    if (storedModels.length === 0) {
-      return `<div class="provider-models-section"><span class="provider-models-error">Failed to load models</span></div>`;
-    }
-    const chips = storedModels.map(id => {
-      return `<div class="provider-model-item">
-      <span class="provider-model-id">${escapeHtml(id)}</span>
-    </div>`;
-    }).join('');
-    return `<div class="provider-models-section">
-    <span class="provider-models-error">Failed to load models</span>
-    <div class="provider-models-header">
-      <span class="provider-models-count">${storedModels.length} model${storedModels.length !== 1 ? 's' : ''} available</span>
-    </div>
-    <div class="provider-models-list">${chips}</div>
-  </div>`;
-  }
-
-  if (data.models.length === 0) return '';
-
-  const CAP_COLORS = {
-    chat: 'rgba(59,130,246,0.2)',
-    transcription: 'rgba(16,185,129,0.2)',
-    embedding: 'rgba(168,85,247,0.2)',
-    'text-to-speech': 'rgba(245,158,11,0.2)',
-    image: 'rgba(239,68,68,0.2)',
-  };
-
-  const recommended = RECOMMENDED_MODELS[providerId] || [];
-  const recommendedSet = new Set(recommended);
-  const recommendedModels = data.models.filter(m => recommendedSet.has(m.id));
-  const otherModels = data.models.filter(m => !recommendedSet.has(m.id) && !m.deprecated);
-
-  let displayModels;
-  let showToggle = false;
-  const MAX_DEFAULT = 4;
-  if (expanded) {
-    displayModels = [...recommendedModels, ...otherModels];
-  } else {
-    displayModels = recommendedModels.length > 0 ? recommendedModels.slice(0, MAX_DEFAULT) : otherModels.slice(0, MAX_DEFAULT);
-    showToggle = otherModels.length > 0 || recommendedModels.length > MAX_DEFAULT;
-  }
-
-  const chips = displayModels.map(m => {
-    const capBadges = m.capabilities.map(c => {
-      const bg = CAP_COLORS[c] || 'rgba(148,163,184,0.2)';
-      return `<span class="provider-model-cap" style="background:${bg}">${escapeHtml(c)}</span>`;
-    }).join('');
-    const deprecatedBadge = m.deprecated
-      ? '<span class="provider-model-cap" style="background:rgba(239,68,68,0.25);color:rgba(239,68,68,0.9)">deprecated</span>'
-      : '';
-    const displayName = m.name !== m.id ? escapeHtml(m.name) : '';
-    const isRecommended = recommendedSet.has(m.id);
-    const recBadge = isRecommended ? '<span class="provider-model-cap" style="background:rgba(34,197,94,0.2);color:rgba(34,197,94,0.9)">recommended</span>' : '';
-    return `<div class="provider-model-item"${m.deprecated ? ' style="opacity:0.55"' : ''}>
-      <span class="provider-model-id">${escapeHtml(m.id)}</span>
-      ${displayName ? `<span class="provider-model-name">${displayName}</span>` : ''}
-      ${recBadge}${capBadges}${deprecatedBadge}
-    </div>`;
-  }).join('');
-
-  const toggleBtn = showToggle
-    ? `<button class="provider-models-toggle" data-provider="${escapeHtml(providerId)}" style="font-size:0.68rem;color:var(--accent);background:none;border:none;cursor:pointer;padding:4px 0;">Show all ${data.models.length} models</button>`
-    : expanded && (otherModels.length > 0 || recommendedModels.length < data.models.length)
-    ? `<button class="provider-models-toggle" data-provider="${escapeHtml(providerId)}" style="font-size:0.68rem;color:var(--text-secondary);background:none;border:none;cursor:pointer;padding:4px 0;">Show less</button>`
-    : '';
-
-  return `<div class="provider-models-section">
-    <div class="provider-models-header">
-      <span class="provider-models-count">${displayModels.length} of ${data.models.length} models</span>
-    </div>
-    <div class="provider-models-list">${chips}</div>
-    ${toggleBtn}
-  </div>`;
-}
-
 function renderOllamaCard() {
-  // Kept for backward compat — actual rendering handled by renderModelsProviders
-  renderModelsProviders();
+  renderLocalLlmModels();
 }
 
 // ===== RENDER PROCESSING PROVIDERS =====
@@ -190,14 +60,14 @@ async function validateApiKey(provider, key) {
 // ===== PROVIDER-FIRST MODELS UI =====
 
 const CLOUD_PROVIDERS = [
-  { id: 'openai',    name: 'OpenAI',    desc: 'GPT-4o, Whisper, real-time transcription', placeholder: 'sk-...',     icon: { img: 'assets/openai.svg',    filter: 'invert(1)',                                                bg: 'rgba(142,142,160,0.15)' } },
-  { id: 'google',    name: 'Google AI',  desc: 'Gemini long-context processing',           placeholder: 'AIza...',    icon: { img: 'assets/gemini.svg',    filter: 'invert(48%) sepia(90%) saturate(400%) hue-rotate(190deg)', bg: 'rgba(66,133,244,0.15)'  } },
-  { id: 'anthropic', name: 'Anthropic',  desc: 'Claude structured extraction',             placeholder: 'sk-ant-...', icon: { img: 'assets/anthropic.svg', filter: 'invert(55%) sepia(80%) saturate(500%) hue-rotate(10deg)',  bg: 'rgba(217,119,6,0.15)'  } },
+  { id: 'openai',    name: 'OpenAI',    desc: 'GPT-4o, Whisper, real-time transcription', placeholder: 'sk-...',     icon: 'assets/openai.svg'    },
+  { id: 'google',    name: 'Google AI', desc: 'Gemini long-context processing',           placeholder: 'AIza...',    icon: 'assets/gemini.svg'    },
+  { id: 'anthropic', name: 'Anthropic', desc: 'Claude structured extraction',             placeholder: 'sk-ant-...', icon: 'assets/anthropic.svg' },
 ];
 
 const LOCAL_PROVIDERS = [
-  { id: 'local',  name: 'Local LLM', desc: 'GGUF models stored on device', icon: { img: 'assets/local-llm.svg', filter: 'invert(68%) sepia(60%) saturate(400%) hue-rotate(220deg)', bg: 'rgba(139,92,246,0.15)' } },
-  { id: 'ollama', name: 'Ollama',   desc: 'Local inference via Ollama',    icon: { img: 'assets/ollama.svg',    filter: 'invert(1)',                                                bg: 'rgba(142,142,160,0.15)' } },
+  { id: 'local',  name: 'Local LLM', desc: 'GGUF models stored on device', icon: 'assets/local-llm.svg' },
+  { id: 'ollama', name: 'Ollama',    desc: 'Local inference via Ollama',    icon: 'assets/ollama.svg'    },
 ];
 
 const CAP_BADGE_COLORS = {
@@ -206,71 +76,11 @@ const CAP_BADGE_COLORS = {
   'Embedding':     'rgba(168,85,247,0.18)',
 };
 
-const RECOMMENDED_MODELS = {
-  openai: ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'o4-mini'],
-  anthropic: ['claude-sonnet-4-20250514', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-opus-4-20250514'],
-  google: ['gemini-2.5-pro-preview-06-05', 'gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
-  ollama: [],
-};
-
 function renderCapBadges(capabilities) {
   return capabilities.map(c => {
     const bg = CAP_BADGE_COLORS[c] || 'rgba(148,163,184,0.15)';
     return `<span class="provider-cap-badge" style="background:${bg}">${escapeHtml(c)}</span>`;
   }).join('');
-}
-
-function updateProviderKeyStatus(providerId, state) {
-  const statusEl = document.getElementById(`key-status-${providerId}`);
-  if (!statusEl) return;
-  const STATUS_CONFIG = {
-    missing: { class: 'key-missing', label: 'No key', ariaLabel: 'API key not configured', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>` },
-    saved: { class: 'key-saved', label: 'Saved', ariaLabel: 'API key saved (not yet verified)', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>` },
-    checking: { class: 'key-checking', label: 'Verifying', ariaLabel: 'Verifying API key', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>` },
-    valid: { class: 'key-valid', label: 'Verified', ariaLabel: 'API key verified successfully', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>` },
-    failed: { class: 'key-failed', label: 'Invalid', ariaLabel: 'API key verification failed', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>` }
-  };
-  const config = STATUS_CONFIG[state] || STATUS_CONFIG.missing;
-  statusEl.className = `provider-key-status ${config.class}`;
-  statusEl.setAttribute('aria-label', config.ariaLabel);
-  statusEl.innerHTML = `${config.icon}<span>${config.label}</span>`;
-}
-
-function renderProviderKeyStatus(state, providerId) {
-  const STATUS_CONFIG = {
-    missing: {
-      class: 'key-missing',
-      label: 'No key',
-      ariaLabel: 'API key not configured',
-      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`
-    },
-    saved: {
-      class: 'key-saved',
-      label: 'Saved',
-      ariaLabel: 'API key saved (not yet verified)',
-      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`
-    },
-    checking: {
-      class: 'key-checking',
-      label: 'Verifying',
-      ariaLabel: 'Verifying API key',
-      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>`
-    },
-    valid: {
-      class: 'key-valid',
-      label: 'Verified',
-      ariaLabel: 'API key verified successfully',
-      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`
-    },
-    failed: {
-      class: 'key-failed',
-      label: 'Invalid',
-      ariaLabel: 'API key verification failed',
-      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`
-    }
-  };
-  const config = STATUS_CONFIG[state] || STATUS_CONFIG.missing;
-  return `<span class="provider-key-status ${config.class}" id="key-status-${providerId}" role="status" aria-label="${config.ariaLabel}">${config.icon}<span>${config.label}</span></span>`;
 }
 
 function renderModelsProviders() {
@@ -294,37 +104,27 @@ function renderModelsProviders() {
     const isValidated = validatedKeys[p.id] === key && !!key;
     const isFailed = failedKeys[p.id] === key;
     const keyStatus = !hasKey ? 'missing' : isFailed ? 'failed' : isValidated ? 'valid' : 'saved';
-    const statusHtml = renderProviderKeyStatus(keyStatus, p.id);
-    const modelsHtml = renderProviderModelsList(p.id);
+    const btnLabel = hasKey ? 'Saved' : 'Save';
 
     sections.push(`
-      <div class="connections-group" data-provider-section="${escapeHtml(p.id)}">
-        <div class="connections-group-header">
-          <div class="provider-card-icon ${escapeHtml(p.id)}" style="background:${p.icon.bg};display:flex;align-items:center;justify-content:center;">
-            <img src="${escapeHtml(p.icon.img)}" style="width:20px;height:20px;filter:${p.icon.filter}" />
-          </div>
-          <div class="group-info">
-            <div class="group-label">${escapeHtml(p.name)} ${renderCapBadges(caps)}</div>
-            <div class="group-desc">${escapeHtml(p.desc)}</div>
-          </div>
+      <div class="connections-group" data-provider-section="${escapeHtml(p.id)}" style="display:flex;align-items:center;gap:12px;padding:12px;">
+        <div class="provider-card-icon ${escapeHtml(p.id)}" style="flex-shrink:0;">
+          <img src="${escapeHtml(p.icon)}" style="width:32px;height:32px;display:block;" alt="${escapeHtml(p.name)}" />
         </div>
-        <div class="provider-card" data-provider="${escapeHtml(p.id)}" style="border:none;padding:0;background:none;">
-          <div class="provider-card-input" style="width:100%;justify-content:flex-start;gap:8px;">
-            <input
-              id="settings-api-key-${escapeHtml(p.id)}"
-              type="password"
-              placeholder="${escapeHtml(p.placeholder)}"
-              class="settings-input-text"
-              value="${escapeHtml(displayValue)}"
-              data-original-key="${escapeHtml(key)}"
-              style="width:200px;"
-            />
-            <button class="mini-action-btn provider-save-btn" data-provider="${escapeHtml(p.id)}">Save</button>
-            ${statusHtml}
-          </div>
+        <div style="display:flex;flex-direction:column;flex-shrink:0;">
+          <div style="font-weight:600;">${escapeHtml(p.name)} ${renderCapBadges(caps)}</div>
+          <div style="font-size:0.75rem;color:var(--text-secondary);">${escapeHtml(p.desc)}</div>
         </div>
-        ${modelsHtml ? `<div class="provider-card-wrapper">${modelsHtml}</div>` : ''}
-        <button class="mini-action-btn refresh-provider-btn" data-provider="${escapeHtml(p.id)}" style="align-self:flex-start;margin-top:4px;font-size:0.75rem;">Refresh Models</button>
+        <input
+          id="settings-api-key-${escapeHtml(p.id)}"
+          type="password"
+          placeholder="${escapeHtml(p.placeholder)}"
+          class="settings-input-text"
+          value="${escapeHtml(displayValue)}"
+          data-original-key="${escapeHtml(key)}"
+          style="flex:1;min-width:120px;max-width:240px;"
+        />
+        <button class="mini-action-btn provider-save-btn" data-provider="${escapeHtml(p.id)}">${btnLabel}</button>
       </div>
     `);
   }
@@ -334,15 +134,14 @@ function renderModelsProviders() {
   const ollamaConfig = providerConfigs['ollama'] || {};
   const ollamaBaseUrl = ollamaConfig.base_url || 'http://localhost:11434';
   const localCaps = [...new Set([...(localConfig.capabilities || []), ...(ollamaConfig.capabilities || [])])];
-  const ollamaModelsHtml = renderProviderModelsList('ollama');
   const localProvider = LOCAL_PROVIDERS.find(p => p.id === 'local');
   const ollamaProvider = LOCAL_PROVIDERS.find(p => p.id === 'ollama');
 
   sections.push(`
     <div class="connections-group" data-provider-section="local">
       <div class="connections-group-header">
-        <div class="provider-card-icon local" style="background:${localProvider.icon.bg};display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;">
-          <img src="${localProvider.icon.img}" style="width:18px;height:18px;filter:${localProvider.icon.filter}" />
+        <div class="provider-card-icon local">
+          <img src="${escapeHtml(localProvider.icon)}" style="width:36px;height:36px;display:block;" alt="Local LLM" />
         </div>
         <div class="group-info">
           <div class="group-label">Local / Ollama ${renderCapBadges(localCaps)}</div>
@@ -355,7 +154,7 @@ function renderModelsProviders() {
           <button class="mini-action-btn save-ollama-host-btn">Save Host</button>
         </div>
       </div>
-      ${ollamaModelsHtml ? `<div id="ollama-provider-container"><div class="provider-card-wrapper"><div class="provider-subsection"><div class="provider-subsection-header"><div class="provider-card-icon ollama" style="background:${ollamaProvider.icon.bg};display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:4px;"><img src="${ollamaProvider.icon.img}" style="width:14px;height:14px;filter:${ollamaProvider.icon.filter}" /></div><span class="provider-subsection-label">Ollama</span></div>${ollamaModelsHtml}</div></div></div>` : '<div id="ollama-provider-container"></div>'}
+      <div id="ollama-provider-container"></div>
       <div id="local-llm-models-list" style="display:flex;flex-direction:column;gap:8px;"></div>
       <div id="llm-freshness-actions" style="margin-top:6px;display:flex;align-items:center;gap:8px;">
         <button id="llm-check-freshness-btn" class="mini-action-btn" style="font-size:0.75rem;">Check for Updates</button>
@@ -370,22 +169,6 @@ function renderModelsProviders() {
   `);
 
   el.innerHTML = sections.join('');
-
-  // Wire per-provider Refresh buttons
-  el.querySelectorAll('.refresh-provider-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const providerId = btn.dataset.provider;
-      btn.disabled = true;
-      btn.textContent = 'Refreshing...';
-      try {
-        await fetchProviderModels(providerId, providerId === 'ollama');
-        renderModelsProviders();
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Refresh Models';
-      }
-    });
-  });
 
   // Wire Ollama host save button
   const saveOllamaHostBtn = el.querySelector('.save-ollama-host-btn');
@@ -408,8 +191,6 @@ function renderModelsProviders() {
       try {
         await window.__TAURI__.core.invoke('save_settings', { settings: appSettings });
         input.value = normalized;
-        await fetchProviderModels('ollama', true);
-        renderModelsProviders();
         showToast('Ollama host saved', 'success');
       } catch (err) {
         showToast('Failed to save Ollama host: ' + err, 'error');
@@ -437,10 +218,6 @@ function renderModelsProviders() {
       if (!appSettings.providers[providerId]) appSettings.providers[providerId] = {};
       appSettings.providers[providerId].api_key = value || null;
 
-      if (!value) {
-        delete providerModels[providerId];
-      }
-
       btn.disabled = true;
       btn.textContent = '...';
       try {
@@ -448,7 +225,6 @@ function renderModelsProviders() {
         if (typeof updateTranscriptionKeyStatusDot === 'function') updateTranscriptionKeyStatusDot();
 
         if (value) {
-          updateProviderKeyStatus(providerId, 'checking');
           btn.textContent = 'Checking...';
           const valid = await validateApiKey(providerId, value);
           if (!window.__nbpValidatedKeys) window.__nbpValidatedKeys = {};
@@ -456,30 +232,19 @@ function renderModelsProviders() {
           if (valid) {
             window.__nbpValidatedKeys[providerId] = value;
             delete window.__nbpFailedKeys[providerId];
-            fetchProviderModels(providerId).then(() => renderModelsProviders());
           } else {
             delete window.__nbpValidatedKeys[providerId];
             window.__nbpFailedKeys[providerId] = value;
-            delete providerModels[providerId];
             showToast(`${providerId} key verification failed`, 'error');
           }
         }
-        renderModelsProviders();
       } catch (err) {
         showToast('Failed to save: ' + err, 'error');
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Save';
+        const savedValue = appSettings.transcription?.api_keys?.[providerId] || appSettings.providers?.[providerId]?.api_key;
+        btn.textContent = savedValue ? 'Saved' : 'Save';
       }
-    });
-  });
-
-  // Wire Show All / Show Less toggle buttons
-  el.querySelectorAll('.provider-models-toggle').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const providerId = btn.dataset.provider;
-      providerModelsExpanded[providerId] = !providerModelsExpanded[providerId];
-      renderModelsProviders();
     });
   });
 

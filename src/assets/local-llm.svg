@@ -1,1 +1,6 @@
-<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><path d="M7 2h1v2H7V2zm3 0h1v2h-1V2zm3 0h1v2h-1V2zM2 7h2v1H2V7zm0 3h2v1H2v-1zm0 3h2v1H2v-1zm18-3h2v1h-2v-1zm0 3h2v1h-2v-1zm0-6h2v1h-2V7zM7 20h1v2H7v-2zm3 0h1v2h-1v-2zm3 0h1v2h-1v-2zM6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm2 4v8h8V8H8zm1 1h6v6H9V9z"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36">
+  <rect x="0.75" y="0.75" width="34.5" height="34.5" rx="7.25" fill="#EEF2FF"/>
+  <g transform="translate(6 6)">
+    <path fill="#4F46E5" d="M7 2h1v2H7V2zm3 0h1v2h-1V2zm3 0h1v2h-1V2zM2 7h2v1H2V7zm0 3h2v1H2v-1zm0 3h2v1H2v-1zm18-3h2v1h-2v-1zm0 3h2v1h-2v-1zm0-6h2v1h-2V7zM7 20h1v2H7v-2zm3 0h1v2h-1v-2zm3 0h1v2h-1v-2zM6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm2 4v8h8V8H8zm1 1h6v6H9V9z"/>
+  </g>
+</svg>

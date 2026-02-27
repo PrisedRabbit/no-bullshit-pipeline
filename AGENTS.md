@@ -2,6 +2,11 @@
 
 This file provides instructions and context for AI coding agents working on this project.
 
+## Git Rules
+
+- **NEVER** run `git commit` or `git push` unless the user explicitly says to commit or push
+- Do not auto-commit, do not auto-push after fixes — wait for explicit instruction
+
 ## UI/UX Skill Rule
 
 When the user asks for design work (or mentions design/UI/UX improvements), always use the `ui-ux-pro-max` skill.
