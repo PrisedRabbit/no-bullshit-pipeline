@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "check": "cargo check --manifest-path src-tauri/Cargo.toml",
+    "check:js": "node --check src/main.js && node --check src/pipeline-builder.js && node --check src/integrations-settings.js && node --check src/module-loader.js && node --check src/viewManager.js && node --check src/ui-health-check.js",
+    "lint": "eslint \"src/**/*.js\" --max-warnings=0",
+    "check:all": "bun run lint && bun run check:js && bun run check",
     "dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "build": "tauri build",
     "tauri": "tauri",
@@ -13,7 +16,10 @@
     "upgrade-packages": "cd src-tauri && cargo upgrade && cd .. && bun update"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.10.0"
+    "@eslint/js": "^10.0.1",
+    "@tauri-apps/cli": "^2.10.0",
+    "eslint": "^10.0.2",
+    "globals": "^17.3.0"
   },
   "dependencies": {
     "marked": "^17.0.3",
