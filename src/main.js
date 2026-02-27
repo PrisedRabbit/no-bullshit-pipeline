@@ -1591,24 +1591,35 @@ if (window.__TAURI__) {
         return;
       }
 
-      const stageLabel = { 'Starting': 'Transcribing', 'Loading model': 'Loading model', 'Transcribing': 'Transcribing' }[stage] || 'Transcribing';
+      const STAGE_LABELS = {
+        'Starting': 'Transcribing', 'Loading model': 'Loading model',
+        'Transcribing': 'Transcribing', 'Preparing models': 'Preparing models',
+        'Downloading ASR model': 'Downloading model', 'Downloading diarizer': 'Downloading model',
+        'Diarization': 'Diarization', 'Finalizing': 'Finalizing',
+      };
+      const stageLabel = STAGE_LABELS[stage] || stage;
 
       if (percent > 0) {
-        // Determinate progress (local Whisper) — show in button + transcript area
+        // Determinate progress — bold full-area progress display
         clearTranscriptionTimer();
         btn.innerHTML = `<span style="font-weight: 600; font-size: 12px;">${stageLabel} ${percent}%</span>`;
         if (detailTranscriptEl) {
+          detailTranscriptEl.classList.remove('empty');
           detailTranscriptEl.innerHTML = `
-            <div class="transcript-processing-state">
-              <div class="transcript-processing-spinner"></div>
-              <span class="transcript-processing-text">${stageLabel} ${percent}%</span>
+            <div class="transcription-progress-wrap">
+              <div class="transcription-progress-stage">${stageLabel}</div>
+              <div class="transcription-progress-bar-track">
+                <div class="transcription-progress-bar-fill" style="width:${percent}%"></div>
+              </div>
+              <div class="transcription-progress-percent">${percent}%</div>
             </div>`;
         }
       } else {
-        // Indeterminate progress (cloud / loading) — just show spinner + label
+        // Indeterminate progress — spinner only
         transcriptionCurrentStage = stageLabel;
         btn.innerHTML = `<span class="btn-spinner"></span><span style="font-weight: 600; font-size: 12px;">${stageLabel}…</span>`;
         if (detailTranscriptEl && !detailTranscriptEl.querySelector('.transcript-processing-state')) {
+          detailTranscriptEl.classList.remove('empty');
           detailTranscriptEl.innerHTML = `
             <div class="transcript-processing-state">
               <div class="transcript-processing-spinner"></div>
