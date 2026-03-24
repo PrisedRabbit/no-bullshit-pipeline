@@ -209,7 +209,7 @@ pub async fn add_notion_integration(api_key: String) -> Result<String, String> {
 
     // Auto-derive name and icon from bot user
     let name = bot_user.name.unwrap_or_else(|| "Notion".to_string());
-    let icon_url = bot_user.avator_url;
+    let icon_url = bot_user.avatar_url;
 
     // Generate a stable UUID for this integration
     let id = uuid::Uuid::new_v4().to_string();

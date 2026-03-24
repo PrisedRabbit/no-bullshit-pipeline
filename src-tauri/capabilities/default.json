@@ -16,6 +16,7 @@
           "path": "$HOME/nbp-data/**"
         }
       ]
-    }
+    },
+    "notification:default"
   ]
 }

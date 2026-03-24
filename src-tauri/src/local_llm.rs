@@ -239,7 +239,7 @@ pub fn delete_llm_model(model_id: String) -> Result<(), String> {
     if settings.local_llm.model_id.as_deref() == Some(&model_id) {
         settings.local_llm.model_id = None;
         settings.local_llm.enabled = false;
-        let _ = crate::config::save_settings(settings);
+        let _ = crate::config::save_settings_to_disk(&mut settings);
     }
 
     Ok(())
@@ -937,5 +937,5 @@ pub async fn auto_check_model_freshness(app_handle: tauri::AppHandle) {
         .iter()
         .map(|r| (r.model_id.clone(), r.update_available))
         .collect();
-    let _ = crate::config::save_settings(settings);
+    let _ = crate::config::save_settings_to_disk(&mut settings);
 }

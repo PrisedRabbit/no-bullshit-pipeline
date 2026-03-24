@@ -160,6 +160,9 @@ pub struct AppSettings {
     /// Last pipeline used — highlighted in chip bar on next launch
     #[serde(default)]
     pub last_used_pipeline: Option<String>,
+    /// Detect calls (mic activation) and send a macOS notification
+    #[serde(default)]
+    pub call_detection_enabled: bool,
     /// Whether the user has completed the interactive UI walkthrough
     #[serde(default)]
     pub walkthrough_completed: bool,
@@ -228,6 +231,7 @@ impl Default for AppSettings {
             integrations: IntegrationsConfig::default(),
             default_pipeline: None,
             last_used_pipeline: None,
+            call_detection_enabled: false,
             walkthrough_completed: false,
             local_llm: LocalLlmConfig::default(),
             last_model_freshness_check: None,
@@ -348,11 +352,9 @@ pub fn load_settings() -> AppSettings {
     }
 }
 
-#[tauri::command]
-pub fn save_settings(mut settings: AppSettings) -> Result<(), String> {
+/// Save settings to disk (internal — no Tauri state required)
+pub fn save_settings_to_disk(settings: &mut AppSettings) -> Result<(), String> {
     // Pre-save migration: sync transcription.api_keys into providers map.
-    // This ensures provider-first storage stays authoritative even when the frontend
-    // writes to the legacy transcription.api_keys path.
     for (provider_id, legacy_key) in [
         ("openai", settings.transcription.api_keys.openai.clone()),
         ("google", settings.transcription.api_keys.google.clone()),
@@ -387,6 +389,17 @@ pub fn save_settings(mut settings: AppSettings) -> Result<(), String> {
     fs::set_permissions(&path, perms).map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+/// Tauri command: save settings + toggle call detector
+#[tauri::command]
+pub fn save_settings(
+    app_handle: tauri::AppHandle,
+    mut settings: AppSettings,
+    detector_state: tauri::State<'_, crate::call_detector::CallDetectorState>,
+) -> Result<(), String> {
+    crate::call_detector::sync_detector(&detector_state, settings.call_detection_enabled, &app_handle);
+    save_settings_to_disk(&mut settings)
 }
 
 /// Resolve the API key for a provider.

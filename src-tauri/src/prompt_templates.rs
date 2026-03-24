@@ -10,7 +10,6 @@ use crate::config::{get_config_dir, get_templates_dir};
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PromptTemplate {
     pub name: String,
-    pub description: String,
     pub prompt: String,
     pub created_at: String,
     pub updated_at: String,
@@ -36,104 +35,9 @@ fn get_builtin_templates() -> HashMap<String, PromptTemplate> {
     let mut templates = HashMap::new();
 
     templates.insert(
-        "meeting-notes".to_string(),
-        PromptTemplate {
-            name: "meeting-notes".to_string(),
-            description: "Extract structured meeting notes with attendees, decisions, and action items".to_string(),
-            prompt: r#"Analyze this meeting transcript and extract structured notes.
-
-Extract the following (use 'Not identified' if you cannot determine):
-
-1. **Date**: When the meeting occurred (from context or say 'Not identified')
-2. **Attendees**: List all people mentioned or speaking
-3. **Agenda Items**: Main topics discussed
-4. **Key Decisions**: Any decisions made during the meeting
-5. **Action Items**: Tasks assigned, include owner if mentioned and due date if specified
-6. **Follow-ups**: Items that need future attention
-
-Format as clean Markdown.
-
-Transcript:
-{transcript}"#.to_string(),
-            created_at: now.clone(),
-            updated_at: now.clone(),
-        },
-    );
-
-    templates.insert(
-        "brainstorm".to_string(),
-        PromptTemplate {
-            name: "brainstorm".to_string(),
-            description: "Organize ideation sessions into themed ideas with priorities".to_string(),
-            prompt: r#"Analyze this brainstorm session and organize the ideas.
-
-Extract and organize:
-
-1. **Topic**: What is being brainstormed
-2. **Ideas by Theme**: Group all ideas into logical themes/categories
-3. **Top 3 Priorities**: The most important or emphasized ideas
-4. **Next Steps**: Any action items or follow-ups mentioned
-
-Format as clean Markdown with clear sections.
-
-Transcript:
-{transcript}"#.to_string(),
-            created_at: now.clone(),
-            updated_at: now.clone(),
-        },
-    );
-
-    templates.insert(
-        "journal".to_string(),
-        PromptTemplate {
-            name: "journal".to_string(),
-            description: "Transform voice journals into formatted diary entries".to_string(),
-            prompt: r#"Transform this voice journal entry into a formatted diary entry.
-
-Extract and format:
-
-1. **Date**: Today's date or mentioned date
-2. **Mood**: Infer the overall emotional tone (e.g., Reflective, Energetic, Grateful, Anxious, Peaceful)
-3. **Key Thoughts**: Main ideas or events discussed
-4. **Reflections**: Any insights or realizations
-5. **Gratitude**: Things the speaker expressed thanks for (if any)
-
-Write in first person, preserving the personal voice. Format as a warm, readable diary entry.
-
-Transcript:
-{transcript}"#.to_string(),
-            created_at: now.clone(),
-            updated_at: now.clone(),
-        },
-    );
-
-    templates.insert(
-        "action-items".to_string(),
-        PromptTemplate {
-            name: "action-items".to_string(),
-            description: "Extract action items, tasks, and owners from the conversation".to_string(),
-            prompt: r#"Extract all action items from this transcript.
-
-For each action item, identify:
-1. **Task**: What needs to be done
-2. **Owner**: Who is responsible (if mentioned)
-3. **Due Date**: When it's due (if mentioned)
-4. **Priority**: High/Medium/Low (infer from context)
-
-Format as a clean Markdown checklist.
-
-Transcript:
-{transcript}"#.to_string(),
-            created_at: now.clone(),
-            updated_at: now.clone(),
-        },
-    );
-
-    templates.insert(
         "summary".to_string(),
         PromptTemplate {
             name: "summary".to_string(),
-            description: "Concise summary of key points from the conversation".to_string(),
             prompt: r#"Create a concise summary of this transcript.
 
 Include:
@@ -143,29 +47,6 @@ Include:
 4. **Open Questions**: Unresolved items or topics needing follow-up
 
 Keep it brief and actionable. Format as clean Markdown.
-
-Transcript:
-{transcript}"#.to_string(),
-            created_at: now.clone(),
-            updated_at: now.clone(),
-        },
-    );
-
-    templates.insert(
-        "structure".to_string(),
-        PromptTemplate {
-            name: "structure".to_string(),
-            description: "Organize content into logical sections with headers".to_string(),
-            prompt: r#"Organize this transcript into a well-structured document.
-
-Instructions:
-1. Identify the main topics and themes discussed
-2. Create logical sections with clear Markdown headers (##)
-3. Group related content under each section
-4. Preserve key details, quotes, and data points
-5. Add a brief introduction summarizing the overall content
-
-Format as clean, readable Markdown with proper hierarchy.
 
 Transcript:
 {transcript}"#.to_string(),
@@ -202,11 +83,6 @@ fn migrate_existing_templates(templates: &mut HashMap<String, PromptTemplate>) {
                         Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
                     let prompt_template = PromptTemplate {
                         name: name.clone(),
-                        description: old_template
-                            .get("description")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
                         prompt: old_template
                             .get("prompt")
                             .and_then(|v| v.as_str())
@@ -239,20 +115,6 @@ pub fn load_prompt_templates() -> Result<HashMap<String, PromptTemplate>, String
         File::open(&path).map_err(|e| format!("Failed to open prompt-templates.json: {}", e))?;
     let templates: HashMap<String, PromptTemplate> = serde_json::from_reader(file)
         .map_err(|e| format!("Failed to parse prompt-templates.json: {}", e))?;
-
-    // Merge any missing built-in templates into existing templates
-    let builtins = get_builtin_templates();
-    let mut templates = templates;
-    let mut added = false;
-    for (key, builtin) in builtins {
-        if !templates.contains_key(&key) {
-            templates.insert(key, builtin);
-            added = true;
-        }
-    }
-    if added {
-        save_prompt_templates_to_disk(&templates)?;
-    }
 
     Ok(templates)
 }
@@ -385,13 +247,8 @@ mod tests {
     #[test]
     fn test_builtin_templates_exist() {
         let templates = get_builtin_templates();
-        assert_eq!(templates.len(), 6);
-        assert!(templates.contains_key("meeting-notes"));
-        assert!(templates.contains_key("brainstorm"));
-        assert!(templates.contains_key("journal"));
-        assert!(templates.contains_key("action-items"));
+        assert_eq!(templates.len(), 1);
         assert!(templates.contains_key("summary"));
-        assert!(templates.contains_key("structure"));
     }
 
     #[test]
@@ -410,7 +267,6 @@ mod tests {
     fn test_validate_empty_name_fails() {
         let template = PromptTemplate {
             name: "".to_string(),
-            description: "test".to_string(),
             prompt: "test prompt".to_string(),
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: "2026-01-01T00:00:00Z".to_string(),
@@ -422,7 +278,6 @@ mod tests {
     fn test_validate_empty_prompt_fails() {
         let template = PromptTemplate {
             name: "test".to_string(),
-            description: "test".to_string(),
             prompt: "  ".to_string(),
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: "2026-01-01T00:00:00Z".to_string(),
@@ -448,7 +303,6 @@ mod tests {
     fn test_serialization_roundtrip() {
         let template = PromptTemplate {
             name: "test".to_string(),
-            description: "A test template".to_string(),
             prompt: "Analyze: {transcript}".to_string(),
             created_at: "2026-02-03T12:00:00Z".to_string(),
             updated_at: "2026-02-03T12:00:00Z".to_string(),

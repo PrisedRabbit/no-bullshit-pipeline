@@ -188,7 +188,7 @@ pub async fn add_slack_integration(
     });
 
     // Persist settings
-    crate::config::save_settings(settings.clone())?;
+    crate::config::save_settings_to_disk(&mut settings.clone())?;
 
     Ok(name)
 }
@@ -207,7 +207,7 @@ pub fn remove_slack_integration(
     settings.integrations.slack.remove(&id);
 
     // Persist settings
-    crate::config::save_settings(settings.clone())?;
+    crate::config::save_settings_to_disk(&mut settings.clone())?;
 
     Ok(())
 }

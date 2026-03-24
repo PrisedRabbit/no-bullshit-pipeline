@@ -820,12 +820,37 @@ async function renderPipelineStatus(recordingId) {
 
     // Wire delete buttons for completed/failed/waiting runs
     content.querySelectorAll('.pipeline-run-delete').forEach(btn => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
         const ok = await showConfirm('Delete Pipeline Run?', 'This will remove the run and its output.');
         if (!ok) return;
         const runId = btn.dataset.runId;
+        // Also find pipeline name so we can update assigned set during recording
+        const row = btn.closest('.pipeline-status-row');
+        const pipelineName = row ? row.querySelector('.pipeline-status-name')?.textContent : null;
         try {
           await invoke('remove_pipeline_run', { recordingId, runId });
+          if (pipelineName && currentAssignedPipelines.has(pipelineName)) {
+            currentAssignedPipelines.delete(pipelineName);
+            if (typeof renderPipelineChips === 'function') renderPipelineChips();
+            // Unhide the card in available pipelines
+            const pipelineCardsEl = document.getElementById('pipeline-cards');
+            if (pipelineCardsEl) {
+              const card = pipelineCardsEl.querySelector(`.pipeline-card[data-pipeline="${pipelineName}"]`);
+              if (card) {
+                card.style.display = '';
+                card.style.maxWidth = '';
+                card.style.minWidth = '';
+                card.style.padding = '';
+                card.style.borderWidth = '';
+                card.style.margin = '';
+                card.style.opacity = '';
+                card.style.overflow = '';
+                card.style.pointerEvents = '';
+                card.style.transition = '';
+              }
+            }
+          }
         } catch (err) {
           console.error('Failed to delete pipeline run:', err);
           showToast('Failed to delete run: ' + err, 'error');
@@ -1000,7 +1025,7 @@ function renderRecordingsList() {
     }).join('');
 
     const deleteDisabled = isCurrentlyRecording || isProcessing;
-    const deleteBtnHtml = deleteDisabled ? '' : `<button class="recording-item-delete" data-id="${safeId}" title="Delete recording"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>`;
+    const deleteBtnHtml = deleteDisabled ? '' : `<button class="recording-item-delete" data-id="${safeId}" title="Delete recording"><span class="icon-trash"></span></button>`;
 
     return `
     <div class="recording-item ${isCurrentlyRecording ? 'recording-active' : ''}" data-id="${safeId}" onclick="showDetailView(this.dataset.id)">
@@ -1020,10 +1045,23 @@ function renderRecordingsList() {
 
   // Wire delete buttons on recording cards
   recordingsListEl.querySelectorAll('.recording-item-delete').forEach(btn => {
-    btn.addEventListener('click', (e) => {
+    btn.addEventListener('click', async (e) => {
       e.stopPropagation(); // Don't open detail view
-      deleteTargetId = btn.dataset.id;
-      deleteModal.style.display = 'flex';
+      const recordingId = btn.dataset.id;
+      const ok = await showConfirm('Delete Recording?', 'This action cannot be undone.');
+      if (!ok) return;
+      try {
+        await invoke('delete_recording', { recordingId });
+        if (selectedRecordingId === recordingId) hideDetailView();
+        await loadRecordings();
+      } catch (err) {
+        console.error('Delete failed:', err);
+        if (err && typeof err === 'string' && err.includes('finalized')) {
+          showToast('Recording is still being finalized. Please wait a moment and try again.', 'info');
+        } else {
+          showToast('Delete failed: ' + err, 'error');
+        }
+      }
     });
   });
 }
@@ -1041,59 +1079,7 @@ function formatDuration(seconds) {
 
 
 
-// ===== RECORDING PIPELINE PRE-ASSIGNMENT =====
-async function renderRecordingPipelineCards(container, recordingId) {
-  container.innerHTML = '';
-  if (typeof allPipelineDefs === 'undefined' || allPipelineDefs.length === 0) return;
-
-  for (const p of allPipelineDefs) {
-    const isAssigned = currentAssignedPipelines.has(p.name);
-    const flowHtml = typeof renderPipelineFlowHTML !== 'undefined'
-      ? renderPipelineFlowHTML(p.steps || [], { compact: true })
-      : '';
-
-    const card = document.createElement('div');
-    card.className = `pipeline-card${isAssigned ? ' is-assigned' : ''}`;
-    card.dataset.pipeline = p.name;
-    card.style.cursor = 'pointer';
-
-    const checkSvg = `<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-    card.innerHTML = `${flowHtml}<div class="pipeline-card-name">${escapeHtml(p.name)}</div><div class="rpp-toggle">${isAssigned ? checkSvg : ''}</div>`;
-
-    card.addEventListener('click', async () => {
-      const pipelineName = p.name;
-      try {
-        if (currentAssignedPipelines.has(pipelineName)) {
-          // Unassign: find the waiting run and remove it
-          currentAssignedPipelines.delete(pipelineName);
-          try {
-            const states = await invoke('get_all_pipeline_states', { recordingId });
-            const waitingRun = states.find(s => s.name === pipelineName && s.status === 'waiting');
-            if (waitingRun) {
-              await invoke('remove_pipeline_run', { recordingId, runId: waitingRun.id });
-            }
-          } catch (err) {
-            console.error('Failed to unassign pipeline:', err);
-          }
-        } else {
-          currentAssignedPipelines.add(pipelineName);
-          await invoke('assign_pipeline', { recordingId, pipelineName });
-        }
-      } catch (err) {
-        console.error('Failed to toggle pipeline assignment:', err);
-      }
-      // Update card in-place instead of full re-render for smooth transitions
-      const isNowAssigned = currentAssignedPipelines.has(pipelineName);
-      card.classList.toggle('is-assigned', isNowAssigned);
-      const toggle = card.querySelector('.rpp-toggle');
-      if (toggle) toggle.innerHTML = isNowAssigned ? checkSvg : '';
-      if (typeof renderPipelineChips === 'function') renderPipelineChips();
-      renderPipelineStatus(recordingId);
-    });
-
-    container.appendChild(card);
-  }
-}
+let _pipelineCardAnimating = false; // guard to prevent double-clicks during animation
 
 // ===== DETAIL VIEW =====
 window.showDetailView = async (id) => {
@@ -1188,84 +1174,52 @@ window.showDetailView = async (id) => {
   // Detail view pipeline cards — clickable tiles with connector icons
   // During recording: show cards to queue pipelines (no execution)
   // Post-recording: show cards to assign + execute immediately if transcript exists
+  // ===== AVAILABLE PIPELINES (unified for recording + post-recording) =====
   const detailPipelineAssignment = document.getElementById('detail-pipeline-assignment');
   const pipelineCardsEl = document.getElementById('pipeline-cards');
   if (detailPipelineAssignment && pipelineCardsEl) {
     if (!isProcessing && typeof allPipelineDefs !== 'undefined' && allPipelineDefs.length > 0) {
+      // Filter out pipelines already assigned/run on this recording
+      let alreadyUsed = new Set();
+      try {
+        const states = await invoke('get_all_pipeline_states', { recordingId: id });
+        if (states) for (const s of states) alreadyUsed.add(s.name);
+      } catch (_) {}
+      const availableDefs = allPipelineDefs.filter(p => !alreadyUsed.has(p.name));
+
       let cardsHtml = '';
-      for (const p of allPipelineDefs) {
-        const isQueued = isRecording && currentAssignedPipelines.has(p.name);
+      for (const p of availableDefs) {
         const flowHtml = typeof renderPipelineFlowHTML !== 'undefined'
           ? renderPipelineFlowHTML(p.steps || [], { compact: true })
           : '';
-        const cardClass = isQueued ? 'pipeline-card is-queued' : 'pipeline-card';
-        cardsHtml += `<div class="${cardClass}" data-pipeline="${escapeHtml(p.name)}">${flowHtml}<div class="pipeline-card-name">${escapeHtml(p.name)}</div></div>`;
+        cardsHtml += `<div class="pipeline-card" data-pipeline="${escapeHtml(p.name)}">${flowHtml}<div class="pipeline-card-name">${escapeHtml(p.name)}</div></div>`;
       }
       pipelineCardsEl.innerHTML = cardsHtml;
-      detailPipelineAssignment.style.display = '';
+      // Hide section if all pipelines already used
+      detailPipelineAssignment.style.display = availableDefs.length > 0 ? '' : 'none';
 
-      // Wire card click handlers
+      // Unified click: assign → animate to runs → execute when possible
       pipelineCardsEl.querySelectorAll('.pipeline-card').forEach(card => {
         card.addEventListener('click', async () => {
+          if (_pipelineCardAnimating) return;
+          _pipelineCardAnimating = true;
           const pipelineName = card.dataset.pipeline;
 
-          // During recording: toggle queued state only (no execution)
-          if (isRecording) {
-            try {
-              if (currentAssignedPipelines.has(pipelineName)) {
-                currentAssignedPipelines.delete(pipelineName);
-                const states = await invoke('get_all_pipeline_states', { recordingId: id });
-                const waitingRun = states.find(s => s.name === pipelineName && s.status === 'waiting');
-                if (waitingRun) {
-                  await invoke('remove_pipeline_run', { recordingId: id, runId: waitingRun.id });
-                }
-              } else {
-                currentAssignedPipelines.add(pipelineName);
-                await invoke('assign_pipeline', { recordingId: id, pipelineName });
-              }
-            } catch (err) {
-              console.error('Failed to toggle pipeline queue:', err);
-            }
-            // Update card visual state
-            const isQueued = currentAssignedPipelines.has(pipelineName);
-            card.classList.toggle('is-queued', isQueued);
-            if (typeof renderPipelineChips === 'function') renderPipelineChips();
-            renderPipelineStatus(id);
-            return;
-          }
-
-          // Post-recording: animate and execute
           const statusSection = document.getElementById('pipeline-status-section');
-          const cardRect = card.getBoundingClientRect();
           const statusContent = document.getElementById('pipeline-status-content');
           const target = statusContent || statusSection;
-          let targetY, targetX;
-          if (target && target.offsetParent !== null) {
-            const targetRect = target.getBoundingClientRect();
-            targetY = targetRect.top + targetRect.height / 2;
-            targetX = targetRect.left + targetRect.width / 2 - cardRect.width / 2;
-          } else {
-            targetY = cardRect.bottom + 120;
-            targetX = cardRect.left;
-          }
-          const dx = targetX - cardRect.left;
-          const dy = targetY - cardRect.top;
+          const cardRect = card.getBoundingClientRect();
 
+          // Create flying clone
           const clone = card.cloneNode(true);
-          clone.classList.add('is-flying');
-          clone.style.cssText = `position:fixed;left:${cardRect.left}px;top:${cardRect.top}px;width:${cardRect.width}px;height:${cardRect.height}px;z-index:10000;pointer-events:none;margin:0;`;
+          clone.style.cssText = `position:fixed;left:${cardRect.left}px;top:${cardRect.top}px;width:${cardRect.width}px;height:${cardRect.height}px;z-index:10000;pointer-events:none;margin:0;border-radius:var(--radius-sm);`;
           document.body.appendChild(clone);
 
-          void clone.offsetWidth;
-          clone.style.transition = 'transform 0.45s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease-in';
-          clone.style.transform = `translate(${dx}px, ${dy}px) scale(0.4)`;
-          clone.style.opacity = '0';
-
-          const cardWidth = card.offsetWidth;
-          card.style.maxWidth = cardWidth + 'px';
-          card.style.minWidth = '0';
+          // Collapse original card
           card.style.overflow = 'hidden';
           card.style.pointerEvents = 'none';
+          card.style.maxWidth = card.offsetWidth + 'px';
+          card.style.minWidth = '0';
           void card.offsetWidth;
           card.style.transition = 'max-width 0.35s ease, padding 0.35s ease, border-width 0.35s ease, opacity 0.15s ease, margin 0.35s ease';
           card.style.maxWidth = '0';
@@ -1274,22 +1228,57 @@ window.showDetailView = async (id) => {
           card.style.margin = '0';
           card.style.opacity = '0';
 
+          // Ensure runs section is visible for measuring
+          if (statusSection && statusSection.style.display === 'none') {
+            statusSection.style.display = '';
+            statusSection.style.opacity = '0';
+          }
+
+          // Fly clone to runs section
+          let dx = 0, dy = 120;
+          if (target) {
+            const targetRect = target.getBoundingClientRect();
+            dx = targetRect.left - cardRect.left;
+            dy = (targetRect.top + Math.min(targetRect.height, 40)) - cardRect.top;
+          }
+          clone.style.transition = 'transform 0.4s cubic-bezier(0.4, 0, 0.15, 1), opacity 0.35s ease-in, box-shadow 0.4s ease';
+          void clone.offsetWidth;
+          clone.style.transform = `translate(${dx}px, ${dy}px) scale(0.7)`;
+          clone.style.opacity = '0';
+          clone.style.boxShadow = '0 4px 24px rgba(var(--accent-rgb, 99,102,241), 0.3)';
+
+          // Backend: assign pipeline
+          currentAssignedPipelines.add(pipelineName);
+          let assigned = false;
+          try {
+            await invoke('assign_pipeline', { recordingId: id, pipelineName });
+            assigned = true;
+          } catch (err) {
+            console.error('Failed to assign pipeline:', err);
+          }
+
           setTimeout(async () => {
             clone.remove();
-            if (statusSection) statusSection.style.display = '';
-            const flashTarget = document.getElementById('pipeline-status-content');
-            if (flashTarget) {
-              flashTarget.classList.remove('pipeline-status-flash');
-              void flashTarget.offsetWidth;
-              flashTarget.classList.add('pipeline-status-flash');
+            _pipelineCardAnimating = false;
+
+            if (statusSection) {
+              statusSection.style.display = '';
+              statusSection.style.opacity = '';
             }
-            let assigned = false;
-            try {
-              await invoke('assign_pipeline', { recordingId: id, pipelineName });
-              assigned = true;
+
+            if (assigned) {
               card.style.display = 'none';
-            } catch (err) {
-              console.error('Failed to assign pipeline:', err);
+              // Execute when possible (transcript exists)
+              try {
+                const hasTranscript = detailTranscriptEl && !detailTranscriptEl.classList.contains('empty');
+                if (hasTranscript) {
+                  await invoke('execute_pipeline', { recordingId: id, pipelineName });
+                }
+              } catch (err) {
+                console.error('Failed to execute pipeline:', err);
+              }
+            } else {
+              // Restore card on failure
               card.style.display = '';
               card.style.maxWidth = '';
               card.style.minWidth = '';
@@ -1301,39 +1290,24 @@ window.showDetailView = async (id) => {
               card.style.pointerEvents = '';
               card.style.transition = '';
             }
-            if (assigned) {
-              try {
-                const hasTranscript = detailTranscriptEl && !detailTranscriptEl.classList.contains('empty');
-                if (hasTranscript) {
-                  await invoke('execute_pipeline', { recordingId: id, pipelineName });
-                }
-              } catch (err) {
-                console.error('Failed to execute pipeline:', err);
-              }
-            }
+
+            if (typeof renderPipelineChips === 'function') renderPipelineChips();
             await loadRecordings();
             if (selectedRecordingId === id) renderPipelineStatus(id);
-          }, 450);
+
+            // Flash runs section
+            const flashTarget = document.getElementById('pipeline-status-content');
+            if (flashTarget) {
+              flashTarget.classList.remove('pipeline-status-flash');
+              void flashTarget.offsetWidth;
+              flashTarget.classList.add('pipeline-status-flash');
+            }
+          }, 420);
         });
       });
     } else {
       pipelineCardsEl.innerHTML = '<div style="color: var(--text-secondary); opacity: 0.75; font-size: 0.82rem;">No pipelines yet. Add one in Settings -> Pipelines.</div>';
       detailPipelineAssignment.style.display = '';
-    }
-  }
-
-  // Show recording pipeline pre-assign panel when actively recording
-  const recordingPipelinePanel = document.getElementById('recording-pipeline-panel');
-  const recordingPipelineCardsEl = document.getElementById('recording-pipeline-cards');
-  if (recordingPipelinePanel && recordingPipelineCardsEl) {
-    if (isRecording && typeof allPipelineDefs !== 'undefined' && allPipelineDefs.length > 0) {
-      recordingPipelinePanel.style.display = '';
-      renderRecordingPipelineCards(recordingPipelineCardsEl, id);
-    } else if (isRecording) {
-      recordingPipelinePanel.style.display = '';
-      recordingPipelineCardsEl.innerHTML = '<div style="color: var(--text-secondary); opacity: 0.75; font-size: 0.78rem; padding: 6px 2px;">No pipelines available. Create one in Settings -> Pipelines.</div>';
-    } else {
-      recordingPipelinePanel.style.display = 'none';
     }
   }
 
@@ -1563,6 +1537,14 @@ if (window.__TAURI__) {
     window.__TAURI__.event.listen('recording_warning', (event) => {
       console.warn('Recording warning:', event.payload);
       showToast(event.payload, 'warning');
+    });
+
+    // Tray: start recording with pipeline from tray menu
+    window.__TAURI__.event.listen('tray-start-pipeline', async (event) => {
+      const pipelineName = event.payload;
+      if (!isRecording && !isRecordingBusy) {
+        await startRecordingWithPipeline(pipelineName);
+      }
     });
 
     window.__TAURI__.event.listen('transcription_segment', (event) => {
@@ -1816,6 +1798,7 @@ const realtimeEnabledCheckbox = document.getElementById("settings-realtime-enabl
 const realtimeDetailsEl = document.getElementById("realtime-details");
 const realtimeModelSelect = document.getElementById("settings-realtime-model");
 const saveMixOnlyCheckbox = document.getElementById("settings-save-mix-only");
+const callDetectionCheckbox = document.getElementById("settings-call-detection");
 
 // Helper to mask API keys (show last 4 chars)
 function maskApiKey(key) {
@@ -1869,6 +1852,11 @@ async function loadSettings() {
       saveMixOnlyCheckbox.checked = appSettings.save_mix_only !== false; // default true
     }
 
+    // Call detection setting
+    if (callDetectionCheckbox) {
+      callDetectionCheckbox.checked = !!appSettings.call_detection_enabled;
+    }
+
     applyTheme(appSettings.theme);
   } catch (err) {
     console.error("Failed to load settings:", err);
@@ -1907,6 +1895,11 @@ async function saveSettings() {
     // Save mix only setting
     if (saveMixOnlyCheckbox) {
       appSettings.save_mix_only = saveMixOnlyCheckbox.checked;
+    }
+
+    // Call detection setting
+    if (callDetectionCheckbox) {
+      appSettings.call_detection_enabled = callDetectionCheckbox.checked;
     }
 
     await invoke("save_settings", { settings: appSettings });
@@ -2305,15 +2298,26 @@ function showOverflowPopover(pipelines) {
 async function handleChipClick(pipelineName) {
   if (isRecordingBusy) return;
   if (isRecording) {
-    // Mid-recording toggle: add/remove from local set only.
-    // Backend assignment happens at stop when execute_pipeline is called.
-    // This avoids orphaned PipelineStatus::Waiting states if user deselects.
-    if (currentAssignedPipelines.has(pipelineName)) {
-      currentAssignedPipelines.delete(pipelineName);
-    } else {
-      currentAssignedPipelines.add(pipelineName);
+    // Mid-recording: assign pipeline, hide chips, let detail view handle it
+    currentAssignedPipelines.add(pipelineName);
+    try {
+      if (selectedRecordingId) await invoke('assign_pipeline', { recordingId: selectedRecordingId, pipelineName });
+    } catch (err) { console.error('Failed to assign pipeline via chip:', err); }
+
+    // Hide chip bar — pipelines are managed in the detail view
+    const chipBar = document.getElementById('pipeline-chip-bar');
+    if (chipBar) chipBar.style.display = 'none';
+
+    // Hide the available card + update runs
+    if (selectedRecordingId) {
+      const pipelineCardsEl = document.getElementById('pipeline-cards');
+      if (pipelineCardsEl) {
+        const card = pipelineCardsEl.querySelector(`.pipeline-card[data-pipeline="${pipelineName}"]`);
+        if (card) card.style.display = 'none';
+      }
+      renderPipelineChips();
+      renderPipelineStatus(selectedRecordingId);
     }
-    renderPipelineChips();
   } else {
     await startRecordingWithPipeline(pipelineName);
   }
@@ -2337,7 +2341,9 @@ async function startRecordingWithPipeline(pipelineName) {
     startTimer();
     startWaveformAnimation();
     showDetailView(metadata.id);
-    renderPipelineChips(); // Update chip visual state (show assigned chip)
+    // Hide chip bar — pipelines managed in detail view now
+    const chipBar = document.getElementById('pipeline-chip-bar');
+    if (chipBar) chipBar.style.display = 'none';
     startLiveTranscript(metadata.id);
 
     showToast('Recording started', 'info');
@@ -2429,8 +2435,6 @@ const promptEditorTitle = document.getElementById('prompt-editor-title');
 const promptViewEditorTitle = document.getElementById('prompt-view-editor-title');
 const promptEditorName = document.getElementById('prompt-editor-name');
 const promptViewName = document.getElementById('prompt-view-name');
-const promptEditorDesc = document.getElementById('prompt-editor-desc');
-const promptViewDesc = document.getElementById('prompt-view-desc');
 const promptEditorText = document.getElementById('prompt-editor-text');
 const promptViewText = document.getElementById('prompt-view-text');
 const savePromptTemplateBtn = document.getElementById('save-prompt-template-btn');
@@ -2460,10 +2464,6 @@ function getActivePromptTitle() {
 
 function getActivePromptName() {
   return pickVisible(promptEditorName, promptViewName);
-}
-
-function getActivePromptDesc() {
-  return pickVisible(promptEditorDesc, promptViewDesc);
 }
 
 function getActivePromptText() {
@@ -2504,22 +2504,32 @@ function renderPromptTemplatesList() {
   }
   listEl.innerHTML = allPromptTemplates.map(t => {
     const safeName = escapeHtml(t.name);
-    const safeDesc = escapeHtml(t.description || '');
     const safePreview = escapeHtml((t.prompt || '').substring(0, 100)) + (t.prompt && t.prompt.length > 100 ? '...' : '');
     const updated = t.updated_at ? new Date(t.updated_at).toLocaleDateString() : '';
     return `
     <div class="template-item" data-name="${safeName}">
       <div class="template-item-info">
         <div class="template-item-name">${safeName}</div>
-        <div class="template-item-desc">${safeDesc}${updated ? ' · ' + updated : ''}</div>
         ${safePreview ? `<div class="template-item-preview">${safePreview}</div>` : ''}
+        ${updated ? `<div class="template-item-date">${updated}</div>` : ''}
       </div>
+      <button class="template-item-delete" data-name="${safeName}" title="Delete template"><span class="icon-trash"></span></button>
     </div>
   `;
   }).join('');
 
   listEl.querySelectorAll('.template-item').forEach(el => {
-    el.addEventListener('click', () => openPromptEditor(el.dataset.name));
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.template-item-delete')) return;
+      openPromptEditor(el.dataset.name);
+    });
+  });
+
+  listEl.querySelectorAll('.template-item-delete').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deletePromptTemplateWithConfirm(btn.dataset.name);
+    });
   });
 }
 
@@ -2532,12 +2542,10 @@ async function openPromptEditor(name) {
     editingPromptTemplate = name;
     const titleEl = getActivePromptTitle();
     const nameEl = getActivePromptName();
-    const descEl = getActivePromptDesc();
     const textEl = getActivePromptText();
     const deleteBtn = getActiveDeleteBtn();
     if (titleEl) titleEl.textContent = 'Edit Prompt';
     if (nameEl) nameEl.value = t.name;
-    if (descEl) descEl.value = t.description || '';
     if (textEl) textEl.value = t.prompt || '';
     if (deleteBtn) deleteBtn.style.display = 'inline-block';
     
@@ -2573,12 +2581,10 @@ async function openPromptEditor(name) {
     editingPromptTemplate = null;
     const titleEl = getActivePromptTitle();
     const nameEl = getActivePromptName();
-    const descEl = getActivePromptDesc();
     const textEl = getActivePromptText();
     const deleteBtn = getActiveDeleteBtn();
     if (titleEl) titleEl.textContent = 'New Prompt';
     if (nameEl) nameEl.value = '';
-    if (descEl) descEl.value = '';
     if (textEl) textEl.value = '';
     if (deleteBtn) deleteBtn.style.display = 'none';
     const usageSection = document.getElementById('prompt-usage-section');
@@ -2616,10 +2622,8 @@ function findPipelinesReferencingPrompt(promptName) {
 
 async function savePromptTemplate() {
   const nameEl = getActivePromptName();
-  const descEl = getActivePromptDesc();
   const textEl = getActivePromptText();
   const name = nameEl?.value.trim() || '';
-  const desc = descEl?.value.trim() || '';
   const prompt = textEl?.value.trim() || '';
   if (!name) { showToast('Name is required', 'error'); return; }
   if (!prompt) { showToast('Prompt text is required', 'error'); return; }
@@ -2627,7 +2631,6 @@ async function savePromptTemplate() {
   try {
     const template = {
       name,
-      description: desc,
       prompt,
       created_at: editingPromptTemplate ? (allPromptTemplates.find(t => t.name === editingPromptTemplate)?.created_at || new Date().toISOString()) : new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -2675,6 +2678,27 @@ async function deletePromptTemplate() {
   try {
     await invoke('delete_prompt_template', { name: editingPromptTemplate, force: referencing.length > 0 });
     closePromptEditor();
+    await loadPromptTemplates();
+    showToast('Prompt deleted', 'info');
+  } catch (err) {
+    console.error('Failed to delete prompt template:', err);
+    showToast('Failed to delete: ' + err, 'error');
+  }
+}
+
+async function deletePromptTemplateWithConfirm(name) {
+  if (!name) return;
+  const referencing = findPipelinesReferencingPrompt(name);
+  let ok;
+  if (referencing.length > 0) {
+    const pipelineNames = referencing.map(p => p.name).join(', ');
+    ok = await showConfirm('Prompt is in use', `Prompt "${name}" is used by ${referencing.length} pipeline(s): ${pipelineNames}. Delete anyway? Steps using this prompt will need manual fix.`);
+  } else {
+    ok = await showConfirm('Delete Prompt?', `Delete prompt "${name}"? This cannot be undone.`);
+  }
+  if (!ok) return;
+  try {
+    await invoke('delete_prompt_template', { name, force: referencing.length > 0 });
     await loadPromptTemplates();
     showToast('Prompt deleted', 'info');
   } catch (err) {

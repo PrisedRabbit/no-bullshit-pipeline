@@ -286,7 +286,7 @@ fn resolve_people_aliases(
                 object: "user".to_string(),
                 id: mapping.notion_user_id.clone(),
                 name: Some(mapping.display_name.clone()),
-                avator_url: None,
+                avatar_url: None,
                 user_type: None,
             })
         })

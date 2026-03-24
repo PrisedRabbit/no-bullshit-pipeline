@@ -15,31 +15,31 @@ name = "nbp_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.5.5", features = [] }
+tauri-build = { version = "2.5.6", features = [] }
 
 [dependencies]
-tauri = { version = "2.10", features = [] }
+tauri = { version = "2.10", features = ["tray-icon"] }
 tauri-plugin-opener = "2.5.3"
 tauri-plugin-dialog = "2.6"
 tauri-plugin-shell = "2.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 cpal = "0.15"
-chrono = { version = "0.4.43", features = ["serde"] }
+chrono = { version = "0.4.44", features = ["serde"] }
 hound = "3.5"
-uuid = { version = "1.20", features = ["v4", "serde"] }
+uuid = { version = "1.22", features = ["v4", "serde"] }
 # System Audio Capture (Core Audio Taps)
 cidre = { git = "https://github.com/yury/cidre", branch = "main", features = ["av"] }
 ringbuf = "0.4.8"
-anyhow = "1.0.100"
+anyhow = "1.0.102"
 ebur128 = "0.1.10"
 vorbis_rs = "0.5"
 lewton = "0.10"
 rubato = "0.15"
 log = "0.4.29"
 reqwest = { version = "0.13", features = ["json", "blocking", "rustls", "stream", "multipart", "query", "form"] }
-futures-util = "0.3.31"
-tokio = { version = "1.49", features = ["fs", "io-util", "sync", "time", "process"] }
+futures-util = "0.3.32"
+tokio = { version = "1.50", features = ["fs", "io-util", "sync", "time", "process"] }
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 base64 = "0.22"
 whisper-rs = { version = "0.12", features = ["metal"] }
@@ -48,13 +48,15 @@ rodio = { version = "0.21", features = ["vorbis"] }
 lazy_static = "1.5"
 serde_yaml = "0.9"
 libc = "0.2"
-security-framework = "3.5"
-notion-client = "1.0.11"
-llama-cpp-2 = { version = "0.1.135", features = ["metal", "sampler"] }
+security-framework = "3.7"
+notion-client = "1.0.12"
+llama-cpp-2 = { version = "0.1.140", features = ["metal", "sampler"] }
 encoding_rs = "0.8"
 sha2 = "0.10"
 shell-words = "1.1"
+tauri-plugin-notification = "2.3.3"
+env_logger = "0.11.10"
 
 [dev-dependencies]
-tempfile = "3.24"
+tempfile = "3.27"
 

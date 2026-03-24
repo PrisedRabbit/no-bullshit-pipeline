@@ -955,6 +955,21 @@ body.detail-open .detail-view {
   color: var(--danger);
 }
 
+.icon-trash {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  -webkit-mask-image: url(assets/trash.svg);
+  mask-image: url(assets/trash.svg);
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+
 .compact-add-btn {
   align-self: flex-start;
   margin-top: 6px;
@@ -1632,6 +1647,7 @@ body.settings-open .detail-view {
   border-radius: 10px;
   cursor: pointer;
   transition: border-color 0.2s, box-shadow 0.2s;
+  position: relative;
 }
 
 .template-item:hover,
@@ -1674,6 +1690,37 @@ body.settings-open .detail-view {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 400px;
+}
+
+.template-item-date {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  opacity: 0.5;
+  margin-top: 2px;
+}
+
+.template-item-delete {
+  background: none;
+  border: none;
+  color: var(--danger);
+  cursor: pointer;
+  padding: 15px;
+  border-radius: 8px;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.template-item:hover .template-item-delete {
+  opacity: 0.5;
+}
+
+.template-item-delete:hover {
+  opacity: 1 !important;
+  background: rgba(239, 68, 68, 0.1);
 }
 
 /* Inline Editor (Prompt Template / Pipeline) */
@@ -3961,61 +4008,24 @@ body.light .provider-models-section {
 .pipeline-card.is-flying .pipeline-card-name { font-size: 0.73rem; font-weight: 500; color: var(--text-secondary); text-align: left; max-width: 140px; }
 
 /* Compact pipeline cards — available-pipelines panel in detail view (post-recording) */
-#pipeline-cards.pipeline-cards { gap: 5px; }
-#pipeline-cards .pipeline-card { padding: 3px 8px 3px 4px; border-radius: 7px; background: transparent; flex-direction: row; align-items: center; gap: 5px; min-width: unset; transition: border-color 0.2s, background 0.2s; }
-#pipeline-cards .pipeline-card::after { display: none; }
-#pipeline-cards .pipeline-card:hover { border-color: var(--accent); background: var(--accent-soft); }
-#pipeline-cards .pipeline-card-icons { gap: 3px; }
-#pipeline-cards .pipeline-card-icon { width: 20px; height: 20px; border-radius: 5px; font-size: 0.65rem; }
-#pipeline-cards .pipeline-card-icon svg { width: 11px; height: 11px; }
-#pipeline-cards .pipeline-card-name { font-size: 0.73rem; font-weight: 500; color: var(--text-secondary); text-align: left; max-width: 140px; }
 
-/* Recording: two-column layout — left=info, right=pipeline panel */
-body.is-recording-active #detail-view .detail-container {
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 2rem;
+.rpp-hint {
+  font-weight: 400 !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  font-size: 0.7rem !important;
+  color: var(--text-secondary) !important;
+  opacity: 0.7;
+  margin-left: auto;
 }
 
-body.is-recording-active .detail-header-card {
-  flex: 1;
-  min-width: 0;
-}
-
-/* Recording pipeline pre-assign panel (right column) */
-.recording-pipeline-panel {
-  display: none;
-  width: 220px;
-  flex-shrink: 0;
-  padding-top: 2px;
-}
-
-body.is-recording-active .recording-pipeline-panel {
-  display: block;
-}
-
-/* Minimal panel header */
-.rpp-header {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 2px 8px;
-  margin-bottom: 2px;
-  border-bottom: 1px solid var(--border);
-  color: var(--text-muted, var(--text-secondary));
-}
-
-.rpp-header span {
-  font-size: 0.68rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-}
 
 /* Recording pipeline cards — compact column */
 .recording-pipeline-cards {
-  flex-direction: column;
-  gap: 2px;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 5px;
 }
 
 /* Compact row overrides scoped to recording panel */
@@ -4031,9 +4041,6 @@ body.is-recording-active .recording-pipeline-panel {
   transition: background 0.15s, border-color 0.15s;
 }
 
-.recording-pipeline-cards .pipeline-card::after {
-  display: none;
-}
 
 .recording-pipeline-cards .pipeline-card:hover {
   background: color-mix(in srgb, var(--text-primary) 4%, transparent);
@@ -4045,39 +4052,25 @@ body.is-recording-active .recording-pipeline-panel {
 .recording-pipeline-cards .pipeline-card .pipeline-card-icon svg { width: 11px; height: 11px; }
 .recording-pipeline-cards .pipeline-card .pipeline-card-name { font-size: 0.75rem; font-weight: 500; color: var(--text-secondary); text-align: left; flex: 1; max-width: none; transition: color 0.15s; }
 
-/* Assigned state */
-.recording-pipeline-cards .pipeline-card.is-assigned {
-  background: var(--accent-soft);
-  border-color: color-mix(in srgb, var(--accent) 20%, transparent);
-}
 
-.recording-pipeline-cards .pipeline-card.is-assigned:hover {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  border-color: var(--accent);
-}
-
-.recording-pipeline-cards .pipeline-card.is-assigned .pipeline-card-name {
-  color: var(--text-primary);
-}
-
-/* Toggle indicator dot */
-.rpp-toggle {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 1.5px solid var(--border);
+/* Available pipeline cards: + overlay on hover */
+.recording-pipeline-cards .pipeline-card::after {
+  content: '+';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(0,0,0,0.35);
+  color: #fff;
+  font-size: 1.2rem;
+  font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
-  margin-left: auto;
-  transition: background 0.15s, border-color 0.15s;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
 }
-
-.recording-pipeline-cards .pipeline-card.is-assigned .rpp-toggle {
-  background: var(--accent);
-  border-color: var(--accent);
-}
+.recording-pipeline-cards .pipeline-card:hover::after { opacity: 1; }
 
 /* Global assigned card state (used outside recording panel, e.g. pipeline builder) */
 .pipeline-card.is-assigned {

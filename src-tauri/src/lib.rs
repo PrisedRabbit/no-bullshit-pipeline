@@ -53,10 +53,12 @@ mod transcript_migration;
 mod integrations;
 pub mod local_llm;
 pub mod realtime_transcription;
+mod call_detector;
 use audio::AudioState;
 use transcription::TranscriptionState;
-use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
-use tauri::Manager;
+use tauri::menu::{AboutMetadataBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{Emitter, Manager};
 
 #[tauri::command]
 fn get_app_version() -> String {
@@ -86,6 +88,10 @@ fn get_audio_levels() -> AudioLevels {
 }
 
 pub fn run() {
+    // Init logging so log::info!/error! prints to stderr
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("nbp=debug"))
+        .init();
+
     // Load settings for managed state
     let settings = std::sync::Arc::new(std::sync::Mutex::new(config::load_settings()));
     
@@ -93,6 +99,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(AudioState::new())
         .manage(TranscriptionState::new())
         .manage(permissions::PermissionsStateCache(std::sync::Arc::new(std::sync::Mutex::new(
@@ -159,6 +166,28 @@ pub fn run() {
                     local_llm::auto_check_model_freshness(handle).await;
                 });
             }
+
+            // Request notification permission if call detection is enabled
+            if settings.call_detection_enabled {
+                use tauri_plugin_notification::NotificationExt;
+                use tauri::plugin::PermissionState;
+                if app.notification().permission_state()
+                    .unwrap_or(PermissionState::Prompt) != PermissionState::Granted
+                {
+                    let _ = app.notification().request_permission();
+                }
+            }
+
+            // Initialize call detector state (always managed, started conditionally)
+            let detector = if settings.call_detection_enabled {
+                Some(call_detector::CallDetector::start(app.handle().clone()))
+            } else {
+                None
+            };
+            app.manage(call_detector::CallDetectorState(std::sync::Mutex::new(detector)));
+
+            // Build system tray menu
+            build_tray(app)?;
 
             Ok(())
         })
@@ -267,29 +296,148 @@ pub fn run() {
             // Real-time transcription
             audio::start_realtime_transcription,
             audio::stop_realtime_transcription,
+            // Call detection
+            call_detector::test_call_notification,
         ])
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                // Graceful shutdown: stop active recording and wait for finalization
-                let state = window.state::<AudioState>();
-                {
-                    let is_recording = state.is_recording.lock().unwrap_or_else(|e| e.into_inner());
-                    if *is_recording {
-                        drop(is_recording);
-                        // Best-effort stop — we're shutting down
-                        let mut mic = state.mic_recorder.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Some(mut r) = mic.take() { r.stop(); }
-                        let mut sys = state.system_recorder.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Some(mut r) = sys.take() { r.stop(); }
-                        let mut rt = state.realtime_transcriber.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Some(mut h) = rt.take() { h.stop(); }
-                        let mut mix = state.realtime_mixer.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Some(mut m) = mix.take() { m.stop(); }
-                    }
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    // Hide window instead of closing — tray keeps the app alive
+                    api.prevent_close();
+                    let _ = window.hide();
                 }
-                state.wait_for_finalization();
+                _ => {}
             }
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Build the system tray icon with menu
+fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::menu::{Menu, PredefinedMenuItem};
+
+    let mut items: Vec<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>> = Vec::new();
+
+    // Add pipeline items
+    if let Ok(pipeline_list) = pipelines::load_pipelines() {
+        let settings = config::load_settings();
+        let mut names: Vec<String> = Vec::new();
+
+        // Last-used first
+        if let Some(ref last) = settings.last_used_pipeline {
+            if pipeline_list.contains_key(last) {
+                names.push(last.clone());
+            }
+        }
+        // Default second
+        if let Some(ref default) = settings.default_pipeline {
+            if pipeline_list.contains_key(default) && !names.contains(default) {
+                names.push(default.clone());
+            }
+        }
+        // Rest
+        for name in pipeline_list.keys() {
+            if !names.contains(name) {
+                names.push(name.clone());
+            }
+        }
+        names.truncate(5);
+
+        for name in &names {
+            let item = MenuItemBuilder::with_id(
+                format!("pipeline:{}", name),
+                format!("▶ {}", name),
+            )
+            .build(app)?;
+            items.push(Box::new(item));
+        }
+
+        if !names.is_empty() {
+            items.push(Box::new(PredefinedMenuItem::separator(app)?));
+        }
+    }
+
+    // Show NBP
+    let show_item = MenuItemBuilder::with_id("show", "Show NBP").build(app)?;
+    items.push(Box::new(show_item));
+
+    // Separator + Quit
+    items.push(Box::new(PredefinedMenuItem::separator(app)?));
+    let quit_item = MenuItemBuilder::with_id("quit", "Quit NBP").build(app)?;
+    items.push(Box::new(quit_item));
+
+    // Build menu from items
+    let item_refs: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> =
+        items.iter().map(|i| i.as_ref()).collect();
+    let menu = Menu::with_items(app, &item_refs)?;
+
+    let _tray = TrayIconBuilder::new()
+        .icon(app.default_window_icon().unwrap().clone())
+        .menu(&menu)
+        .show_menu_on_left_click(true)
+        .tooltip("NBP")
+        .on_menu_event(|app: &tauri::AppHandle, event| {
+            let id = event.id.as_ref();
+            if id.starts_with("pipeline:") {
+                let pipeline_name = id.strip_prefix("pipeline:").unwrap().to_string();
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    let _ = window.emit("tray-start-pipeline", pipeline_name);
+                }
+            } else {
+                match id {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.unminimize();
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "quit" => {
+                        // Graceful shutdown
+                        if let Some(window) = app.get_webview_window("main") {
+                            let state: tauri::State<AudioState> = window.state();
+                            {
+                                let is_recording = state.is_recording.lock().unwrap_or_else(|e| e.into_inner());
+                                if *is_recording {
+                                    drop(is_recording);
+                                    let mut mic = state.mic_recorder.lock().unwrap_or_else(|e| e.into_inner());
+                                    if let Some(mut r) = mic.take() { r.stop(); }
+                                    let mut sys = state.system_recorder.lock().unwrap_or_else(|e| e.into_inner());
+                                    if let Some(mut r) = sys.take() { r.stop(); }
+                                    let mut rt = state.realtime_transcriber.lock().unwrap_or_else(|e| e.into_inner());
+                                    if let Some(mut h) = rt.take() { h.stop(); }
+                                    let mut mix = state.realtime_mixer.lock().unwrap_or_else(|e| e.into_inner());
+                                    if let Some(mut m) = mix.take() { m.stop(); }
+                                }
+                            }
+                            state.wait_for_finalization();
+                        }
+                        app.exit(0);
+                    }
+                    _ => {}
+                }
+            }
+        })
+        .on_tray_icon_event(|tray: &tauri::tray::TrayIcon, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                let app = tray.app_handle();
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        })
+        .build(app)?;
+
+    Ok(())
 }

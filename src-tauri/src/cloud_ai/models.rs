@@ -409,5 +409,5 @@ fn save_provider_models_full(provider: &str, models: &[ProviderModel], fetched_a
     entry.models = models.iter().map(|m| m.id.clone()).collect();
     entry.cached_models = cached;
     entry.models_fetched_at = Some(fetched_at);
-    let _ = crate::config::save_settings(settings);
+    let _ = crate::config::save_settings_to_disk(&mut settings);
 }
