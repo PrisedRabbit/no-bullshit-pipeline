@@ -2193,8 +2193,10 @@ function switchSettingsTab(tabName) {
 
   // Lazy-refresh tab data on activation as a hard safety net.
   if (tabName === 'pipelines') {
-    loadPromptTemplates();
     if (typeof loadPipelineDefs === 'function') loadPipelineDefs();
+  }
+  if (tabName === 'prompts') {
+    loadPromptTemplates();
   }
 
   const scroller = document.querySelector('#settings-view .detail-scroller');
@@ -2516,7 +2518,7 @@ function renderPromptTemplatesList() {
   `;
   }).join('');
 
-  listEl.querySelectorAll('.prompt-card').forEach(el => {
+  listEl.querySelectorAll('.template-item').forEach(el => {
     el.addEventListener('click', () => openPromptEditor(el.dataset.name));
   });
 }
