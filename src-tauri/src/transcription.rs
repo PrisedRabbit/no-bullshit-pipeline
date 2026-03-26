@@ -826,9 +826,10 @@ fn convert_ogg_to_wav(ogg_path: &std::path::Path, wav_path: &std::path::Path) ->
 
 pub(crate) fn load_whisper_context(model_path: &std::path::Path) -> Result<whisper_rs::WhisperContext, String> {
     use whisper_rs::{WhisperContext, WhisperContextParameters};
+    let params = WhisperContextParameters::default();
     WhisperContext::new_with_params(
         model_path.to_str().ok_or("Invalid model path")?,
-        WhisperContextParameters::default(),
+        params,
     )
     .map_err(|e| format!("Failed to load Whisper model: {}", e))
 }
@@ -842,10 +843,13 @@ fn run_whisper_transcription(
     use whisper_rs::{FullParams, SamplingStrategy};
     use hound::WavReader;
 
+    eprintln!("[whisper] loading model...");
     let ctx = load_whisper_context(model_path)?;
+    eprintln!("[whisper] model loaded OK");
 
     let mut wav_reader = WavReader::open(wav_path).map_err(|e| e.to_string())?;
     let samples: Vec<f32> = wav_reader.samples::<i16>().map(|s| s.unwrap() as f32 / 32768.0).collect();
+    eprintln!("[whisper] WAV loaded: {} samples", samples.len());
 
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
     params.set_language(None);
@@ -868,14 +872,20 @@ fn run_whisper_transcription(
         }
     });
 
+    eprintln!("[whisper] creating state...");
     let mut state = ctx.create_state().map_err(|e| e.to_string())?;
+    eprintln!("[whisper] running inference on {} samples...", samples.len());
     state.full(params, &samples).map_err(|e| e.to_string())?;
+    eprintln!("[whisper] inference done");
     
     let mut transcript = String::new();
-    for i in 0..state.full_n_segments().unwrap_or(0) {
-        if let Ok(text) = state.full_get_segment_text(i) {
-            transcript.push_str(&text);
-            transcript.push(' ');
+    let n_segments = state.full_n_segments();
+    for i in 0..n_segments {
+        if let Some(seg) = state.get_segment(i) {
+            if let Ok(text) = seg.to_str_lossy() {
+                transcript.push_str(&text);
+                transcript.push(' ');
+            }
         }
     }
     

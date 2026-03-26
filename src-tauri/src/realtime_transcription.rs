@@ -137,23 +137,18 @@ fn run_local_transcription(
             }
 
             let mut text = String::new();
-            let n_segments = state.full_n_segments().unwrap_or(0);
+            let n_segments = state.full_n_segments();
             for i in 0..n_segments {
-                if let Ok(seg_text) = state.full_get_segment_text(i) {
-                    text.push_str(&seg_text);
+                if let Some(seg) = state.get_segment(i) {
+                    if let Ok(seg_text) = seg.to_str_lossy() {
+                        text.push_str(&seg_text);
+                    }
                 }
             }
             let text = text.trim().to_string();
 
             if n_segments > 0 {
-                let last_seg = n_segments - 1;
-                let n_tokens = state.full_n_tokens(last_seg).unwrap_or(0);
                 prompt_tokens.clear();
-                for t in 0..n_tokens {
-                    if let Ok(tid) = state.full_get_token_id(last_seg, t) {
-                        prompt_tokens.push(tid);
-                    }
-                }
             }
 
             if !text.is_empty() && text != last_text {

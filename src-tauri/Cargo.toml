@@ -42,7 +42,7 @@ futures-util = "0.3.32"
 tokio = { version = "1.50", features = ["fs", "io-util", "sync", "time", "process"] }
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 base64 = "0.22"
-whisper-rs = { version = "0.12", features = ["metal"] }
+whisper-rs = { version = "0.16", features = ["metal"] }
 opener = "0.7"
 rodio = { version = "0.21", features = ["vorbis"] }
 lazy_static = "1.5"
