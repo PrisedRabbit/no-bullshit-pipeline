@@ -1547,6 +1547,13 @@ if (window.__TAURI__) {
       }
     });
 
+    // Call detected: auto-start recording
+    window.__TAURI__.event.listen('call-detected', async () => {
+      if (!isRecording && !isRecordingBusy) {
+        await startRecording();
+      }
+    });
+
     window.__TAURI__.event.listen('transcription_segment', (event) => {
       const segmentText = event.payload;
       // Only append if we're still viewing the recording that's being transcribed

@@ -281,27 +281,26 @@ fn get_pipeline_names() -> Vec<String> {
     names
 }
 
-/// Send macOS notification via Tauri notification plugin
-fn send_notification(_app_handle: &tauri::AppHandle, call_app: Option<&str>, pipeline_names: &[String]) {
+/// Send macOS notification and show window ready to record
+fn send_notification(app_handle: &tauri::AppHandle, call_app: Option<&str>, _pipeline_names: &[String]) {
     let title = match call_app {
-        Some(app_name) => format!("NBP — {} call detected", app_name),
-        None => "NBP — Microphone activated".to_string(),
+        Some(app_name) => format!("{app_name} — Call Detected"),
+        None => "Call Detected".to_string(),
     };
 
-    let pipelines_text = if pipeline_names.is_empty() {
-        String::new()
-    } else {
-        format!("\nPipelines: {}", pipeline_names.join(", "))
-    };
-
-    let body = format!("Click to open NBP and start recording.{pipelines_text}");
-
-    let _ = _app_handle
+    let _ = app_handle
         .notification()
         .builder()
         .title(&title)
-        .body(&body)
+        .body("Click to start recording")
         .show();
+
+    // Show and focus the window so user can hit record immediately
+    crate::show_main_window(app_handle);
+
+    // Tell frontend a call was detected — it can auto-start recording on click
+    use tauri::Emitter;
+    let _ = app_handle.emit("call-detected", call_app.unwrap_or(""));
 }
 
 /// Test notification — callable from frontend

@@ -109,7 +109,7 @@ pub fn run() {
         .setup(|app| {
             // Ensure the app appears in Dock and Cmd+Tab
             #[cfg(target_os = "macos")]
-            app.set_activation_policy(tauri::ActivationPolicy::Regular);
+            let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
 
             // Create custom menu with only NBP submenu (no File, Edit, etc.)
             let about_metadata = AboutMetadataBuilder::new()
@@ -309,12 +309,29 @@ pub fn run() {
                     // Hide window instead of closing — tray keeps the app alive
                     api.prevent_close();
                     let _ = window.hide();
+                    // Hide from dock too
+                    #[cfg(target_os = "macos")]
+                    {
+                        let app = window.app_handle();
+                        let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                    }
                 }
                 _ => {}
             }
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Show the main window and restore dock presence
+fn show_main_window(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
 }
 
 /// Build the system tray icon with menu
@@ -385,20 +402,14 @@ fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             let id = event.id.as_ref();
             if id.starts_with("pipeline:") {
                 let pipeline_name = id.strip_prefix("pipeline:").unwrap().to_string();
+                show_main_window(app);
                 if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                    let _ = window.set_focus();
                     let _ = window.emit("tray-start-pipeline", pipeline_name);
                 }
             } else {
                 match id {
                     "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.unminimize();
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                        show_main_window(app);
                     }
                     "quit" => {
                         // Graceful shutdown
@@ -433,12 +444,7 @@ fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 ..
             } = event
             {
-                let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
+                show_main_window(tray.app_handle());
             }
         })
         .build(app)?;
