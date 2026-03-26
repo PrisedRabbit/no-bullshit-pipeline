@@ -107,6 +107,10 @@ pub fn run() {
         ))))
         .manage(settings)
         .setup(|app| {
+            // Ensure the app appears in Dock and Cmd+Tab
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Regular);
+
             // Create custom menu with only NBP submenu (no File, Edit, etc.)
             let about_metadata = AboutMetadataBuilder::new()
                 .name(Some("NBP"))
