@@ -1792,6 +1792,8 @@ const transcriptionDetailsEl = document.getElementById("transcription-details");
 const transcriptionProviderSelect = document.getElementById("settings-transcription-provider");
 const providerLocalSection = document.getElementById("provider-local-section");
 const providerApiSection = document.getElementById("provider-api-section");
+const providerCliAgentSection = document.getElementById("provider-cli-agent-section");
+const processingProviderSelect = document.getElementById("settings-processing-provider");
 const whisperModelSelect = document.getElementById("settings-whisper-model");
 const downloadModelBtn = document.getElementById("download-model-btn");
 const realtimeEnabledCheckbox = document.getElementById("settings-realtime-enabled");
@@ -1834,6 +1836,12 @@ async function loadSettings() {
       if (typeof renderModelsProviders === 'function') renderModelsProviders();
 
       updateProviderVisibility();
+    }
+
+    // Processing provider
+    if (processingProviderSelect) {
+      processingProviderSelect.value = appSettings.processing_provider || 'openai';
+      updateProcessingProviderVisibility();
     }
 
     // Real-time transcription settings
@@ -1900,6 +1908,22 @@ async function saveSettings() {
     // Call detection setting
     if (callDetectionCheckbox) {
       appSettings.call_detection_enabled = callDetectionCheckbox.checked;
+    }
+
+    // Processing provider
+    if (processingProviderSelect) {
+      appSettings.processing_provider = processingProviderSelect.value;
+    }
+
+    // CLI Agent settings
+    const cliAgentCli = document.getElementById('settings-cli-agent-cli');
+    const cliAgentModel = document.getElementById('settings-cli-agent-model');
+    const cliAgentTimeout = document.getElementById('settings-cli-agent-timeout');
+    if (cliAgentCli) {
+      if (!appSettings.cli_agent) appSettings.cli_agent = {};
+      appSettings.cli_agent.cli = cliAgentCli.value;
+      appSettings.cli_agent.model = cliAgentModel ? (cliAgentModel.value.trim() || null) : null;
+      appSettings.cli_agent.timeout_secs = cliAgentTimeout ? parseInt(cliAgentTimeout.value, 10) || 300 : 300;
     }
 
     await invoke("save_settings", { settings: appSettings });
@@ -1972,21 +1996,57 @@ async function updateProviderVisibility() {
   if (!providerLocalSection || !providerApiSection) return;
   const provider = transcriptionProviderSelect.value;
 
+  providerLocalSection.style.display = 'none';
+  providerApiSection.style.display = 'none';
+
   if (provider === "LocalWhisper") {
     providerLocalSection.style.display = 'flex';
-    providerApiSection.style.display = 'none';
-
-    // Fetch model info when showing this section
     await loadWhisperModelsAndState();
-  } else if (provider === "FluidAudio") {
-    // FluidAudio needs no config — hide both sections
-    providerLocalSection.style.display = 'none';
-    providerApiSection.style.display = 'none';
-  } else {
+  } else if (provider !== "FluidAudio") {
     // Cloud provider — show note with status dot
-    providerLocalSection.style.display = 'none';
     providerApiSection.style.display = 'flex';
     updateTranscriptionKeyStatusDot();
+  }
+}
+
+function updateProcessingProviderVisibility() {
+  if (!providerCliAgentSection) return;
+  const provider = processingProviderSelect ? processingProviderSelect.value : '';
+  providerCliAgentSection.style.display = provider === 'cli_agent' ? 'flex' : 'none';
+  if (provider === 'cli_agent') {
+    loadCliAgentSettings();
+    checkCliAgentAvailability();
+  }
+}
+
+function loadCliAgentSettings() {
+  if (!appSettings.cli_agent) return;
+  const cliSelect = document.getElementById('settings-cli-agent-cli');
+  const modelInput = document.getElementById('settings-cli-agent-model');
+  const timeoutInput = document.getElementById('settings-cli-agent-timeout');
+  if (cliSelect) cliSelect.value = appSettings.cli_agent.cli || 'claude';
+  if (modelInput) modelInput.value = appSettings.cli_agent.model || '';
+  if (timeoutInput) timeoutInput.value = appSettings.cli_agent.timeout_secs || 300;
+}
+
+async function checkCliAgentAvailability() {
+  const statusEl = document.getElementById('cli-agent-status');
+  if (!statusEl) return;
+  try {
+    const clis = await invoke('check_cli_availability');
+    const cliSelect = document.getElementById('settings-cli-agent-cli');
+    const selectedCli = cliSelect ? cliSelect.value : 'claude';
+    const info = clis.find(c => c.id === selectedCli);
+    if (info && info.installed) {
+      statusEl.style.color = '#10b981';
+      statusEl.textContent = `${info.name} is installed`;
+    } else if (info) {
+      statusEl.style.color = '#ef4444';
+      statusEl.textContent = `Not installed. Run: ${info.install_hint}`;
+    }
+  } catch (e) {
+    statusEl.style.color = '#ef4444';
+    statusEl.textContent = 'Failed to check CLI availability';
   }
 }
 
@@ -2393,6 +2453,16 @@ if (transcriptionEnabledCheckbox) {
 
 if (transcriptionProviderSelect) {
   transcriptionProviderSelect.addEventListener("change", updateProviderVisibility);
+}
+
+if (processingProviderSelect) {
+  processingProviderSelect.addEventListener("change", updateProcessingProviderVisibility);
+}
+
+// Re-check CLI availability when CLI tool selection changes
+const cliAgentCliSelect = document.getElementById('settings-cli-agent-cli');
+if (cliAgentCliSelect) {
+  cliAgentCliSelect.addEventListener("change", checkCliAgentAvailability);
 }
 
 if (realtimeEnabledCheckbox) {

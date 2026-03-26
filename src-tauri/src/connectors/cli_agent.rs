@@ -393,3 +393,115 @@ fn write_error(
     }
     Err(error.to_string())
 }
+
+/// Process text with a CLI agent and return the output as a string.
+/// Used by summarize_recording / process_with_template when CliAgent provider is selected.
+pub async fn process_with_cli(
+    cli: &str,
+    prompt: &str,
+    transcript: &str,
+    model: Option<&str>,
+    timeout_secs: u64,
+) -> Result<String, String> {
+    if !check_cli_installed(cli) {
+        let cli_info = SUPPORTED_CLIS.iter().find(|(id, _, _)| *id == cli);
+        let install_hint = cli_info.map(|(_, _, hint)| *hint).unwrap_or("npm install -g <cli>");
+        return Err(format!(
+            "CLI '{}' is not installed. Install: {}",
+            cli, install_hint
+        ));
+    }
+
+    let full_prompt = format!("{}\n\n{}", prompt, transcript);
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+
+    let mut cmd = match cli {
+        "claude" => {
+            let mut c = AsyncCommand::new("claude");
+            c.arg("-p").arg(&full_prompt);
+            if let Some(m) = model {
+                c.arg("--model").arg(m);
+            }
+            c
+        }
+        "codex" => {
+            let mut c = AsyncCommand::new("codex");
+            c.arg("exec").arg(&full_prompt);
+            if let Some(m) = model {
+                c.arg("-m").arg(m);
+            }
+            c
+        }
+        "opencode" => {
+            let mut c = AsyncCommand::new("opencode");
+            c.arg("run").arg(&full_prompt);
+            if let Some(m) = model {
+                c.arg("-m").arg(m);
+            }
+            c
+        }
+        _ => {
+            return Err(format!("Unsupported CLI: '{}'. Use 'claude', 'codex', or 'opencode'", cli));
+        }
+    };
+
+    cmd.current_dir(&home);
+    cmd.stdin(std::process::Stdio::null());
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| {
+        format!("Failed to spawn '{}': {} (is it installed and in PATH?)", cli, e)
+    })?;
+
+    let stdout_handle = child.stdout.take();
+    let stderr_handle = child.stderr.take();
+
+    let wait_result = tokio::time::timeout(
+        Duration::from_secs(timeout_secs),
+        child.wait(),
+    )
+    .await;
+
+    let status = match wait_result {
+        Ok(Ok(status)) => status,
+        Ok(Err(e)) => return Err(format!("CLI process error: {}", e)),
+        Err(_) => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            return Err(format!("CLI agent '{}' timed out after {}s", cli, timeout_secs));
+        }
+    };
+
+    let stdout_bytes = if let Some(mut h) = stdout_handle {
+        use tokio::io::AsyncReadExt;
+        let mut buf = Vec::new();
+        let _ = h.read_to_end(&mut buf).await;
+        buf
+    } else {
+        Vec::new()
+    };
+    let stderr_bytes = if let Some(mut h) = stderr_handle {
+        use tokio::io::AsyncReadExt;
+        let mut buf = Vec::new();
+        let _ = h.read_to_end(&mut buf).await;
+        buf
+    } else {
+        Vec::new()
+    };
+
+    if !status.success() {
+        let stderr = String::from_utf8_lossy(&stderr_bytes);
+        let stdout = String::from_utf8_lossy(&stdout_bytes);
+        let details = if !stderr.is_empty() {
+            stderr.to_string()
+        } else if !stdout.is_empty() {
+            stdout.to_string()
+        } else {
+            format!("exit code: {:?}", status.code())
+        };
+        return Err(format!("CLI '{}' failed: {}", cli, details.trim()));
+    }
+
+    Ok(String::from_utf8_lossy(&stdout_bytes).trim().to_string())
+}

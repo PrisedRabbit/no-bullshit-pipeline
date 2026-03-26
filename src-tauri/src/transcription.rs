@@ -518,28 +518,21 @@ pub async fn summarize_recording(
 
     let transcript = read_transcript_body(&recording_id)?;
 
-    // Determine which provider to use
-    let use_provider = provider
-        .map(|p| match p.as_str() {
-            "OpenAI" => TranscriptionProvider::OpenAI,
-            "Google" => TranscriptionProvider::Google,
-            "Anthropic" => TranscriptionProvider::Anthropic,
-            _ => settings.transcription.provider.clone(),
-        })
-        .unwrap_or(settings.transcription.provider.clone());
+    // Determine which processing provider to use
+    let use_provider = provider.unwrap_or_else(|| settings.processing_provider.clone());
 
-    let summary = match use_provider {
-        TranscriptionProvider::OpenAI => {
+    let summary = match use_provider.as_str() {
+        "openai" => {
             let api_key = crate::config::get_api_key_for_provider(&settings, "openai")
                 .ok_or("OpenAI API key not configured")?;
             cloud_ai::summarize_with_gpt4o(&api_key, &transcript, None).await?
         },
-        TranscriptionProvider::Google => {
+        "google" => {
             let api_key = crate::config::get_api_key_for_provider(&settings, "google")
                 .ok_or("Google API key not configured")?;
             cloud_ai::summarize_with_gemini(&api_key, &transcript).await?
         },
-        TranscriptionProvider::Anthropic => {
+        "anthropic" => {
             let api_key = crate::config::get_api_key_for_provider(&settings, "anthropic")
                 .ok_or("Anthropic API key not configured")?;
             cloud_ai::process_with_claude(&api_key,
@@ -548,8 +541,17 @@ pub async fn summarize_recording(
                 ""
             ).await?
         },
-        TranscriptionProvider::LocalWhisper | TranscriptionProvider::FluidAudio | TranscriptionProvider::Unknown => {
-            // Try local LLM if enabled
+        "cli_agent" => {
+            let cli_config = settings.cli_agent.clone();
+            crate::connectors::cli_agent::process_with_cli(
+                &cli_config.cli,
+                "Create a comprehensive summary of this transcript. Include main topics, key points, decisions, and action items.",
+                &transcript,
+                cli_config.model.as_deref(),
+                cli_config.timeout_secs,
+            ).await?
+        },
+        "local" => {
             let llm_settings = settings.local_llm.clone();
             if llm_settings.enabled && llm_settings.model_id.is_some() {
                 tokio::task::spawn_blocking(move || {
@@ -558,8 +560,20 @@ pub async fn summarize_recording(
                 .await
                 .map_err(|e| format!("Local LLM task failed: {}", e))??
             } else {
-                return Err("No AI provider available for summaries. Configure a cloud API key or download a local LLM model in Settings.".to_string());
+                return Err("Local LLM not configured. Download a model in Settings.".to_string());
             }
+        },
+        "ollama" => {
+            cloud_ai::process_with_openai_compat(
+                "http://localhost:11434",
+                None,
+                "llama3.2",
+                &format!("Create a comprehensive summary of this transcript. Include main topics, key points, decisions, and action items.\n\n{}", &transcript),
+                "",
+            ).await?
+        },
+        other => {
+            return Err(format!("Unknown processing provider: '{}'. Configure in Settings.", other));
         },
     };
 
@@ -585,34 +599,36 @@ pub async fn process_with_template(
     // Load template
     let template = crate::templates::get_template_internal(&template_name)?;
 
-    // Determine provider
-    let use_provider = provider
-        .map(|p| match p.as_str() {
-            "OpenAI" => TranscriptionProvider::OpenAI,
-            "Google" => TranscriptionProvider::Google,
-            "Anthropic" => TranscriptionProvider::Anthropic,
-            _ => settings.transcription.provider.clone(),
-        })
-        .unwrap_or(settings.transcription.provider.clone());
+    // Determine which processing provider to use
+    let use_provider = provider.unwrap_or_else(|| settings.processing_provider.clone());
 
-    let result = match use_provider {
-        TranscriptionProvider::OpenAI => {
+    let result = match use_provider.as_str() {
+        "openai" => {
             let api_key = crate::config::get_api_key_for_provider(&settings, "openai")
                 .ok_or("OpenAI API key not configured")?;
             cloud_ai::process_with_gpt4o(&api_key, &template.prompt, &transcript, "").await?
         },
-        TranscriptionProvider::Google => {
+        "google" => {
             let api_key = crate::config::get_api_key_for_provider(&settings, "google")
                 .ok_or("Google API key not configured")?;
             cloud_ai::process_with_gemini(&api_key, &template.prompt, &transcript, "").await?
         },
-        TranscriptionProvider::Anthropic => {
+        "anthropic" => {
             let api_key = crate::config::get_api_key_for_provider(&settings, "anthropic")
                 .ok_or("Anthropic API key not configured")?;
             cloud_ai::process_with_claude(&api_key, &template.prompt, &transcript, "").await?
         },
-        TranscriptionProvider::LocalWhisper | TranscriptionProvider::FluidAudio | TranscriptionProvider::Unknown => {
-            // Try local LLM if enabled
+        "cli_agent" => {
+            let cli_config = settings.cli_agent.clone();
+            crate::connectors::cli_agent::process_with_cli(
+                &cli_config.cli,
+                &template.prompt,
+                &transcript,
+                cli_config.model.as_deref(),
+                cli_config.timeout_secs,
+            ).await?
+        },
+        "local" => {
             let llm_settings = settings.local_llm.clone();
             if llm_settings.enabled && llm_settings.model_id.is_some() {
                 let prompt = template.prompt.clone();
@@ -623,8 +639,20 @@ pub async fn process_with_template(
                 .await
                 .map_err(|e| format!("Local LLM task failed: {}", e))??
             } else {
-                return Err("No AI provider available. Configure a cloud API key or download a local LLM model in Settings.".to_string());
+                return Err("Local LLM not configured. Download a model in Settings.".to_string());
             }
+        },
+        "ollama" => {
+            cloud_ai::process_with_openai_compat(
+                "http://localhost:11434",
+                None,
+                "llama3.2",
+                &format!("{}\n\n{}", &template.prompt, &transcript),
+                "",
+            ).await?
+        },
+        other => {
+            return Err(format!("Unknown processing provider: '{}'. Configure in Settings.", other));
         },
     };
 

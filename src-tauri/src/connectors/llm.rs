@@ -60,6 +60,7 @@ fn default_model_for_provider(provider: &str) -> &str {
         "anthropic" => "claude-sonnet-4-20250514",
         "local" => "local",
         "ollama" => "llama3.2",
+        "cli_agent" => "default",
         _ => "gpt-4o",
     }
 }
@@ -87,6 +88,7 @@ pub fn context_limit_for_provider(provider: &str) -> usize {
             settings.local_llm.context_size as usize
         }
         "ollama" => 128_000,
+        "cli_agent" => 190_000,
         _ => 120_000,
     }
 }
@@ -256,6 +258,21 @@ pub async fn execute(
                 "",
             )
             .await
+        }
+        "cli_agent" => {
+            let cli_config = settings.cli_agent.clone();
+            let model_override = if llm_config.model.is_empty() || llm_config.model == "default" {
+                cli_config.model.as_deref().map(|s| s.to_string())
+            } else {
+                Some(llm_config.model.clone())
+            };
+            super::cli_agent::process_with_cli(
+                &cli_config.cli,
+                &prompt_to_send,
+                "",
+                model_override.as_deref(),
+                cli_config.timeout_secs,
+            ).await
         }
         other => Err(format!("Unknown LLM provider: '{}'", other)),
     };
@@ -441,6 +458,21 @@ pub async fn execute_retry(
                 "",
             )
             .await
+        }
+        "cli_agent" => {
+            let cli_config = settings.cli_agent.clone();
+            let model_override = if llm_config.model.is_empty() || llm_config.model == "default" {
+                cli_config.model.as_deref().map(|s| s.to_string())
+            } else {
+                Some(llm_config.model.clone())
+            };
+            super::cli_agent::process_with_cli(
+                &cli_config.cli,
+                &corrective_prompt,
+                "",
+                model_override.as_deref(),
+                cli_config.timeout_secs,
+            ).await
         }
         other => Err(format!("Unknown LLM provider: '{}'", other)),
     };

@@ -115,6 +115,17 @@ function getModelsForProvider(providerId) {
 
 function buildModelOptions(providerId, currentModel, expanded = false) {
   const LOCAL_MAX_DEFAULT = 4;
+  if (providerId === 'cli_agent') {
+    const cliCache = (typeof cliAvailabilityCache !== 'undefined') ? cliAvailabilityCache : [];
+    const cliConfig = (typeof appSettings !== 'undefined' && appSettings.cli_agent) ? appSettings.cli_agent : { cli: 'claude' };
+    const selectedCli = cliConfig.cli || 'claude';
+    const cliInfo = cliCache.find(c => c.id === selectedCli);
+    const models = cliInfo ? cliInfo.models : [];
+    if (models.length === 0) return { html: '<option value="default">Default</option>', hasMore: false, total: 1 };
+    const html = '<option value="default" ' + ((!currentModel || currentModel === 'default') ? 'selected' : '') + '>Default</option>' +
+      models.map(m => `<option value="${escapeHtml(m.id)}" ${currentModel === m.id ? 'selected' : ''}>${escapeHtml(m.name)}</option>`).join('');
+    return { html, hasMore: false, total: models.length + 1 };
+  }
   if (providerId === 'local') {
     const models = (typeof llmModelsData !== 'undefined') ? llmModelsData.filter(m => m.downloaded) : [];
     if (models.length === 0) return { html: '<option value="" disabled>No local models downloaded</option>', hasMore: false, total: 0 };
@@ -923,6 +934,7 @@ function showStepEditor(index) {
         <option value="anthropic" ${currentProvider === 'anthropic' ? 'selected' : ''}>Anthropic</option>
         <option value="local" ${currentProvider === 'local' ? 'selected' : ''}>Local LLM</option>
         <option value="ollama" ${currentProvider === 'ollama' ? 'selected' : ''}>Ollama</option>
+        <option value="cli_agent" ${currentProvider === 'cli_agent' ? 'selected' : ''}>CLI Agent</option>
       </select></div>
       <div class="step-editor-row"><label>Model</label><div><select data-field="model" class="llm-model-select">
         ${modelResult.html}

@@ -18,6 +18,42 @@ pub enum TranscriptionProvider {
     Unknown,
 }
 
+/// CLI agent configuration for text processing (summarization, templates)
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct CliAgentConfig {
+    /// Which CLI to use: "claude", "codex", or "opencode"
+    #[serde(default = "default_cli_agent")]
+    pub cli: String,
+    /// Model to use (optional, CLI default if empty)
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Timeout in seconds
+    #[serde(default = "default_cli_timeout")]
+    pub timeout_secs: u64,
+}
+
+fn default_cli_agent() -> String {
+    "claude".to_string()
+}
+
+fn default_cli_timeout() -> u64 {
+    300
+}
+
+fn default_processing_provider() -> String {
+    "openai".to_string()
+}
+
+impl Default for CliAgentConfig {
+    fn default() -> Self {
+        Self {
+            cli: "claude".to_string(),
+            model: None,
+            timeout_secs: 300,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub enum RealtimeTranscriptionProvider {
     #[default]
@@ -169,6 +205,12 @@ pub struct AppSettings {
     /// Local LLM settings
     #[serde(default)]
     pub local_llm: LocalLlmConfig,
+    /// CLI agent settings for text processing
+    #[serde(default)]
+    pub cli_agent: CliAgentConfig,
+    /// Provider for text processing (summarization, templates): "openai", "google", "anthropic", "local", "ollama", "cli_agent"
+    #[serde(default = "default_processing_provider")]
+    pub processing_provider: String,
     /// Unix timestamp of last automatic model freshness check
     #[serde(default)]
     pub last_model_freshness_check: Option<i64>,
@@ -234,6 +276,8 @@ impl Default for AppSettings {
             call_detection_enabled: false,
             walkthrough_completed: false,
             local_llm: LocalLlmConfig::default(),
+            cli_agent: CliAgentConfig::default(),
+            processing_provider: "openai".to_string(),
             last_model_freshness_check: None,
             cached_freshness_results: HashMap::new(),
             providers: default_providers(),
