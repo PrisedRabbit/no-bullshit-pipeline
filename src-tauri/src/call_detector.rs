@@ -10,6 +10,14 @@ use tauri_plugin_notification::NotificationExt;
 use crate::config;
 use crate::pipelines;
 
+/// Global flag: a call notification was sent, awaiting user click
+static PENDING_CALL: AtomicBool = AtomicBool::new(false);
+
+/// Check and clear the pending call flag. Returns true if a call was pending.
+pub fn take_pending_call() -> bool {
+    PENDING_CALL.swap(false, Ordering::SeqCst)
+}
+
 /// Known call app process names
 const CALL_APP_PROCESSES: &[(&str, &str)] = &[
     ("zoom.us", "Zoom"),
@@ -281,7 +289,8 @@ fn get_pipeline_names() -> Vec<String> {
     names
 }
 
-/// Send macOS notification and show window ready to record
+/// Send macOS notification only — no window show, no auto-start.
+/// Recording starts only when the user clicks the notification (which activates the app).
 fn send_notification(app_handle: &tauri::AppHandle, call_app: Option<&str>, _pipeline_names: &[String]) {
     let title = match call_app {
         Some(app_name) => format!("{app_name} — Call Detected"),
@@ -295,12 +304,8 @@ fn send_notification(app_handle: &tauri::AppHandle, call_app: Option<&str>, _pip
         .body("Click to start recording")
         .show();
 
-    // Show and focus the window so user can hit record immediately
-    crate::show_main_window(app_handle);
-
-    // Tell frontend a call was detected — it can auto-start recording on click
-    use tauri::Emitter;
-    let _ = app_handle.emit("call-detected", call_app.unwrap_or(""));
+    // Set pending flag — will be consumed when window gets focus (user clicked notification)
+    PENDING_CALL.store(true, Ordering::SeqCst);
 }
 
 /// Test notification — callable from frontend

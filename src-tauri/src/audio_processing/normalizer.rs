@@ -57,7 +57,7 @@ impl LoudnessNormalizer {
         const TRUE_PEAK_LIMIT: f64 = -1.0;
         const ANALYZE_CHUNK_SIZE: usize = 512;
 
-        let ebur128 = ebur128::EbuR128::new(channels, sample_rate, ebur128::Mode::I | ebur128::Mode::TRUE_PEAK)
+        let ebur128 = ebur128::EbuR128::new(channels, sample_rate, ebur128::Mode::S | ebur128::Mode::TRUE_PEAK)
             .map_err(|e| anyhow::anyhow!("Failed to create EBU R128 normalizer: {}", e))?;
 
         let true_peak_limit = 10_f32.powf(TRUE_PEAK_LIMIT as f32 / 20.0);
@@ -93,7 +93,7 @@ impl LoudnessNormalizer {
                     warn!("Failed to add frames to EBU R128: {}", e);
                 } else {
                     // Update gain based on cumulative loudness
-                    if let Ok(current_lufs) = self.ebur128.loudness_global() {
+                    if let Ok(current_lufs) = self.ebur128.loudness_shortterm() {
                         if current_lufs.is_finite() && current_lufs < 0.0 {
                             let gain_db = TARGET_LUFS - current_lufs;
                             self.gain_linear = 10_f32.powf(gain_db as f32 / 20.0);

@@ -8,7 +8,6 @@ let pipelineEditorSteps = []; // Working copy of steps
 let editingStepIndex = null;  // index of step currently open in panel
 let sortableInstance = null;  // Sortable.js instance for drag-and-drop reordering
 let lastAutoName = '';        // Track last auto-generated pipeline name
-const slackTargetCache = {};  // Cache channels+members per integration_id
 let modelSelectExpanded = {}; // Track expanded state per provider in step editor
 let cliAvailabilityCache = null; // Cache for CLI availability (null = not loaded yet)
 
@@ -1302,25 +1301,18 @@ function showStepEditor(index) {
         customRow.style.display = 'none';
         return;
       }
-      // Check cache
-      if (slackTargetCache[integrationId]) {
-        renderSlackTargetOptions(slackTargetCache[integrationId], targetSelect, step.config?.target, customRow);
-        return;
-      }
+      // Always fetch fresh channels & members — don't disable dropdown
       loadingEl.style.display = 'block';
-      targetSelect.disabled = true;
       try {
         const [channels, members] = await Promise.all([
           invoke('list_slack_channels', { integrationId }),
           invoke('list_slack_members', { integrationId })
         ]);
-        slackTargetCache[integrationId] = { channels, members };
         renderSlackTargetOptions({ channels, members }, targetSelect, step.config?.target, customRow);
       } catch (err) {
         targetSelect.innerHTML = `<option value="">Failed to load: ${escapeHtml(String(err))}</option>`;
       } finally {
         loadingEl.style.display = 'none';
-        targetSelect.disabled = false;
       }
     }
 
@@ -1363,22 +1355,10 @@ function showStepEditor(index) {
     } else if (step.config?.integration_id && wsSelect) {
       wsSelect.value = step.config.integration_id;
     }
-    // Lazy load: only fetch targets when user interacts with target dropdown
-    // This prevents API calls on simple step click
-    let targetsLoadedForWs = null;
-    const loadTargetsLazy = async () => {
-      const currentWs = wsSelect.value;
-      if (!currentWs) return;
-      if (targetsLoadedForWs === currentWs) return;
-      targetsLoadedForWs = currentWs;
-      if (slackTargetCache[currentWs]) {
-        renderSlackTargetOptions(slackTargetCache[currentWs], targetSelect, step.config?.target, customRow);
-        return;
-      }
-      await populateSlackTargets(currentWs);
-    };
-    targetSelect.addEventListener('focus', loadTargetsLazy);
-    targetSelect.addEventListener('mousedown', loadTargetsLazy);
+    // Fetch fresh targets immediately when step editor opens
+    if (wsSelect.value) {
+      populateSlackTargets(wsSelect.value);
+    }
     targetSelect.addEventListener('change', () => {
       if (targetSelect.value === '__custom__') {
         customRow.style.display = 'block';
@@ -1387,13 +1367,10 @@ function showStepEditor(index) {
       }
     });
     const handleWsChange = () => {
-      targetsLoadedForWs = null;
-      targetSelect.innerHTML = '<option value="">Click to load channels...</option>';
       customRow.style.display = 'none';
+      populateSlackTargets(wsSelect.value);
     };
     wsSelect.addEventListener('change', handleWsChange);
-    // Show placeholder if targets not yet loaded
-    targetSelect.innerHTML = '<option value="">Click to load channels...</option>';
   }
 
   // LLM provider change → update model dropdown
