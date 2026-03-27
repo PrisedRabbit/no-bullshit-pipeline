@@ -1,21 +1,34 @@
 use std::ffi::c_void;
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tauri_plugin_notification::NotificationExt;
 
 use crate::config;
 use crate::pipelines;
 
-/// Global flag: a call notification was sent, awaiting user click
-static PENDING_CALL: AtomicBool = AtomicBool::new(false);
+/// Timestamp (epoch secs) when the call notification was sent. 0 = no pending call.
+static PENDING_CALL_AT: AtomicU64 = AtomicU64::new(0);
 
-/// Check and clear the pending call flag. Returns true if a call was pending.
+/// How long the pending call flag stays valid (seconds)
+const PENDING_CALL_TTL: u64 = 30;
+
+fn now_epoch() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+}
+
+/// Set the pending call flag with current timestamp.
+fn set_pending_call() {
+    PENDING_CALL_AT.store(now_epoch(), Ordering::SeqCst);
+}
+
+/// Check and clear the pending call flag. Returns true only if set within TTL.
 pub fn take_pending_call() -> bool {
-    PENDING_CALL.swap(false, Ordering::SeqCst)
+    let ts = PENDING_CALL_AT.swap(0, Ordering::SeqCst);
+    ts > 0 && now_epoch().saturating_sub(ts) <= PENDING_CALL_TTL
 }
 
 /// Known call app process names
@@ -304,8 +317,8 @@ fn send_notification(app_handle: &tauri::AppHandle, call_app: Option<&str>, _pip
         .body("Click to start recording")
         .show();
 
-    // Set pending flag — will be consumed when window gets focus (user clicked notification)
-    PENDING_CALL.store(true, Ordering::SeqCst);
+    // Set pending flag with timestamp — expires after 30s
+    set_pending_call();
 }
 
 /// Test notification — callable from frontend
