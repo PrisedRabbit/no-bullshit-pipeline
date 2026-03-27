@@ -10,6 +10,106 @@ use tauri_plugin_notification::NotificationExt;
 use crate::config;
 use crate::pipelines;
 
+/// Global app handle for the notification delegate callback
+static NOTIFICATION_APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+
+/// Initialize the UNUserNotificationCenter delegate for handling clicks
+pub fn init_notification_delegate(app_handle: &tauri::AppHandle) {
+    let _ = NOTIFICATION_APP_HANDLE.set(app_handle.clone());
+
+    unsafe {
+        let center = objc2_user_notifications::UNUserNotificationCenter::currentNotificationCenter();
+        let delegate: objc2::rc::Retained<CallNotificationDelegate> =
+            objc2::msg_send![CallNotificationDelegate::class(), new];
+        center.setDelegate(Some(objc2::runtime::ProtocolObject::from_ref(&*delegate)));
+        // Leak the delegate so it lives for the app's lifetime
+        std::mem::forget(delegate);
+    }
+}
+
+/// Send a notification via UNUserNotificationCenter (modern macOS API)
+fn send_un_notification(title: &str, body: &str) {
+    use objc2_foundation::NSString;
+    use objc2_user_notifications::{UNNotificationRequest, UNUserNotificationCenter};
+
+    unsafe {
+        // UNMutableNotificationContent is part of UNNotificationContent
+        let content: objc2::rc::Retained<objc2::runtime::NSObject> =
+            objc2::msg_send![objc2::class!(UNMutableNotificationContent), new];
+        let _: () = objc2::msg_send![&content, setTitle: &*NSString::from_str(title)];
+        let _: () = objc2::msg_send![&content, setBody: &*NSString::from_str(body)];
+        let default_sound: objc2::rc::Retained<objc2::runtime::NSObject> =
+            objc2::msg_send![objc2::class!(UNNotificationSound), defaultSound];
+        let _: () = objc2::msg_send![&content, setSound: &*default_sound];
+
+        let content_ref: &objc2_user_notifications::UNNotificationContent =
+            std::mem::transmute(&*content);
+
+        let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
+            &NSString::from_str("call-detected"),
+            content_ref,
+            None,
+        );
+
+        let center = UNUserNotificationCenter::currentNotificationCenter();
+        center.addNotificationRequest_withCompletionHandler(&request, None);
+    }
+}
+
+// --- UNUserNotificationCenterDelegate via define_class! (objc2 0.6) ---
+
+use objc2::{define_class, msg_send, ClassType};
+use objc2::runtime::NSObjectProtocol;
+use objc2_foundation::NSObject;
+use objc2_user_notifications::UNUserNotificationCenterDelegate;
+
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[name = "CallNotificationDelegate"]
+    struct CallNotificationDelegate;
+
+    unsafe impl NSObjectProtocol for CallNotificationDelegate {}
+
+    unsafe impl UNUserNotificationCenterDelegate for CallNotificationDelegate {
+        /// Called when user clicks the notification
+        #[unsafe(method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:))]
+        fn did_receive_response(
+            &self,
+            _center: &objc2_user_notifications::UNUserNotificationCenter,
+            response: &objc2_user_notifications::UNNotificationResponse,
+            completion_handler: &block2::Block<dyn Fn()>,
+        ) {
+            use objc2_foundation::NSString;
+
+            let action = unsafe { response.actionIdentifier() };
+            let default_action = NSString::from_str("com.apple.UNNotificationDefaultActionIdentifier");
+
+            if action.isEqualToString(&default_action) {
+                log::info!("User clicked call notification — starting recording");
+                if let Some(app) = NOTIFICATION_APP_HANDLE.get() {
+                    crate::show_main_window(app);
+                    use tauri::Emitter;
+                    let _ = app.emit("call-detected", "");
+                }
+            }
+
+            completion_handler.call(());
+        }
+
+        /// Show notification banner even when app is in foreground
+        #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
+        fn will_present_notification(
+            &self,
+            _center: &objc2_user_notifications::UNUserNotificationCenter,
+            _notification: &objc2_user_notifications::UNNotification,
+            completion_handler: &block2::Block<dyn Fn(std::ffi::c_ulong)>,
+        ) {
+            // UNNotificationPresentationOptionBanner | UNNotificationPresentationOptionSound
+            completion_handler.call((0x10 | 0x02,));
+        }
+    }
+);
+
 /// Known call app process names
 const CALL_APP_PROCESSES: &[(&str, &str)] = &[
     ("zoom.us", "Zoom"),
@@ -281,45 +381,15 @@ fn get_pipeline_names() -> Vec<String> {
     names
 }
 
-/// Send macOS notification via mac-notification-sys with wait_for_click.
-/// Blocks a background thread until user clicks — then shows window and starts recording.
-/// No flags, no timers — direct click callback.
-fn send_notification(app_handle: &tauri::AppHandle, call_app: Option<&str>, _pipeline_names: &[String]) {
+/// Send macOS notification via UNUserNotificationCenter.
+/// Click is handled by the delegate (CallNotificationDelegate) which emits "call-detected".
+fn send_notification(_app_handle: &tauri::AppHandle, call_app: Option<&str>, _pipeline_names: &[String]) {
     let title = match call_app {
         Some(app_name) => format!("{app_name} — Call Detected"),
         None => "Call Detected".to_string(),
     };
 
-    let app = app_handle.clone();
-    thread::spawn(move || {
-        let bundle = if tauri::is_dev() {
-            "com.apple.Terminal"
-        } else {
-            "com.skopanev.nbp"
-        };
-        let _ = mac_notification_sys::set_application(bundle);
-
-        let response = mac_notification_sys::Notification::default()
-            .title(&title)
-            .message("Click to start recording")
-            .wait_for_click(true)
-            .send();
-
-        match response {
-            Ok(mac_notification_sys::NotificationResponse::Click) => {
-                log::info!("User clicked call notification — starting recording");
-                crate::show_main_window(&app);
-                use tauri::Emitter;
-                let _ = app.emit("call-detected", "");
-            }
-            Ok(other) => {
-                log::debug!("Call notification dismissed without click: {:?}", other);
-            }
-            Err(e) => {
-                log::warn!("Failed to send call notification: {}", e);
-            }
-        }
-    });
+    send_un_notification(&title, "Click to start recording");
 }
 
 /// Test notification — callable from frontend

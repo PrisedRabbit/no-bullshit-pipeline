@@ -182,6 +182,9 @@ pub fn run() {
                 }
             }
 
+            // Set up UNUserNotificationCenter delegate for handling notification clicks
+            call_detector::init_notification_delegate(app.handle());
+
             // Initialize call detector state (always managed, started conditionally)
             let detector = if settings.call_detection_enabled {
                 Some(call_detector::CallDetector::start(app.handle().clone()))

@@ -19,7 +19,10 @@ tauri-build = { version = "2.5.6", features = [] }
 
 [dependencies]
 tauri = { version = "2.10", features = ["tray-icon"] }
-mac-notification-sys = "0.6"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSError", "NSObject"] }
+objc2-user-notifications = { version = "0.3", features = ["UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationAction", "UNNotification", "UNNotificationSettings", "block2"] }
+block2 = "0.6"
 tauri-plugin-opener = "2.5.3"
 tauri-plugin-dialog = "2.6"
 tauri-plugin-shell = "2.3"
