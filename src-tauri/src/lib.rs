@@ -316,12 +316,6 @@ pub fn run() {
                         let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
                     }
                 }
-                tauri::WindowEvent::Focused(true) => {
-                    // User clicked the call notification → macOS activated the app
-                    if call_detector::take_pending_call() {
-                        let _ = window.emit("call-detected", "");
-                    }
-                }
                 _ => {}
             }
         })

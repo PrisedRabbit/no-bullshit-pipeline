@@ -1,35 +1,14 @@
 use std::ffi::c_void;
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use tauri_plugin_notification::NotificationExt;
 
 use crate::config;
 use crate::pipelines;
-
-/// Timestamp (epoch secs) when the call notification was sent. 0 = no pending call.
-static PENDING_CALL_AT: AtomicU64 = AtomicU64::new(0);
-
-/// How long the pending call flag stays valid (seconds)
-const PENDING_CALL_TTL: u64 = 30;
-
-fn now_epoch() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
-}
-
-/// Set the pending call flag with current timestamp.
-fn set_pending_call() {
-    PENDING_CALL_AT.store(now_epoch(), Ordering::SeqCst);
-}
-
-/// Check and clear the pending call flag. Returns true only if set within TTL.
-pub fn take_pending_call() -> bool {
-    let ts = PENDING_CALL_AT.swap(0, Ordering::SeqCst);
-    ts > 0 && now_epoch().saturating_sub(ts) <= PENDING_CALL_TTL
-}
 
 /// Known call app process names
 const CALL_APP_PROCESSES: &[(&str, &str)] = &[
@@ -302,23 +281,45 @@ fn get_pipeline_names() -> Vec<String> {
     names
 }
 
-/// Send macOS notification only — no window show, no auto-start.
-/// Recording starts only when the user clicks the notification (which activates the app).
+/// Send macOS notification via mac-notification-sys with wait_for_click.
+/// Blocks a background thread until user clicks — then shows window and starts recording.
+/// No flags, no timers — direct click callback.
 fn send_notification(app_handle: &tauri::AppHandle, call_app: Option<&str>, _pipeline_names: &[String]) {
     let title = match call_app {
         Some(app_name) => format!("{app_name} — Call Detected"),
         None => "Call Detected".to_string(),
     };
 
-    let _ = app_handle
-        .notification()
-        .builder()
-        .title(&title)
-        .body("Click to start recording")
-        .show();
+    let app = app_handle.clone();
+    thread::spawn(move || {
+        let bundle = if tauri::is_dev() {
+            "com.apple.Terminal"
+        } else {
+            "com.skopanev.nbp"
+        };
+        let _ = mac_notification_sys::set_application(bundle);
 
-    // Set pending flag with timestamp — expires after 30s
-    set_pending_call();
+        let response = mac_notification_sys::Notification::default()
+            .title(&title)
+            .message("Click to start recording")
+            .wait_for_click(true)
+            .send();
+
+        match response {
+            Ok(mac_notification_sys::NotificationResponse::Click) => {
+                log::info!("User clicked call notification — starting recording");
+                crate::show_main_window(&app);
+                use tauri::Emitter;
+                let _ = app.emit("call-detected", "");
+            }
+            Ok(other) => {
+                log::debug!("Call notification dismissed without click: {:?}", other);
+            }
+            Err(e) => {
+                log::warn!("Failed to send call notification: {}", e);
+            }
+        }
+    });
 }
 
 /// Test notification — callable from frontend
