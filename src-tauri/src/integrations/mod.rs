@@ -7,6 +7,7 @@ pub mod save_path;
 pub mod linear;
 pub mod webhook;
 
+#[cfg(not(debug_assertions))]
 pub const KEYCHAIN_SERVICE: &str = "com.skopanev.nbp";
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

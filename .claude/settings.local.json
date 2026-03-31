@@ -1,21 +1,18 @@
 {
   "permissions": {
     "allow": [
-      "Bash(tk:*)",
-      "Bash(cargo check:*)",
       "mcp__context7__resolve-library-id",
       "mcp__context7__query-docs",
       "Bash(cargo add:*)",
       "Bash(grep:*)",
-      "Bash(ps -eo comm=)",
-      "Read(//Users/skopanev/Projects/nbp/src-tauri/**)",
-      "Bash(swift /tmp/check_mic.swift)",
-      "Bash(kill %1)",
-      "Bash(cargo remove:*)",
-      "Bash(cargo tauri:*)",
+      "Bash(cargo:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(bun run:*)"
+      "Bash(bun run:*)",
+      "WebSearch",
+      "Bash(ntk:*)",
+      "Bash(bun tauri:*)",
+      "Bash(bun update:*)"
     ]
   }
 }

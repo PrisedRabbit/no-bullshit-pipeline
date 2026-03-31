@@ -55,148 +55,37 @@ cargo tauri dev      # development (only when user asks)
 cargo tauri build    # production
 ```
 
-<!-- BEGIN TK INTEGRATION -->
-## Issue Tracking with tk
+<!-- BEGIN NTK INTEGRATION -->
 
-**IMPORTANT**: This project uses **tk** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other trackers.
+### Tickets
 
-**Note:** `tk` stores tickets as markdown files in `.tickets/` and does not run git commands for you.
+Use only `ntk` CLI to manage tickets (tasks). Key commands:
 
-### Why tk?
-
-- Dependency-aware: track blockers and relationships between tickets
-- Git-friendly: tickets are plain files in `.tickets/`
-- Agent-friendly: fast CLI with ready/blocked views and JSON querying
-- Prevents duplicate tracking systems and confusion
-
-### Quick Start
-
-**Check for ready work:**
-
-```bash
-tk ready
-```
-
-**Create new tickets:**
-
-```bash
-tk create "Issue title" -d "Detailed context" -t bug|feature|task|epic|chore -p 0-4
-tk create "Issue title" -d "What this issue is about" -p 1
-```
-
-**Claim and update:**
-
-```bash
-tk start nw-42
-tk status nw-42 in_progress
-```
-
-**Complete work:**
-
-```bash
-tk close nw-42
-```
-
-**Dependency operations:**
-
-```bash
-tk dep <id> <dep-id>
-tk blocked
-tk dep tree --full <id>
-```
-
-**JSON output for automation:**
-
-```bash
-tk query
-tk query '.[] | select(.status=="open")'
-```
-
-### Ticket Types
-
-- `bug` - Something broken
-- `feature` - New functionality
-- `task` - Work item (tests, docs, refactoring)
-- `epic` - Large feature with subtasks
-- `chore` - Maintenance (dependencies, tooling)
-
-### Priorities
-
-- `0` - Critical (security, data loss, broken builds)
-- `1` - High (major features, important bugs)
-- `2` - Medium (default, nice-to-have)
-- `3` - Low (polish, optimization)
-- `4` - Backlog (future ideas)
-
-### Workflow for AI Agents
-
-1. **Check ready work**: `tk ready` shows unblocked tickets
-2. **Claim your task**: `tk start <id>`
-3. **Work on it**: implement, test, document
-4. **Discover new work?** Create linked ticket:
-   - `tk create "Found bug" -d "Details about what was found" -t bug -p 1`
-   - If parent depends on new work, add dependency with `tk dep <parent-id> <new-id>`
-5. **Complete**: `tk close <id>`
-6. **Persist tracker state in git**:
-   - stage `.tickets/` with related code changes
-   - commit/push only when explicitly requested
-
-### Important Rules
-
-- ✅ Use tk for ALL task tracking
-- ✅ Link discovered work to parent tickets via dependencies
-- ✅ Check `tk ready` before asking "what should I work on?"
-- ✅ Use `tk query` when machine-readable output is needed
-- ❌ Do NOT create markdown TODO lists
-- ❌ Do NOT use external issue trackers
-- ❌ Do NOT duplicate tracking systems
-- ❌ Do NOT assume tk auto-commits anything
-
-For more details, run `tk --help`.
-
-<!-- END TK INTEGRATION -->
-
-
-## Build & Test
-
-_Add your build and test commands here_
-
-```bash
-# Example:
-# bun install
-# bun test
-```
-
-## Architecture Overview
-
-_Add a brief overview of your project architecture_
-
-## Conventions & Patterns
-
-_Add your project-specific conventions here_
-
-## Landing the Plane (Session Completion)
-
-**When ending a work session**, complete all steps below.
-
-**MANDATORY WORKFLOW:**
-
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **Sync issue tracker state and git**
-   ```bash
-   git pull --rebase
-   git add .tickets/
-   git commit -m "sync tickets"
-   git push
-   git status
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All required changes committed and pushed
-7. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Do not leave tracker updates uncommitted in `.tickets/`
-- Do not stop in the middle of sync/commit/push flow
-- If push fails, resolve and retry
+- `ntk ls` — list tickets
+  - `-s <status>` — filter by status (`open`, `in_progress`, `blocked`, `to_test`, `done`)
+  - `-a <initials>` — filter by assignee
+  - `-t <tags>` — filter by tags (comma-separated)
+- `ntk show <id>` — view ticket details
+- `ntk start <id>` — mark ticket as in_progress
+- `ntk close <id>` — mark ticket as done
+- `ntk next` — pick next ticket to work on (`-a`, `-P` to filter)
+- `ntk users` — list assignees
+- `ntk create <title>` — create a new ticket:
+  - `-p <priority>` — `high`, `med`, `low`
+  - `-a <initials>` — assignee (default: me)
+  - `-s <status>` — default: `open`
+  - `-T <type>` — `feature`, `task`, `bug`, `epic`, `constraint`, `scaffold`, `infra`, `chore`, `core` (default: `task`)
+  - `-t <tags>` — comma-separated tags
+  - `-d <text>` — description
+  - `--deps <tid,tid>` — dependency ticket IDs (blocks `ntk next` until all done)
+  - `--due <date>` — due date (`YYYY-MM-DD`)
+- `ntk update <id>` — update ticket fields:
+  - `-s <status>` — change status (`open`, `in_progress`, `blocked`, `to_test`, `done`)
+  - `-p <priority>` — change priority (`high`, `med`, `low`)
+  - `-a <initials>` — reassign
+  - `-T <type>` — change type (`feature`, `task`, `bug`, `epic`, `constraint`, `scaffold`, `infra`, `chore`, `core`)
+  - `-t +tag,-tag` — add/remove tags
+  - `-P <project>` — change project
+  - `-A <text>` — append text to page body
+  - `--deps <tid,tid>` — set dependency ticket IDs
+  - `--due <date>` — set due date (`YYYY-MM-DD`)

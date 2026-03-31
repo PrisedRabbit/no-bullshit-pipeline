@@ -17,6 +17,17 @@ static NOTIFICATION_APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::syn
 pub fn init_notification_delegate(app_handle: &tauri::AppHandle) {
     let _ = NOTIFICATION_APP_HANDLE.set(app_handle.clone());
 
+    // UNUserNotificationCenter crashes without a proper .app bundle (debug binary).
+    // Check that mainBundle has a bundleIdentifier before calling it.
+    let has_bundle: bool = {
+        let bundle = objc2_foundation::NSBundle::mainBundle();
+        bundle.bundleIdentifier().is_some()
+    };
+    if !has_bundle {
+        log::warn!("Skipping UNUserNotificationCenter delegate — no app bundle (debug binary)");
+        return;
+    }
+
     unsafe {
         let center = objc2_user_notifications::UNUserNotificationCenter::currentNotificationCenter();
         let delegate: objc2::rc::Retained<CallNotificationDelegate> =
@@ -31,6 +42,16 @@ pub fn init_notification_delegate(app_handle: &tauri::AppHandle) {
 fn send_un_notification(title: &str, body: &str) {
     use objc2_foundation::NSString;
     use objc2_user_notifications::{UNNotificationRequest, UNUserNotificationCenter};
+
+    // Guard against missing app bundle (debug binary)
+    let has_bundle: bool = {
+        let bundle = objc2_foundation::NSBundle::mainBundle();
+        bundle.bundleIdentifier().is_some()
+    };
+    if !has_bundle {
+        log::warn!("Cannot send UNNotification — no app bundle");
+        return;
+    }
 
     unsafe {
         // UNMutableNotificationContent is part of UNNotificationContent
@@ -58,7 +79,7 @@ fn send_un_notification(title: &str, body: &str) {
 
 // --- UNUserNotificationCenterDelegate via define_class! (objc2 0.6) ---
 
-use objc2::{define_class, msg_send, ClassType};
+use objc2::{define_class, ClassType};
 use objc2::runtime::NSObjectProtocol;
 use objc2_foundation::NSObject;
 use objc2_user_notifications::UNUserNotificationCenterDelegate;
@@ -81,7 +102,7 @@ define_class!(
         ) {
             use objc2_foundation::NSString;
 
-            let action = unsafe { response.actionIdentifier() };
+            let action = response.actionIdentifier();
             let default_action = NSString::from_str("com.apple.UNNotificationDefaultActionIdentifier");
 
             if action.isEqualToString(&default_action) {

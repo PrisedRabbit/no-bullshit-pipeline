@@ -5,14 +5,14 @@
     "": {
       "name": "nbp",
       "dependencies": {
-        "marked": "^17.0.3",
+        "marked": "^17.0.5",
         "ui-ux-pro-mcp": "^1.5.0",
       },
       "devDependencies": {
         "@eslint/js": "^10.0.1",
-        "@tauri-apps/cli": "^2.10.0",
-        "eslint": "^10.0.2",
-        "globals": "^17.3.0",
+        "@tauri-apps/cli": "^2.10.1",
+        "eslint": "^10.1.0",
+        "globals": "^17.4.0",
       },
     },
   },

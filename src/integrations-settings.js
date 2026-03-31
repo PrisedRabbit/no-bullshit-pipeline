@@ -90,9 +90,8 @@ function renderModelsProviders() {
   const apiKeys = (appSettings && appSettings.transcription && appSettings.transcription.api_keys) || {};
   const providerConfigs = (appSettings && appSettings.providers) || {};
 
-  const sections = [];
-
-  // Cloud provider sections
+  // ── Commercial Models ──
+  const cloudItems = [];
   for (const p of CLOUD_PROVIDERS) {
     const config = providerConfigs[p.id] || {};
     const caps = config.capabilities || [];
@@ -106,14 +105,14 @@ function renderModelsProviders() {
     const keyStatus = !hasKey ? 'missing' : isFailed ? 'failed' : isValidated ? 'valid' : 'saved';
     const btnLabel = hasKey ? 'Saved' : 'Save';
 
-    sections.push(`
-      <div class="connections-group" data-provider-section="${escapeHtml(p.id)}" style="display:flex;align-items:center;gap:12px;padding:12px;">
+    cloudItems.push(`
+      <div class="settings-item" data-provider-section="${escapeHtml(p.id)}" style="display:flex;align-items:center;gap:12px;">
         <div class="provider-card-icon ${escapeHtml(p.id)}" style="flex-shrink:0;">
-          <img src="${escapeHtml(p.icon)}" style="width:32px;height:32px;display:block;" alt="${escapeHtml(p.name)}" />
+          <img src="${escapeHtml(p.icon)}" style="width:28px;height:28px;display:block;" alt="${escapeHtml(p.name)}" />
         </div>
-        <div style="display:flex;flex-direction:column;flex-shrink:0;">
-          <div style="font-weight:600;">${escapeHtml(p.name)} ${renderCapBadges(caps)}</div>
-          <div style="font-size:0.75rem;color:var(--text-secondary);">${escapeHtml(p.desc)}</div>
+        <div style="display:flex;flex-direction:column;flex:1;min-width:0;">
+          <div style="font-weight:600;font-size:0.85rem;">${escapeHtml(p.name)} ${renderCapBadges(caps)}</div>
+          <div style="font-size:0.72rem;color:var(--text-secondary);">${escapeHtml(p.desc)}</div>
         </div>
         <input
           id="settings-api-key-${escapeHtml(p.id)}"
@@ -122,53 +121,46 @@ function renderModelsProviders() {
           class="settings-input-text"
           value="${escapeHtml(displayValue)}"
           data-original-key="${escapeHtml(key)}"
-          style="flex:1;min-width:120px;max-width:240px;"
+          style="flex:0 1 220px;min-width:120px;"
         />
         <button class="mini-action-btn provider-save-btn" data-provider="${escapeHtml(p.id)}">${btnLabel}</button>
       </div>
     `);
   }
 
-  // Local / Ollama section
+  // ── On-device Models ──
   const localConfig = providerConfigs['local'] || {};
   const ollamaConfig = providerConfigs['ollama'] || {};
   const ollamaBaseUrl = ollamaConfig.base_url || 'http://localhost:11434';
-  const localCaps = [...new Set([...(localConfig.capabilities || []), ...(ollamaConfig.capabilities || [])])];
   const localProvider = LOCAL_PROVIDERS.find(p => p.id === 'local');
-  const ollamaProvider = LOCAL_PROVIDERS.find(p => p.id === 'ollama');
 
-  sections.push(`
-    <div class="connections-group" data-provider-section="local">
-      <div class="connections-group-header">
-        <div class="provider-card-icon local">
-          <img src="${escapeHtml(localProvider.icon)}" style="width:36px;height:36px;display:block;" alt="Local LLM" />
-        </div>
-        <div class="group-info">
-          <div class="group-label">Local / Ollama ${renderCapBadges(localCaps)}</div>
-          <div class="group-desc">On-device AI processing — no API keys needed</div>
-        </div>
-      </div>
-      <div class="provider-card" data-provider="ollama" style="border:none;padding:0;background:none;">
-        <div class="provider-card-input" style="width:100%;justify-content:flex-start;gap:8px;">
-          <input id="settings-ollama-host" type="text" class="settings-input-text" value="${escapeHtml(ollamaBaseUrl)}" placeholder="http://localhost:11434" style="width:240px;" />
+  const html = `
+    <div class="settings-section">
+      <h3>Commercial Models</h3>
+      ${cloudItems.join('')}
+    </div>
+    <div class="settings-section">
+      <h3>On-device Models</h3>
+      <div class="settings-item" style="flex-direction:column;align-items:stretch;gap:10px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-weight:600;font-size:0.85rem;">Ollama Host</span>
+          <input id="settings-ollama-host" type="text" class="settings-input-text" value="${escapeHtml(ollamaBaseUrl)}" placeholder="http://localhost:11434" style="flex:0 1 220px;min-width:120px;" />
           <button class="mini-action-btn save-ollama-host-btn">Save Host</button>
         </div>
       </div>
       <div id="ollama-provider-container"></div>
       <div id="local-llm-models-list" style="display:flex;flex-direction:column;gap:8px;"></div>
-      <div id="llm-freshness-actions" style="margin-top:6px;display:flex;align-items:center;gap:8px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
         <button id="llm-check-freshness-btn" class="mini-action-btn" style="font-size:0.75rem;">Check for Updates</button>
         <span id="llm-freshness-status" style="font-size:0.7rem;color:var(--text-secondary);"></span>
       </div>
-      <div style="margin-top:4px;">
-        <p style="font-size:0.75rem;color:var(--text-secondary);opacity:0.7;margin:0;">
-          Location: <span class="mono-font">~/.nbp/models/llm/</span>
-        </p>
-      </div>
+      <p style="font-size:0.72rem;color:var(--text-secondary);opacity:0.7;margin:4px 0 0;">
+        Location: <span class="mono-font">~/.nbp/models/llm/</span>
+      </p>
     </div>
-  `);
+  `;
 
-  el.innerHTML = sections.join('');
+  el.innerHTML = html;
 
   // Wire Ollama host save button
   const saveOllamaHostBtn = el.querySelector('.save-ollama-host-btn');
