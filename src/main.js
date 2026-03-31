@@ -1934,8 +1934,10 @@ async function saveSettings() {
     }
 
     await invoke("save_settings", { settings: appSettings });
+    showToast('Settings saved', 'success');
   } catch (err) {
     console.error("Failed to save settings:", err);
+    showToast('Failed to save settings', 'error');
   }
 }
 
@@ -2451,7 +2453,7 @@ document.querySelectorAll('.sidebar-nav-item').forEach(item => {
 // Auto-save: any change in settings triggers save + toast
 const settingsContainer = document.getElementById('settings-view');
 if (settingsContainer) {
-  settingsContainer.addEventListener('change', async () => { await saveSettings(); showToast('Saved', 'success'); });
+  settingsContainer.addEventListener('change', () => saveSettings());
 }
 
 if (transcriptionEnabledCheckbox) {
@@ -2495,7 +2497,10 @@ if (browseStorageBtn) {
 }
 
 themeButtons.forEach(btn => {
-  btn.addEventListener("click", () => applyTheme(btn.dataset.theme));
+  btn.addEventListener("click", () => {
+    applyTheme(btn.dataset.theme);
+    saveSettings();
+  });
 });
 
 // ===== PROMPT TEMPLATE MANAGEMENT =====
