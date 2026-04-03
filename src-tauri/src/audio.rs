@@ -374,22 +374,15 @@ pub async fn start_realtime_transcription(
         }
     }
 
-    use crate::config::{WhisperModelSize, get_models_dir};
     use crate::realtime_transcription::LocalTranscriber;
     use crate::transcription::get_model_url;
 
-    let model_name = rt_config.realtime_model.as_deref().unwrap_or("base");
-    let model_size = match model_name {
-        "tiny" => WhisperModelSize::Tiny,
-        "small" => WhisperModelSize::Small,
-        "medium" => WhisperModelSize::Medium,
-        "large" => WhisperModelSize::Large,
-        _ => WhisperModelSize::Base,
-    };
+    let model_size = rt_config.whisper_model.clone()
+        .unwrap_or(crate::config::WhisperModelSize::Base);
     let url = get_model_url(&model_size);
     let filename = url.split('/').last().unwrap_or("ggml-base.bin");
-    let model_path = get_models_dir().join(filename);
-    
+    let model_path = crate::config::get_models_dir().join(filename);
+
     let transcriber = LocalTranscriber::start(app_handle, model_path, recording_id)?;
 
     *state.realtime_transcriber.lock().map_err(|e| e.to_string())? = Some(transcriber);

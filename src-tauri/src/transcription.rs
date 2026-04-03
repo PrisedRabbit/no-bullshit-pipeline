@@ -519,7 +519,7 @@ pub async fn summarize_recording(
     let transcript = read_transcript_body(&recording_id)?;
 
     // Determine which processing provider to use
-    let use_provider = provider.unwrap_or_else(|| settings.processing_provider.clone());
+    let use_provider = provider.unwrap_or_else(|| crate::config::detect_processing_provider(&settings));
 
     let summary = match use_provider.as_str() {
         "openai" => {
@@ -600,7 +600,7 @@ pub async fn process_with_template(
     let template = crate::templates::get_template_internal(&template_name)?;
 
     // Determine which processing provider to use
-    let use_provider = provider.unwrap_or_else(|| settings.processing_provider.clone());
+    let use_provider = provider.unwrap_or_else(|| crate::config::detect_processing_provider(&settings));
 
     let result = match use_provider.as_str() {
         "openai" => {

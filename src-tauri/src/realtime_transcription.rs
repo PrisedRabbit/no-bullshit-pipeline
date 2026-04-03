@@ -332,25 +332,10 @@ impl RealtimeTranscriptionState {
 }
 
 /// Build a model path for local (Whisper) realtime transcription.
-/// Prefers `realtime_model` setting; falls back to `whisper_model`.
+/// Uses the same whisper_model as the main transcription settings.
 fn resolve_local_model_path(settings: &crate::config::AppSettings) -> Result<PathBuf, String> {
-    use crate::config::WhisperModelSize;
-
-    let model_size: Option<WhisperModelSize> = settings
-        .transcription
-        .realtime_model
-        .as_deref()
-        .and_then(|name| match name.to_lowercase().as_str() {
-            "tiny" => Some(WhisperModelSize::Tiny),
-            "base" => Some(WhisperModelSize::Base),
-            "small" => Some(WhisperModelSize::Small),
-            "medium" => Some(WhisperModelSize::Medium),
-            "large" | "large-v3" => Some(WhisperModelSize::Large),
-            _ => None,
-        })
-        .or_else(|| settings.transcription.whisper_model.clone());
-
-    let size = model_size.ok_or("No Whisper model configured for real-time transcription")?;
+    let size = settings.transcription.whisper_model.clone()
+        .ok_or("No Whisper model configured in settings")?;
     let url = crate::transcription::get_model_url(&size);
     let filename = url.split('/').last().unwrap();
     let path = crate::config::get_models_dir().join(filename);

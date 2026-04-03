@@ -1798,14 +1798,9 @@ const transcriptionEnabledCheckbox = document.getElementById("settings-transcrip
 const transcriptionDetailsEl = document.getElementById("transcription-details");
 const transcriptionProviderSelect = document.getElementById("settings-transcription-provider");
 const providerLocalSection = document.getElementById("provider-local-section");
-const providerApiSection = document.getElementById("provider-api-section");
-const providerCliAgentSection = document.getElementById("provider-cli-agent-section");
-const processingProviderSelect = document.getElementById("settings-processing-provider");
 const whisperModelSelect = document.getElementById("settings-whisper-model");
 const downloadModelBtn = document.getElementById("download-model-btn");
 const realtimeEnabledCheckbox = document.getElementById("settings-realtime-enabled");
-const realtimeDetailsEl = document.getElementById("realtime-details");
-const realtimeModelSelect = document.getElementById("settings-realtime-model");
 const saveMixOnlyCheckbox = document.getElementById("settings-save-mix-only");
 const callDetectionCheckbox = document.getElementById("settings-call-detection");
 
@@ -1843,22 +1838,13 @@ async function loadSettings() {
       if (typeof renderModelsProviders === 'function') renderModelsProviders();
 
       updateProviderVisibility();
-    }
-
-    // Processing provider
-    if (processingProviderSelect) {
-      processingProviderSelect.value = appSettings.processing_provider || 'openai';
-      updateProcessingProviderVisibility();
+      updateTranscriptionProviderWarnings();
     }
 
     // Real-time transcription settings
     if (appSettings.transcription) {
       if (realtimeEnabledCheckbox) {
         realtimeEnabledCheckbox.checked = !!appSettings.transcription.realtime_enabled;
-        updateRealtimeVisibility();
-      }
-      if (realtimeModelSelect && appSettings.transcription.realtime_model) {
-        realtimeModelSelect.value = appSettings.transcription.realtime_model;
       }
     }
 
@@ -1890,7 +1876,6 @@ async function saveSettings() {
 
     // Real-time transcription
     appSettings.transcription.realtime_enabled = realtimeEnabledCheckbox ? realtimeEnabledCheckbox.checked : false;
-    appSettings.transcription.realtime_model = realtimeModelSelect ? realtimeModelSelect.value || null : null;
 
     // Handle API keys - fresh DOM lookups (cards are dynamically rendered)
     if (!appSettings.transcription.api_keys) appSettings.transcription.api_keys = {};
@@ -1917,22 +1902,6 @@ async function saveSettings() {
       appSettings.call_detection_enabled = callDetectionCheckbox.checked;
     }
 
-    // Processing provider
-    if (processingProviderSelect) {
-      appSettings.processing_provider = processingProviderSelect.value;
-    }
-
-    // CLI Agent settings
-    const cliAgentCli = document.getElementById('settings-cli-agent-cli');
-    const cliAgentModel = document.getElementById('settings-cli-agent-model');
-    const cliAgentTimeout = document.getElementById('settings-cli-agent-timeout');
-    if (cliAgentCli) {
-      if (!appSettings.cli_agent) appSettings.cli_agent = {};
-      appSettings.cli_agent.cli = cliAgentCli.value;
-      appSettings.cli_agent.model = cliAgentModel ? (cliAgentModel.value.trim() || null) : null;
-      appSettings.cli_agent.timeout_secs = cliAgentTimeout ? parseInt(cliAgentTimeout.value, 10) || 300 : 300;
-    }
-
     await invoke("save_settings", { settings: appSettings });
     showToast('Settings saved', 'success');
   } catch (err) {
@@ -1949,18 +1918,29 @@ function updateTranscriptionVisibility() {
 
 let availableModels = [];
 
-// Map transcription provider value → Processing provider key
+// Map transcription provider value → provider key for API key lookup
 const PROVIDER_KEY_MAP = {
   OpenAI: 'openai',
   Google: 'google',
-  Anthropic: 'anthropic',
 };
 
 const PROVIDER_LABEL_MAP = {
   OpenAI: 'OpenAI',
   Google: 'Google AI',
-  Anthropic: 'Anthropic',
 };
+
+// Add ⚠️ to cloud provider options that have no API key configured
+function updateTranscriptionProviderWarnings() {
+  if (!transcriptionProviderSelect) return;
+  const apiKeys = (appSettings && appSettings.transcription && appSettings.transcription.api_keys) || {};
+  for (const option of transcriptionProviderSelect.options) {
+    const keyId = PROVIDER_KEY_MAP[option.value];
+    if (!keyId) continue; // local providers — no warning needed
+    const baseLabel = option.dataset.baseLabel || option.textContent.replace(/^\u26A0\uFE0F\s*/, '');
+    option.dataset.baseLabel = baseLabel;
+    option.textContent = apiKeys[keyId] ? baseLabel : `\u26A0\uFE0F ${baseLabel}`;
+  }
+}
 
 function updateKeyStatusElement(el, state) {
   if (!el) return;
@@ -1992,77 +1972,39 @@ function updateTranscriptionKeyStatusDot() {
   const state = !hasKey ? 'missing' : isFailed ? 'failed' : isValidated ? 'valid' : 'saved';
 
   const statusEl = document.getElementById('cloud-provider-status');
-  updateKeyStatusElement(statusEl, state);
+  if (statusEl) {
+    statusEl.style.display = '';
+    updateKeyStatusElement(statusEl, state);
+  }
+  updateTranscriptionProviderWarnings();
 
-  const label = document.getElementById('cloud-provider-note-label');
-  const detail = document.getElementById('cloud-provider-note-detail');
-  const providerName = PROVIDER_LABEL_MAP[provider] || provider;
-  if (label) label.textContent = hasKey ? `${providerName} key configured` : `${providerName} key required`;
-  if (detail) detail.textContent = hasKey ? `Using key from Processing above` : `Add your ${providerName} key in Processing above`;
+  const setKeyBtn = document.getElementById('set-api-key-btn');
+  if (setKeyBtn) {
+    setKeyBtn.style.display = hasKey ? 'none' : '';
+  }
 }
 
 async function updateProviderVisibility() {
-  if (!providerLocalSection || !providerApiSection) return;
+  if (!providerLocalSection) return;
   const provider = transcriptionProviderSelect.value;
+  const isCloud = provider !== "FluidAudio" && provider !== "LocalWhisper";
 
   providerLocalSection.style.display = 'none';
-  providerApiSection.style.display = 'none';
+  const statusEl = document.getElementById('cloud-provider-status');
+  const setKeyBtn = document.getElementById('set-api-key-btn');
+  if (statusEl) statusEl.style.display = 'none';
+  if (setKeyBtn) setKeyBtn.style.display = 'none';
 
   if (provider === "LocalWhisper") {
     providerLocalSection.style.display = 'flex';
     await loadWhisperModelsAndState();
-  } else if (provider !== "FluidAudio") {
-    // Cloud provider — show note with status dot
-    providerApiSection.style.display = 'flex';
+  } else if (isCloud) {
     updateTranscriptionKeyStatusDot();
   }
 }
 
-function updateProcessingProviderVisibility() {
-  if (!providerCliAgentSection) return;
-  const provider = processingProviderSelect ? processingProviderSelect.value : '';
-  providerCliAgentSection.style.display = provider === 'cli_agent' ? 'flex' : 'none';
-  if (provider === 'cli_agent') {
-    loadCliAgentSettings();
-    checkCliAgentAvailability();
-  }
-}
 
-function loadCliAgentSettings() {
-  if (!appSettings.cli_agent) return;
-  const cliSelect = document.getElementById('settings-cli-agent-cli');
-  const modelInput = document.getElementById('settings-cli-agent-model');
-  const timeoutInput = document.getElementById('settings-cli-agent-timeout');
-  if (cliSelect) cliSelect.value = appSettings.cli_agent.cli || 'claude';
-  if (modelInput) modelInput.value = appSettings.cli_agent.model || '';
-  if (timeoutInput) timeoutInput.value = appSettings.cli_agent.timeout_secs || 300;
-}
 
-async function checkCliAgentAvailability() {
-  const statusEl = document.getElementById('cli-agent-status');
-  if (!statusEl) return;
-  try {
-    const clis = await invoke('check_cli_availability');
-    const cliSelect = document.getElementById('settings-cli-agent-cli');
-    const selectedCli = cliSelect ? cliSelect.value : 'claude';
-    const info = clis.find(c => c.id === selectedCli);
-    if (info && info.installed) {
-      statusEl.style.color = '#10b981';
-      statusEl.textContent = `${info.name} is installed`;
-    } else if (info) {
-      statusEl.style.color = '#ef4444';
-      statusEl.textContent = `Not installed. Run: ${info.install_hint}`;
-    }
-  } catch (e) {
-    statusEl.style.color = '#ef4444';
-    statusEl.textContent = 'Failed to check CLI availability';
-  }
-}
-
-function updateRealtimeVisibility() {
-  if (!realtimeDetailsEl) return;
-  realtimeDetailsEl.style.display = realtimeEnabledCheckbox && realtimeEnabledCheckbox.checked ? 'flex' : 'none';
-}
 
 async function loadWhisperModelsAndState() {
   if (!whisperModelSelect) return;
@@ -2464,19 +2406,25 @@ if (transcriptionProviderSelect) {
   transcriptionProviderSelect.addEventListener("change", updateProviderVisibility);
 }
 
-if (processingProviderSelect) {
-  processingProviderSelect.addEventListener("change", updateProcessingProviderVisibility);
+// "Set API Key" button — switch to Models tab and focus the key input for the selected provider
+const setApiKeyBtn = document.getElementById('set-api-key-btn');
+if (setApiKeyBtn) {
+  setApiKeyBtn.addEventListener('click', () => {
+    const provider = transcriptionProviderSelect ? transcriptionProviderSelect.value : '';
+    const keyId = PROVIDER_KEY_MAP[provider];
+    switchSettingsTab('models');
+    if (keyId) {
+      setTimeout(() => {
+        const input = document.getElementById(`settings-api-key-${keyId}`);
+        if (input) {
+          input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          input.focus();
+        }
+      }, 100);
+    }
+  });
 }
 
-// Re-check CLI availability when CLI tool selection changes
-const cliAgentCliSelect = document.getElementById('settings-cli-agent-cli');
-if (cliAgentCliSelect) {
-  cliAgentCliSelect.addEventListener("change", checkCliAgentAvailability);
-}
-
-if (realtimeEnabledCheckbox) {
-  realtimeEnabledCheckbox.addEventListener("change", updateRealtimeVisibility);
-}
 
 if (browseStorageBtn) {
   browseStorageBtn.addEventListener("click", async () => {
@@ -2859,6 +2807,8 @@ function wireSlackModalButtons() {
           });
         }
         await loadSlackIntegrations();
+        // Reload appSettings so the next saveSettings() won't overwrite Slack data
+        appSettings = await invoke('load_settings');
         if (typeof renderConnectedIntegrations === 'function') renderConnectedIntegrations();
       } catch (err) {
         showToast(`Failed to add Slack workspace: ${err}`, 'error');

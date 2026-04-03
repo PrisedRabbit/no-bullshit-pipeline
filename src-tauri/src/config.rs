@@ -40,9 +40,6 @@ fn default_cli_timeout() -> u64 {
     300
 }
 
-fn default_processing_provider() -> String {
-    "openai".to_string()
-}
 
 impl Default for CliAgentConfig {
     fn default() -> Self {
@@ -154,8 +151,8 @@ pub struct TranscriptionConfig {
     /// Provider for real-time transcription (Local or OpenAI)
     #[serde(default)]
     pub realtime_provider: RealtimeTranscriptionProvider,
-    /// Model for real-time transcription (e.g. "base", "small" for local; "gpt-4o-mini-transcribe" for cloud)
-    #[serde(default)]
+    /// Deprecated: realtime now uses whisper_model. Kept for backwards-compat deserialization.
+    #[serde(default, skip_serializing)]
     pub realtime_model: Option<String>,
 }
 
@@ -208,9 +205,6 @@ pub struct AppSettings {
     /// CLI agent settings for text processing
     #[serde(default)]
     pub cli_agent: CliAgentConfig,
-    /// Provider for text processing (summarization, templates): "openai", "google", "anthropic", "local", "ollama", "cli_agent"
-    #[serde(default = "default_processing_provider")]
-    pub processing_provider: String,
     /// Unix timestamp of last automatic model freshness check
     #[serde(default)]
     pub last_model_freshness_check: Option<i64>,
@@ -277,7 +271,6 @@ impl Default for AppSettings {
             walkthrough_completed: false,
             local_llm: LocalLlmConfig::default(),
             cli_agent: CliAgentConfig::default(),
-            processing_provider: "openai".to_string(),
             last_model_freshness_check: None,
             cached_freshness_results: HashMap::new(),
             providers: default_providers(),
@@ -435,19 +428,42 @@ pub fn save_settings_to_disk(settings: &mut AppSettings) -> Result<(), String> {
     Ok(())
 }
 
-/// Tauri command: save settings + toggle call detector
+/// Tauri command: save settings + toggle call detector.
+///
+/// The frontend may hold a stale copy of `integrations` (Slack/Notion/Linear are
+/// modified via dedicated commands that write directly to disk).  To prevent the
+/// frontend from accidentally overwriting them, we always preserve the on-disk
+/// integrations block.
 #[tauri::command]
 pub fn save_settings(
     app_handle: tauri::AppHandle,
     mut settings: AppSettings,
     detector_state: tauri::State<'_, crate::call_detector::CallDetectorState>,
 ) -> Result<(), String> {
+    // Preserve integrations from disk — frontend doesn't own this data.
+    let disk_settings = load_settings();
+    settings.integrations = disk_settings.integrations;
+
     crate::call_detector::sync_detector(&detector_state, settings.call_detection_enabled, &app_handle);
     save_settings_to_disk(&mut settings)
 }
 
 /// Resolve the API key for a provider.
 /// Checks `providers` map first, then falls back to `transcription.api_keys` for backward compat.
+/// Auto-detect the best processing provider by checking which has an API key configured.
+/// Priority: openai > anthropic > google > local > ollama
+pub fn detect_processing_provider(settings: &AppSettings) -> String {
+    for id in &["openai", "anthropic", "google"] {
+        if get_api_key_for_provider(settings, id).is_some() {
+            return id.to_string();
+        }
+    }
+    if settings.local_llm.enabled && settings.local_llm.model_id.is_some() {
+        return "local".to_string();
+    }
+    "openai".to_string()
+}
+
 pub fn get_api_key_for_provider(settings: &AppSettings, provider: &str) -> Option<String> {
     // Check new providers map first
     if let Some(cfg) = settings.providers.get(provider) {
