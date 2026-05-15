@@ -396,6 +396,8 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
     // can wave it off without their text leaking out as a paste. The shortcut
     // is unregistered as soon as the session ends (stop or cancel).
     register_escape_cancel(app);
+    // Enter = "done talking" → stop + transcribe (same as the toggle hotkey).
+    register_enter_stop(app);
 
     let session = Session {
         shortcut_id: shortcut.id.clone(),
@@ -450,9 +452,12 @@ pub async fn stop_inner(app: &AppHandle) -> Result<String, String> {
     };
 
     let shortcut_id = session.shortcut_id.clone();
-    // ESC stays registered through the pipeline so the user can dismiss the
-    // HUD at any time (transcribing/processing/pasting/error display). It's
-    // released at the natural end of stop_inner or by force_hide_hud.
+    // Recording is over → free Enter now (no-op if the Enter handler already
+    // did it). ESC, by contrast, stays registered through the pipeline so the
+    // user can dismiss the HUD at any time (transcribing/processing/pasting/
+    // error display). It's released at the natural end of stop_inner or by
+    // force_hide_hud.
+    unregister_enter_stop(app);
 
     // Grace period: let the last ~250ms of audio reach the cpal callback
     // before we drop the stream. Otherwise the tail of the last word is
@@ -825,6 +830,7 @@ pub fn cancel_inner(app: &AppHandle) {
         rec.stop();
     }
     unregister_escape_cancel(app);
+    unregister_enter_stop(app);
     if let Some(orig) = session.pre_duck_volume {
         restore_system_volume_to(orig);
     }
@@ -897,6 +903,51 @@ fn unregister_escape_cancel(app: &AppHandle) {
 #[tauri::command]
 pub fn dictation_release_esc(app: AppHandle) {
     unregister_escape_cancel(&app);
+}
+
+/// While recording, Return also stops the session (same as pressing the
+/// shortcut again) — for when the user is done talking and reaching for the
+/// hotkey combo is awkward. Unlike Esc (which lingers through the pipeline so
+/// it can dismiss the HUD), Enter is released the instant recording ends so
+/// it doesn't swallow the user's Return key during transcription/typing.
+fn register_enter_stop(app: &AppHandle) {
+    #[cfg(desktop)]
+    {
+        use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+        let app_clone = app.clone();
+        let result = app
+            .global_shortcut()
+            .on_shortcut("Enter", move |_app, _shortcut, event| {
+                if event.state != ShortcutState::Pressed {
+                    return;
+                }
+                let app = app_clone.clone();
+                let has_session = app
+                    .state::<DictationState>()
+                    .is_active
+                    .load(Ordering::Relaxed);
+                if !has_session {
+                    return;
+                }
+                // Free Enter immediately: stops repeat-fire and hands Return
+                // back to the foreground app before the pipeline phase.
+                unregister_enter_stop(&app);
+                tauri::async_runtime::spawn(async move {
+                    let _ = stop_inner(&app).await;
+                });
+            });
+        if let Err(e) = result {
+            log::warn!("dictation: failed to register Enter stop: {}", e);
+        }
+    }
+}
+
+fn unregister_enter_stop(app: &AppHandle) {
+    #[cfg(desktop)]
+    {
+        use tauri_plugin_global_shortcut::GlobalShortcutExt;
+        let _ = app.global_shortcut().unregister("Enter");
+    }
 }
 
 #[tauri::command]
