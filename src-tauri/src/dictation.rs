@@ -1339,30 +1339,45 @@ fn fade_system_volume(from: u32, to: u32, duration_ms: u64) {
     }
 }
 
+// NSPasteboard directly, NOT pbcopy/pbpaste. A .app launched from Finder/
+// Dock inherits no UTF-8 LANG, so the CLI tools fall back to Mac Roman and
+// mangle any non-ASCII transcript into mojibake (works in `tauri dev` only
+// because the terminal exports LANG). The native API is locale-independent.
+const NS_PASTEBOARD_TYPE_STRING: &str = "public.utf8-plain-text";
+
 fn read_clipboard() -> Result<String, String> {
-    let output = std::process::Command::new("pbpaste")
-        .output()
-        .map_err(|e| format!("pbpaste spawn: {}", e))?;
-    if !output.status.success() {
-        return Err(format!("pbpaste exit {}", output.status));
+    use objc2::rc::Retained;
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
+    use objc2_foundation::NSString;
+    unsafe {
+        let pb: *mut AnyObject = msg_send![class!(NSPasteboard), generalPasteboard];
+        if pb.is_null() {
+            return Err("NSPasteboard unavailable".into());
+        }
+        let ns_type = NSString::from_str(NS_PASTEBOARD_TYPE_STRING);
+        let s: Option<Retained<NSString>> = msg_send![pb, stringForType: &*ns_type];
+        Ok(s.map(|v| v.to_string()).unwrap_or_default())
     }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 fn copy_to_clipboard(text: &str) -> Result<(), String> {
-    use std::io::Write;
-    let mut child = std::process::Command::new("pbcopy")
-        .stdin(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("pbcopy spawn: {}", e))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(text.as_bytes())
-            .map_err(|e| format!("pbcopy write: {}", e))?;
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
+    use objc2_foundation::NSString;
+    unsafe {
+        let pb: *mut AnyObject = msg_send![class!(NSPasteboard), generalPasteboard];
+        if pb.is_null() {
+            return Err("NSPasteboard unavailable".into());
+        }
+        let _: isize = msg_send![pb, clearContents];
+        let ns_text = NSString::from_str(text);
+        let ns_type = NSString::from_str(NS_PASTEBOARD_TYPE_STRING);
+        let ok: bool = msg_send![pb, setString: &*ns_text, forType: &*ns_type];
+        if !ok {
+            return Err("NSPasteboard setString failed".into());
+        }
     }
-    child
-        .wait()
-        .map_err(|e| format!("pbcopy wait: {}", e))?;
     Ok(())
 }
 
