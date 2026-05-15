@@ -116,7 +116,7 @@ function startLevelPolling() {
         const norm = Math.min(1, base * bell * jitter);
         const h = BAR_MIN + norm * (BAR_MAX - BAR_MIN);
         bar.style.height = `${h.toFixed(1)}px`;
-        bar.style.opacity = (0.6 + norm * 0.4).toFixed(2);
+        bar.style.opacity = (0.8 + norm * 0.2).toFixed(2);
       });
     } catch (_e) {
       /* level probe failures aren't actionable here */
@@ -159,7 +159,7 @@ function startWaveAnimation() {
       // Gap between passes — bars sit at min height, dim opacity.
       bars.forEach((bar) => {
         bar.style.height = `${BAR_MIN}px`;
-        bar.style.opacity = '0.25';
+        bar.style.opacity = '0.5';
       });
       return;
     }
@@ -172,7 +172,7 @@ function startWaveAnimation() {
       const amp = Math.exp(-(dist * dist));
       const h = BAR_MIN + amp * (BAR_MAX - BAR_MIN);
       bar.style.height = `${h.toFixed(1)}px`;
-      bar.style.opacity = (0.3 + amp * 0.7).toFixed(2);
+      bar.style.opacity = (0.55 + amp * 0.45).toFixed(2);
     });
   }, FRAME_MS);
 }
