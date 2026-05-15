@@ -32,6 +32,9 @@ recordings/
 # Dev credentials (dev-mode Keychain bypass)
 .dev-credentials.json
 
+# Release notarization secrets (Apple ID + app-specific password)
+.env.release
+
 # System
 .DS_Store
 Thumbs.db

@@ -1,10 +1,20 @@
 #!/bin/bash
 set -e
 
+# Notarization credentials are secrets — never hardcode them. They live in
+# an untracked .env.release file (gitignored) or the environment. Copy
+# .env.release.example → .env.release and fill in your own values.
+if [ -f .env.release ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env.release
+  set +a
+fi
+
 SIGN_ID="Developer ID Application: Sergei Sharov (Z499WGKJW6)"
-APPLE_ID="${APPLE_ID:-***REMOVED***}"
-APPLE_PASSWORD="${APPLE_PASSWORD:-***REMOVED***}"
-APPLE_TEAM_ID="Z499WGKJW6"
+APPLE_ID="${APPLE_ID:?set APPLE_ID in .env.release or the environment}"
+APPLE_PASSWORD="${APPLE_PASSWORD:?set APPLE_PASSWORD (app-specific password) in .env.release or the environment}"
+APPLE_TEAM_ID="${APPLE_TEAM_ID:-Z499WGKJW6}"
 
 NAME=$(grep '"productName":' src-tauri/tauri.conf.json | cut -d'"' -f4)
 VERSION=$(grep '"version":' src-tauri/tauri.conf.json | cut -d'"' -f4)
