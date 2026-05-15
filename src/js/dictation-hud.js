@@ -95,6 +95,10 @@ function startLevelPolling() {
   levelTimer = setInterval(async () => {
     try {
       const levels = await invoke('get_audio_levels');
+      // The probe is async — if the meter was stopped while this call was
+      // in flight, bail so a late write doesn't re-stick the bars after
+      // we've moved to processing/flat.
+      if (!levelTimer) return;
       const mic = levels?.mic ?? 0;
       const sys = levels?.system ?? 0;
       // Show whichever source is louder so the meter reacts to system audio
@@ -125,6 +129,16 @@ function stopLevelPolling() {
     clearInterval(levelTimer);
     levelTimer = null;
   }
+}
+
+// Wipe the inline height/opacity the animation loops set per-frame. Without
+// this the last-rendered values stick (inline beats the .flat CSS rule) and
+// the tallest centre bar stays lit as leftover "dots" after we stop.
+function resetBars() {
+  bars.forEach((bar) => {
+    bar.style.height = '';
+    bar.style.opacity = '';
+  });
 }
 
 // Pulse-wave animation on the same 5 bars used by the live mic meter — a
@@ -173,6 +187,7 @@ function stopWaveAnimation() {
 function stopAllMeters() {
   stopLevelPolling();
   stopWaveAnimation();
+  resetBars();
   meter.classList.add('flat');
 }
 
@@ -236,18 +251,18 @@ async function onStatus(payload) {
       startLevelPolling();
       setActionButton(null);
       if (partialEl) { partialEl.textContent = ''; partialEl.classList.remove('visible'); }
-      // Always (re)show the "<hotkey> again to stop" hint on recording start.
+      // Always (re)show the "<hotkey> / ↩ to stop" hint on recording start.
       // Use the cache when we already know the binding to avoid a settings
       // roundtrip on every press of an existing shortcut.
       if (shortcut_id) {
         const cached = hotkeyCache.get(shortcut_id);
         if (cached) {
-          hint.textContent = `${prettyHotkey(cached)} again to stop`;
+          hint.textContent = `${prettyHotkey(cached)} or ↩ to stop`;
         } else {
           fetchCurrentHotkey(shortcut_id).then((hk) => {
             if (hk) {
               hotkeyCache.set(shortcut_id, hk);
-              hint.textContent = `${prettyHotkey(hk)} again to stop`;
+              hint.textContent = `${prettyHotkey(hk)} or ↩ to stop`;
             }
           });
         }
