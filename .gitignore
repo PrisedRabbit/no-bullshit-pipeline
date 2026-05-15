@@ -35,6 +35,9 @@ recordings/
 # Release notarization secrets (Apple ID + app-specific password)
 .env.release
 
+# Local Claude Code permissions/settings (per-machine, not shared)
+.claude/settings.local.json
+
 # System
 .DS_Store
 Thumbs.db
