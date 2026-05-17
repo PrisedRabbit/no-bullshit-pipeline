@@ -10,6 +10,7 @@ import { allPipelineDefs } from '../pipeline/state.js';
 import { renderPipelineFlowHTML } from '../pipeline/flow-renderer.js';
 
 let pipelineProgressUnlisten = null;
+let pipelineProgressGeneration = 0;
 let pipelineRunningSteps = {};
 let stepElapsedTimer = null;
 
@@ -21,6 +22,7 @@ const PIPELINE_STATUS_DISPLAY = {
 };
 
 export function cleanupPipelineProgress() {
+  pipelineProgressGeneration++;
   if (pipelineProgressUnlisten) {
     pipelineProgressUnlisten();
     pipelineProgressUnlisten = null;
@@ -31,8 +33,10 @@ export function cleanupPipelineProgress() {
 
 export async function subscribeToProgress(recordingId) {
   cleanupPipelineProgress();
+  const generation = pipelineProgressGeneration;
 
-  pipelineProgressUnlisten = await listen('pipeline-progress', (event) => {
+  const unlisten = await listen('pipeline-progress', (event) => {
+    if (pipelineProgressGeneration !== generation) return;
     const payload = event.payload;
     if (payload.recording_id !== recordingId) return;
     const key = `${payload.recording_id}:${payload.pipeline_name}`;
@@ -43,6 +47,12 @@ export async function subscribeToProgress(recordingId) {
     }
     renderPipelineStatus(recordingId);
   });
+
+  if (pipelineProgressGeneration !== generation) {
+    unlisten();
+    return;
+  }
+  pipelineProgressUnlisten = unlisten;
 }
 
 export async function renderPipelineStatus(recordingId) {
