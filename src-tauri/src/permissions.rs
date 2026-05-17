@@ -61,46 +61,48 @@ pub async fn check_permissions(
 
 #[tauri::command]
 pub async fn request_mic_permission(state: tauri::State<'_, PermissionsStateCache>) -> Result<bool, String> {
-    #[cfg(debug_assertions)]
-    eprintln!("DEBUG: Requesting Microphone Access via cpal...");
+    // Proper TCC request: shows the system mic prompt and resolves exactly
+    // when the user answers (or immediately, with the cached value, if the
+    // status is already determined). The old approach started a real cpal
+    // capture and slept 2s on the async runtime — on a first launch that
+    // could deadlock on CoreAudio's TCC gate and leave the onboarding UI
+    // stuck forever on "Requesting…" even though the user had already
+    // granted access.
+    // cidre's completion-block future is !Send, so it can't be awaited
+    // directly inside a Tauri async command (which requires Send). Drive it
+    // on a dedicated thread with a local current-thread runtime and ship
+    // back only the bool (Send) over a oneshot.
+    let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
+    std::thread::spawn(move || {
+        let rt = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(_) => {
+                let _ = tx.send(false);
+                return;
+            }
+        };
+        let granted = rt.block_on(async {
+            av::CaptureDevice::request_access_for_media_type(av::MediaType::audio())
+                .await
+                .unwrap_or(false)
+        });
+        let _ = tx.send(granted);
+    });
 
-    // We try to start a capture to a temporary file.
-    // This will trigger the macOS microphone permission dialog.
-    let temp_path = std::path::PathBuf::from(format!("/tmp/nbp-mic-permission-check-{}.ogg", std::process::id()));
+    let granted = rx
+        .await
+        .map_err(|_| "Microphone access request failed".to_string())?;
 
-    match crate::mic_audio::start_mic_capture(temp_path.clone(), None, false) {
-        Ok(mut recorder) => {
-            #[cfg(debug_assertions)]
-            eprintln!("Mic capture started for permission check");
-
-            // Wait to ensure audio is actually being captured (permission granted)
-            std::thread::sleep(std::time::Duration::from_millis(2000));
-
-            recorder.stop();
-
-            // Verify file was created (indicates permission was granted)
-            let permission_granted = temp_path.exists();
-            let _ = std::fs::remove_file(&temp_path);
-
-            // Update cache
-            let mut cache = state.0.lock().map_err(|e| e.to_string())?;
-            cache.mic = permission_granted;
-
-            #[cfg(debug_assertions)]
-            eprintln!("DEBUG: Mic permission verified: {}", permission_granted);
-            Ok(permission_granted)
-        }
-        Err(_e) => {
-            #[cfg(debug_assertions)]
-            eprintln!("Mic capture failed: {:?}", _e);
-
-            // Update cache to false
-            let mut cache = state.0.lock().map_err(|e| e.to_string())?;
-            cache.mic = false;
-
-            Ok(false)
-        }
+    if let Ok(mut cache) = state.0.lock() {
+        cache.mic = granted;
     }
+
+    #[cfg(debug_assertions)]
+    eprintln!("DEBUG: Mic permission granted: {}", granted);
+    Ok(granted)
 }
 
 #[tauri::command]

@@ -24,7 +24,6 @@
       ]
     },
     "notification:default",
-    "global-shortcut:default",
-    "window-state:default"
+    "global-shortcut:default"
   ]
 }

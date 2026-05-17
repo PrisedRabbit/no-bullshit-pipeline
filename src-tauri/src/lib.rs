@@ -124,16 +124,6 @@ pub fn run() {
     // Load settings for managed state
     let settings = std::sync::Arc::new(std::sync::Mutex::new(config::load_settings()));
 
-    // Debounced window-state persistence. tauri-plugin-window-state only
-    // writes on app Exit by default, but our CloseRequested handler hides
-    // the window (tray app) instead of closing it — so a clean Exit often
-    // never fires and the user's resized geometry is lost. We persist on a
-    // trailing edge after resize/move stops (last-one-wins via abort) plus
-    // synchronously on CloseRequested.
-    let win_state_save: std::sync::Arc<
-        std::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
-    > = std::sync::Arc::new(std::sync::Mutex::new(None));
-
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // Focus the existing window when a second instance is launched
@@ -144,15 +134,10 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(
-            // Persist window size/position/maximized state across launches.
-            // Exclude the dictation HUD — we position it manually each session
-            // (top-center of primary monitor) and don't want its tiny size to
-            // be remembered as the main window's state by mistake.
-            tauri_plugin_window_state::Builder::default()
-                .with_filter(|label| label != "dictation-hud")
-                .build(),
-        )
+        // tauri-plugin-window-state removed: on fractionally-scaled displays
+        // it loses the scale factor every save→restore cycle, shrinking the
+        // window ~20% each launch. The window now always opens at the size
+        // configured in tauri.conf.json — stable and predictable.
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .manage(AudioState::new())
@@ -287,6 +272,9 @@ pub fn run() {
             }
 
             // Streaming pre-warm is disabled while streaming itself is off.
+            // Instead, prewarm the batch sidecar models so the user's first
+            // dictation doesn't pay the CoreML compile + cold-disk penalty.
+            dictation::prewarm_models(app.handle());
 
             Ok(())
         })
@@ -411,44 +399,17 @@ pub fn run() {
             restart_app,
             set_hud_clickthrough,
         ])
-        .on_window_event(move |window, event| {
-            use tauri_plugin_window_state::{AppHandleExt, StateFlags};
-            // The HUD positions itself every session — never persist it.
-            let is_hud = window.label() == "dictation-hud";
-            match event {
-                tauri::WindowEvent::CloseRequested { api, .. } => {
-                    // Hide window instead of closing — tray keeps the app alive
-                    api.prevent_close();
-                    // Capture geometry now: a tray-hidden window may never
-                    // emit a clean Exit later.
-                    if !is_hud {
-                        let _ = window.app_handle().save_window_state(StateFlags::all());
-                    }
-                    let _ = window.hide();
-                    // Hide from dock too
-                    #[cfg(target_os = "macos")]
-                    {
-                        let app = window.app_handle();
-                        let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-                    }
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Hide window instead of closing — tray keeps the app alive
+                api.prevent_close();
+                let _ = window.hide();
+                // Hide from dock too
+                #[cfg(target_os = "macos")]
+                {
+                    let app = window.app_handle();
+                    let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
                 }
-                tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Moved(_) if !is_hud => {
-                    // Trailing-edge debounce: each event aborts the prior
-                    // pending save and arms a fresh 600ms timer, so we write
-                    // once after the user stops dragging — not on every frame.
-                    let app = window.app_handle().clone();
-                    let slot = win_state_save.clone();
-                    if let Ok(mut guard) = slot.lock() {
-                        if let Some(prev) = guard.take() {
-                            prev.abort();
-                        }
-                        *guard = Some(tauri::async_runtime::spawn(async move {
-                            tokio::time::sleep(std::time::Duration::from_millis(600)).await;
-                            let _ = app.save_window_state(StateFlags::all());
-                        }));
-                    }
-                }
-                _ => {}
             }
         })
         .run(tauri::generate_context!())

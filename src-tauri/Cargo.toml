@@ -33,7 +33,7 @@ chrono = { version = "0.4.44", features = ["serde"] }
 hound = "3.5"
 uuid = { version = "1.22", features = ["v4", "serde"] }
 # System Audio Capture (Core Audio Taps)
-cidre = { git = "https://github.com/yury/cidre", branch = "main", features = ["av"] }
+cidre = { git = "https://github.com/yury/cidre", branch = "main", features = ["av", "async"] }
 ringbuf = "0.4.8"
 anyhow = "1.0.102"
 ebur128 = "0.1.10"
@@ -58,7 +58,6 @@ tauri-plugin-notification = "2.3.3"
 env_logger = "0.11.10"
 tauri-plugin-single-instance = "2.4.0"
 tauri-plugin-global-shortcut = "2"
-tauri-plugin-window-state = "2"
 
 [profile.release]
 strip = true

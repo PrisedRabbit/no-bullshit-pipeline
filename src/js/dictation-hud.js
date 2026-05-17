@@ -83,6 +83,10 @@ function showHud() {
 function scheduleHide(delayMs) {
   clearTimeout(hideTimer);
   hideTimer = setTimeout(() => {
+    // Safety net: whatever animation/state we were in, a hidden HUD must
+    // never keep a timer running or leave a bar stuck (e.g. the centre bar
+    // frozen at max from the last level/wave frame on some race path).
+    stopAllMeters();
     body.classList.add('hidden');
     setHudActive(false);
   }, delayMs);
@@ -135,9 +139,13 @@ function stopLevelPolling() {
 // this the last-rendered values stick (inline beats the .flat CSS rule) and
 // the tallest centre bar stays lit as leftover "dots" after we stop.
 function resetBars() {
+  // Force explicit flat inline values rather than clearing to '' and hoping
+  // the `.meter.flat` CSS wins — that depends on the flat class actually
+  // being applied and not stripped by a racing startLevel/Wave call. Inline
+  // is unambiguous and deterministic.
   bars.forEach((bar) => {
-    bar.style.height = '';
-    bar.style.opacity = '';
+    bar.style.height = `${BAR_MIN}px`;
+    bar.style.opacity = '0.5';
   });
 }
 
@@ -251,18 +259,18 @@ async function onStatus(payload) {
       startLevelPolling();
       setActionButton(null);
       if (partialEl) { partialEl.textContent = ''; partialEl.classList.remove('visible'); }
-      // Always (re)show the "<hotkey> / ↩ to stop" hint on recording start.
+      // Always (re)show the "<hotkey> again to stop" hint on recording start.
       // Use the cache when we already know the binding to avoid a settings
       // roundtrip on every press of an existing shortcut.
       if (shortcut_id) {
         const cached = hotkeyCache.get(shortcut_id);
         if (cached) {
-          hint.textContent = `${prettyHotkey(cached)} or ↩ to stop`;
+          hint.textContent = `${prettyHotkey(cached)} again to stop`;
         } else {
           fetchCurrentHotkey(shortcut_id).then((hk) => {
             if (hk) {
               hotkeyCache.set(shortcut_id, hk);
-              hint.textContent = `${prettyHotkey(hk)} or ↩ to stop`;
+              hint.textContent = `${prettyHotkey(hk)} again to stop`;
             }
           });
         }

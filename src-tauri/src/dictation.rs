@@ -123,6 +123,71 @@ pub fn schedule_warm_streaming(app: &AppHandle) {
     });
 }
 
+/// Prewarm on-device transcription models at app startup.
+///
+/// The sidecars are one-shot processes: each dictation spawns one, which
+/// loads Parakeet / SpeechAnalyzer into RAM from scratch. The big one-time
+/// cost is the CoreML `.mlpackage → .mlmodelc` compile (seconds); the
+/// recurring cost is reading the weights off disk into the OS page cache.
+/// Running one throwaway pass over a sliver of silence at startup pays both
+/// up front, so the user's first real dictation doesn't eat the cold-start
+/// penalty.
+///
+/// Only engines actually referenced by an Audio shortcut are warmed, run
+/// sequentially so we don't compile multiple models at once. Cloud engines
+/// (OpenAI/Google) have no local model — skipped.
+pub fn prewarm_models(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let settings = load_settings();
+        if !settings.dictation.enabled {
+            return;
+        }
+
+        // Unique on-device engines among Audio shortcuts. Keep a
+        // representative shortcut for each so language/etc. flow through the
+        // exact same transcribe() path a real session would take.
+        let mut seen: Vec<TranscriptionProvider> = Vec::new();
+        let mut reps: Vec<DictationShortcut> = Vec::new();
+        for sc in &settings.dictation.shortcuts {
+            if sc.input_source != crate::config::DictationInputSource::Audio {
+                continue;
+            }
+            let on_device = matches!(
+                sc.engine,
+                TranscriptionProvider::FluidAudio | TranscriptionProvider::AppleSpeech
+            );
+            if on_device && !seen.contains(&sc.engine) {
+                seen.push(sc.engine.clone());
+                reps.push(sc.clone());
+            }
+        }
+        if reps.is_empty() {
+            return;
+        }
+
+        // ~0.3s of silence at 16 kHz. Enough for the sidecar to load + run
+        // the model; FluidAudio reports "No speech detected" → Ok("") and
+        // SpeechAnalyzer yields empty — both fine, we only want the warmup.
+        let silence = vec![0.0f32; (TARGET_RATE as usize) * 3 / 10];
+        for sc in reps {
+            let t0 = std::time::Instant::now();
+            match transcribe(&app, &sc, silence.clone()).await {
+                Ok(_) => log::info!(
+                    "dictation: prewarmed {:?} in {:?}",
+                    sc.engine,
+                    t0.elapsed()
+                ),
+                Err(e) => log::warn!(
+                    "dictation: prewarm {:?} failed (non-fatal): {}",
+                    sc.engine,
+                    e
+                ),
+            }
+        }
+    });
+}
+
 /// Read-only snapshot of the most recent shortcut-registration result, used
 /// by the frontend to render status badges without triggering a re-register.
 #[tauri::command]
@@ -396,8 +461,6 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
     // can wave it off without their text leaking out as a paste. The shortcut
     // is unregistered as soon as the session ends (stop or cancel).
     register_escape_cancel(app);
-    // Enter = "done talking" → stop + transcribe (same as the toggle hotkey).
-    register_enter_stop(app);
 
     let session = Session {
         shortcut_id: shortcut.id.clone(),
@@ -452,12 +515,9 @@ pub async fn stop_inner(app: &AppHandle) -> Result<String, String> {
     };
 
     let shortcut_id = session.shortcut_id.clone();
-    // Recording is over → free Enter now (no-op if the Enter handler already
-    // did it). ESC, by contrast, stays registered through the pipeline so the
-    // user can dismiss the HUD at any time (transcribing/processing/pasting/
-    // error display). It's released at the natural end of stop_inner or by
-    // force_hide_hud.
-    unregister_enter_stop(app);
+    // ESC stays registered through the pipeline so the user can dismiss the
+    // HUD at any time (transcribing/processing/pasting/error display). It's
+    // released at the natural end of stop_inner or by force_hide_hud.
 
     // Grace period: let the last ~250ms of audio reach the cpal callback
     // before we drop the stream. Otherwise the tail of the last word is
@@ -830,7 +890,6 @@ pub fn cancel_inner(app: &AppHandle) {
         rec.stop();
     }
     unregister_escape_cancel(app);
-    unregister_enter_stop(app);
     if let Some(orig) = session.pre_duck_volume {
         restore_system_volume_to(orig);
     }
@@ -903,51 +962,6 @@ fn unregister_escape_cancel(app: &AppHandle) {
 #[tauri::command]
 pub fn dictation_release_esc(app: AppHandle) {
     unregister_escape_cancel(&app);
-}
-
-/// While recording, Return also stops the session (same as pressing the
-/// shortcut again) — for when the user is done talking and reaching for the
-/// hotkey combo is awkward. Unlike Esc (which lingers through the pipeline so
-/// it can dismiss the HUD), Enter is released the instant recording ends so
-/// it doesn't swallow the user's Return key during transcription/typing.
-fn register_enter_stop(app: &AppHandle) {
-    #[cfg(desktop)]
-    {
-        use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
-        let app_clone = app.clone();
-        let result = app
-            .global_shortcut()
-            .on_shortcut("Enter", move |_app, _shortcut, event| {
-                if event.state != ShortcutState::Pressed {
-                    return;
-                }
-                let app = app_clone.clone();
-                let has_session = app
-                    .state::<DictationState>()
-                    .is_active
-                    .load(Ordering::Relaxed);
-                if !has_session {
-                    return;
-                }
-                // Free Enter immediately: stops repeat-fire and hands Return
-                // back to the foreground app before the pipeline phase.
-                unregister_enter_stop(&app);
-                tauri::async_runtime::spawn(async move {
-                    let _ = stop_inner(&app).await;
-                });
-            });
-        if let Err(e) = result {
-            log::warn!("dictation: failed to register Enter stop: {}", e);
-        }
-    }
-}
-
-fn unregister_enter_stop(app: &AppHandle) {
-    #[cfg(desktop)]
-    {
-        use tauri_plugin_global_shortcut::GlobalShortcutExt;
-        let _ = app.global_shortcut().unregister("Enter");
-    }
 }
 
 #[tauri::command]
