@@ -25,6 +25,18 @@ let transcriptionElapsedTimer = null;
 let transcriptionStartTime = null;
 let transcriptionCurrentStage = '';
 
+// Processing-poll state (single active poller per detail view)
+let processingPollIntervalId = null;
+let processingPollGeneration = 0;
+
+function stopProcessingPoll() {
+  processingPollGeneration++;
+  if (processingPollIntervalId !== null) {
+    clearInterval(processingPollIntervalId);
+    processingPollIntervalId = null;
+  }
+}
+
 export function clearTranscriptionTimer() {
   if (transcriptionElapsedTimer) {
     clearInterval(transcriptionElapsedTimer);
@@ -36,6 +48,7 @@ export function clearTranscriptionTimer() {
 
 export function hideDetailView() {
   setSelectedRecordingId(null);
+  stopProcessingPoll();
   updateMainButton();
   ViewManager.showRecordings();
   const detailControlsEl = document.getElementById('detail-controls');
@@ -48,6 +61,7 @@ export async function showDetailView(id) {
   if (!rec) return;
 
   setSelectedRecordingId(id);
+  stopProcessingPoll();
   clearTranscriptionTimer();
   updateMainButton();
 
@@ -116,24 +130,26 @@ export async function showDetailView(id) {
     }
   }
 
-  // Polling if processing
+  // Polling if processing — single active poller, guarded by a generation
+  // counter so an in-flight tick from a prior poller becomes a no-op.
   if (isProcessing) {
     const pollId = id;
-    const pollInterval = setInterval(async () => {
-      if (state.selectedRecordingId !== pollId) {
-        clearInterval(pollInterval);
+    const generation = ++processingPollGeneration;
+    processingPollIntervalId = setInterval(async () => {
+      if (processingPollGeneration !== generation || state.selectedRecordingId !== pollId) {
         return;
       }
       try {
         await loadRecordings();
+        if (processingPollGeneration !== generation) return;
         const updated = state.allRecordings.find(r => r.id === pollId);
         if (updated && updated.status !== 'processing') {
-          clearInterval(pollInterval);
+          stopProcessingPoll();
           showDetailView(pollId);
         }
       } catch (e) {
         console.error('Processing poll error:', e);
-        clearInterval(pollInterval);
+        if (processingPollGeneration === generation) stopProcessingPoll();
       }
     }, 1000);
   }
