@@ -44,10 +44,14 @@ struct Session {
     /// the legacy batch path: accumulate into `samples`, write a tmp WAV at
     /// stop, transcribe that.
     streaming: Option<crate::dictation_streaming::StreamingSession>,
-    /// Concurrent system-audio (loopback) capture. Set only when the shortcut
-    /// has `capture_system_audio = true`. PCM lands in SYSTEM_BUFFER (48 kHz
-    /// stereo); pulled, mixed with mic, and fed to the transcriber on stop.
-    system_recorder: Option<crate::system_audio::SystemAudioRecorder>,
+    /// Concurrent system-audio (loopback) capture, set up off the hot path
+    /// because `start_system_capture` (AggregateDevice + ProcessTap creation)
+    /// is synchronous and on a cold cache can take 2-3 seconds — which would
+    /// add that latency to every hotkey press. Spawned via `spawn_blocking`;
+    /// the inner Option is the produced recorder (or None if Core Audio
+    /// errored). On stop we await the handle with a short timeout, on cancel
+    /// we just abort. Set only when `capture_system_audio = true`.
+    system_setup: Option<tauri::async_runtime::JoinHandle<Option<crate::system_audio::SystemAudioRecorder>>>,
 }
 
 /// Coefficient applied to the current system output volume during a session.
@@ -276,28 +280,34 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
         config.sample_format()
     );
 
-    // Bring up the system-audio tap FIRST when requested. Creating the
-    // AggregateDevice + ProcessTap pokes Core Audio's engine, which can drop
-    // a freshly-played cpal mic stream's first callbacks (HUD meter then
-    // sits at zero even though samples arrive later). Starting it before
-    // the mic lets the engine settle once, then cpal layers on cleanly.
-    let system_recorder = if shortcut.capture_system_audio {
+    // Bring up the system-audio tap in the background. Creating the
+    // AggregateDevice + ProcessTap pokes Core Audio's engine and on a cold
+    // cache can block 2-3 seconds — running it inline made every hotkey
+    // press feel laggy. cpal mic stream starts in parallel below; the tap
+    // produces samples whenever it becomes ready and they land in
+    // SYSTEM_BUFFER for the stop-time mix. Quick-stop sessions may miss
+    // the first ~second of loopback, but that's the trade-off for an
+    // instant-feeling HUD.
+    let system_setup = if shortcut.capture_system_audio {
         crate::audio_processing::SYSTEM_BUFFER.clear();
         let tmp_path = std::env::temp_dir().join(format!("nbp-dictation-sys-{}.ogg", shortcut.id));
-        match crate::system_audio::start_system_capture(tmp_path, true) {
-            Ok(rec) => {
-                log::info!("dictation: system audio capture started for '{}'", shortcut.name);
-                Some(rec)
+        let name = shortcut.name.clone();
+        Some(tauri::async_runtime::spawn_blocking(move || {
+            match crate::system_audio::start_system_capture(tmp_path, true) {
+                Ok(rec) => {
+                    log::info!("dictation: system audio capture started for '{}'", name);
+                    Some(rec)
+                }
+                Err(e) => {
+                    log::warn!(
+                        "dictation: system audio capture failed for '{}': {} — mic-only",
+                        name,
+                        e
+                    );
+                    None
+                }
             }
-            Err(e) => {
-                log::warn!(
-                    "dictation: system audio capture failed for '{}': {} — falling back to mic-only",
-                    shortcut.name,
-                    e
-                );
-                None
-            }
-        }
+        }))
     } else {
         None
     };
@@ -470,7 +480,7 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
         stream: Some(stream),
         pre_duck_volume,
         streaming,
-        system_recorder,
+        system_setup,
     };
 
     *state
@@ -527,9 +537,20 @@ pub async fn stop_inner(app: &AppHandle) -> Result<String, String> {
 
     // Stop the parallel system-audio tap (if any). Its `stop()` joins the
     // capture thread, so by the time it returns SYSTEM_BUFFER holds the full
-    // loopback PCM at 48 kHz stereo for us to drain below.
-    if let Some(mut rec) = session.system_recorder.take() {
-        rec.stop();
+    // loopback PCM at 48 kHz stereo for us to drain below. The setup ran in
+    // a background spawn_blocking task — wait briefly for it to finish so we
+    // can stop cleanly; if it's still mid-init we just discard, leaving
+    // SYSTEM_BUFFER with whatever samples the half-started tap managed to
+    // push (likely none).
+    if let Some(handle) = session.system_setup.take() {
+        match tokio::time::timeout(std::time::Duration::from_secs(2), handle).await {
+            Ok(Ok(Some(mut rec))) => rec.stop(),
+            Ok(Ok(None)) => {}
+            Ok(Err(e)) => log::warn!("dictation: system tap setup task failed: {}", e),
+            Err(_) => log::warn!(
+                "dictation: system tap still initializing after 2s — discarding"
+            ),
+        }
     }
 
     if let Some(orig) = session.pre_duck_volume {
@@ -886,8 +907,12 @@ pub fn cancel_inner(app: &AppHandle) {
         None => return,
     };
     drop(session.stream.take());
-    if let Some(mut rec) = session.system_recorder.take() {
-        rec.stop();
+    if let Some(handle) = session.system_setup.take() {
+        // Cancel path is sync — can't await. Abort the background setup;
+        // if the tap had already produced a recorder, dropping the join
+        // handle drops the result, which in turn drops the recorder and
+        // stops the capture thread via its own Drop impl.
+        handle.abort();
     }
     unregister_escape_cancel(app);
     if let Some(orig) = session.pre_duck_volume {

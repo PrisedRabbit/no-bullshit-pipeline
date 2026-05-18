@@ -11,5 +11,7 @@
         <key>NSSpeechRecognitionUsageDescription</key>
         <string>NBP uses Apple's on-device SpeechAnalyzer to transcribe your recordings locally
             when the Apple Speech provider is selected.</string>
+        <key>NSAppSleepDisabled</key>
+        <true/>
     </dict>
 </plist>

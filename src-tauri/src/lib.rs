@@ -121,6 +121,24 @@ pub fn run() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("nbp=debug"))
         .init();
 
+    // Disable App Nap. Without this macOS throttles backgrounded tray apps
+    // and Carbon HotKey events get queued for tens of seconds (or minutes)
+    // before delivery — the user presses cmd+shift+b and the HUD only shows
+    // up much later. `NSAppSleepDisabled` in Info.plist works for signed
+    // bundles but not dev binaries, so we ask runtime-style. Token must
+    // outlive the process; leak it.
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
+        let info = NSProcessInfo::processInfo();
+        let reason = NSString::from_str("Global hotkey listener — Quick Dictate");
+        let token = info.beginActivityWithOptions_reason(
+            NSActivityOptions::UserInitiated,
+            &reason,
+        );
+        std::mem::forget(token);
+    }
+
     // Load settings for managed state
     let settings = std::sync::Arc::new(std::sync::Mutex::new(config::load_settings()));
 
