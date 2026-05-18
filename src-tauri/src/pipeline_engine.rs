@@ -1331,6 +1331,9 @@ fn update_pipeline_state(
     fs::rename(&temp_path, &metadata_path)
         .map_err(|e| format!("Failed to finalize metadata: {}", e))?;
 
+    // This rewrites metadata.json outside storage::write_metadata, so the
+    // list_recordings cache won't see the new pipeline state otherwise.
+    crate::storage::invalidate_list_cache();
     Ok(())
 }
 
@@ -1373,8 +1376,10 @@ fn read_pipeline_states(recording_id: &str) -> Vec<PipelineState> {
                             locked_json["pipelines"] = serde_json::Value::Array(migrated);
                             if let Ok(updated) = serde_json::to_string_pretty(&locked_json) {
                                 let temp_path = metadata_path.with_extension("json.tmp");
-                                if fs::write(&temp_path, &updated).is_ok() {
-                                    let _ = fs::rename(&temp_path, &metadata_path);
+                                if fs::write(&temp_path, &updated).is_ok()
+                                    && fs::rename(&temp_path, &metadata_path).is_ok()
+                                {
+                                    crate::storage::invalidate_list_cache();
                                 }
                             }
                             // Return states from the locked read (authoritative)
@@ -1589,6 +1594,7 @@ pub fn remove_pipeline_run(recording_id: String, run_id: String) -> Result<(), S
         .map_err(|e| format!("Failed to write temp metadata: {}", e))?;
     fs::rename(&temp_path, &metadata_path)
         .map_err(|e| format!("Failed to finalize metadata: {}", e))?;
+    crate::storage::invalidate_list_cache();
 
     // Delete the output directory (best effort)
     let output_dir = get_pipeline_output_dir(&recording_id, &removed_name, removed_run_index);
@@ -1648,6 +1654,7 @@ pub fn assign_pipeline(recording_id: String, pipeline_name: String) -> Result<()
         .map_err(|e| format!("Failed to write temp metadata: {}", e))?;
     fs::rename(&temp_path, &metadata_path)
         .map_err(|e| format!("Failed to finalize metadata: {}", e))?;
+    crate::storage::invalidate_list_cache();
 
     Ok(())
 }

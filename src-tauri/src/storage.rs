@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicU64, Ordering};
 use uuid::Uuid;
 use chrono::Utc;
 use crate::pipelines::PipelineState;
@@ -90,6 +92,39 @@ pub fn get_recording_dir(id: &str) -> PathBuf {
     get_data_dir().join(id)
 }
 
+/// In-process cache for `list_recordings`. `None` means the next call must
+/// rescan the data directory. Populated lazily; cleared whenever any code
+/// path mutates a recording on disk (write_metadata, delete_recording).
+fn list_cache() -> &'static Mutex<Option<Vec<RecordingMetadata>>> {
+    static CACHE: OnceLock<Mutex<Option<Vec<RecordingMetadata>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
+}
+
+/// Drop the cached recordings list so the next `list_recordings` rescans
+/// disk. Must be called by every code path that mutates a `metadata.json`,
+/// including direct writers outside this module (e.g. pipeline_engine.rs,
+/// which rewrites the pipeline_states block in place).
+pub(crate) fn invalidate_list_cache() {
+    if let Ok(mut guard) = list_cache().lock() {
+        *guard = None;
+    }
+}
+
+/// Instrumentation: counts how many `metadata.json` files `list_recordings`
+/// has opened from disk over the lifetime of the process. Stays at the same
+/// value across calls that are served from the in-process cache.
+static LIST_METADATA_READS: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(test)]
+pub fn _test_list_metadata_reads() -> u64 {
+    LIST_METADATA_READS.load(Ordering::Relaxed)
+}
+
+#[cfg(test)]
+pub fn _test_invalidate_list_cache() {
+    invalidate_list_cache();
+}
+
 /// Create a new recording with metadata
 pub fn create_recording(title: String, tags: Vec<String>) -> Result<RecordingMetadata, String> {
     let id = Uuid::new_v4().to_string();
@@ -138,6 +173,7 @@ pub fn write_metadata(metadata: &RecordingMetadata) -> Result<(), String> {
     fs::rename(&temp_path, &metadata_path)
         .map_err(|e| format!("Failed to finalize metadata: {}", e))?;
 
+    invalidate_list_cache();
     Ok(())
 }
 
@@ -239,6 +275,7 @@ pub fn delete_recording(recording_id: &str) -> Result<(), String> {
     if recording_dir.exists() {
         fs::remove_dir_all(recording_dir).map_err(|e| e.to_string())?;
     }
+    invalidate_list_cache();
     Ok(())
 }
 
@@ -252,37 +289,62 @@ pub fn read_metadata(recording_id: &str) -> Result<RecordingMetadata, String> {
     Ok(metadata)
 }
 
-/// List all recordings, sorted by created_at (newest first)
+/// List all recordings, sorted by created_at (newest first).
+///
+/// Uses an in-process cache to avoid rescanning `~/nbp-data/` and reparsing every
+/// `metadata.json` on each call. The cache is invalidated by `write_metadata` and
+/// `delete_recording`, so any create/update/delete is reflected on the next call.
 #[tauri::command]
 pub fn list_recordings() -> Result<Vec<RecordingMetadata>, String> {
+    if let Ok(guard) = list_cache().lock() {
+        if let Some(cached) = guard.as_ref() {
+            return Ok(cached.clone());
+        }
+    }
+
     let data_dir = get_data_dir();
-    
+
     if !data_dir.exists() {
+        if let Ok(mut guard) = list_cache().lock() {
+            *guard = Some(Vec::new());
+        }
         return Ok(Vec::new());
     }
-    
+
     let mut recordings = Vec::new();
-    
+
     for entry in fs::read_dir(&data_dir).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
-        
+
         if path.is_dir() {
             let metadata_path = path.join("metadata.json");
             if metadata_path.exists() {
-                if let Ok(file) = File::open(&metadata_path) {
-                    if let Ok(mut metadata) = serde_json::from_reader::<_, RecordingMetadata>(file) {
-                        let _ = migrate_tags_to_pipeline_labels(&mut metadata);
-                        recordings.push(metadata);
+                match File::open(&metadata_path) {
+                    Ok(file) => {
+                        LIST_METADATA_READS.fetch_add(1, Ordering::Relaxed);
+                        if let Ok(mut metadata) = serde_json::from_reader::<_, RecordingMetadata>(file) {
+                            // migrate_tags_to_pipeline_labels may call write_metadata,
+                            // which invalidates the cache we are about to populate. That's
+                            // fine: the cache is filled at the end of this function and
+                            // subsequent calls return the migrated entries.
+                            let _ = migrate_tags_to_pipeline_labels(&mut metadata);
+                            recordings.push(metadata);
+                        }
                     }
+                    Err(_) => continue,
                 }
             }
         }
     }
-    
+
     // Sort by created_at (newest first)
     recordings.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-    
+
+    if let Ok(mut guard) = list_cache().lock() {
+        *guard = Some(recordings.clone());
+    }
+
     Ok(recordings)
 }
 
@@ -522,6 +584,100 @@ mod tests {
 
         // Cleanup
         let _ = fs::remove_dir_all(get_recording_dir(&metadata.id));
+    }
+
+    #[test]
+    fn test_list_recordings_caches_metadata_reads() {
+        // AC: With N recordings and no writes, a second list_recordings() performs
+        // zero metadata.json reads.
+
+        // Seed a recording so the data dir is non-empty.
+        let r = create_recording(
+            "list cache seed".to_string(),
+            vec![],
+        ).unwrap();
+
+        // Reset the cache to a deterministic state.
+        _test_invalidate_list_cache();
+
+        // First call: cache miss → must read at least our seed entry from disk.
+        let before_first = _test_list_metadata_reads();
+        let first = list_recordings().expect("first list_recordings");
+        let reads_first = _test_list_metadata_reads() - before_first;
+        assert!(
+            !first.is_empty(),
+            "first list_recordings should return the seeded recording"
+        );
+        assert!(
+            reads_first >= 1,
+            "first list_recordings should read metadata.json from disk (got {})",
+            reads_first
+        );
+
+        // Second call: cache hit → no further metadata.json reads.
+        let before_second = _test_list_metadata_reads();
+        let second = list_recordings().expect("second list_recordings");
+        let reads_second = _test_list_metadata_reads() - before_second;
+        assert_eq!(
+            reads_second, 0,
+            "second list_recordings should read 0 metadata.json files (cache hit), \
+             got {}. If this fails under parallel tests, another test invalidated \
+             the cache between calls.",
+            reads_second
+        );
+
+        // Ordering must remain newest-first.
+        for window in second.windows(2) {
+            assert!(
+                window[0].created_at >= window[1].created_at,
+                "list_recordings must remain sorted newest-first"
+            );
+        }
+
+        // Cleanup
+        let _ = fs::remove_dir_all(get_recording_dir(&r.id));
+        _test_invalidate_list_cache();
+    }
+
+    #[test]
+    fn test_list_recordings_invalidated_by_writes() {
+        // AC: Creating/updating/deleting a recording is reflected on the next
+        // list_recordings() call (no stale data).
+
+        // Prime the cache.
+        _test_invalidate_list_cache();
+        let _ = list_recordings().unwrap();
+
+        // Create a fresh recording — write_metadata must invalidate the cache.
+        let r = create_recording(
+            "list cache invalidation".to_string(),
+            vec![],
+        ).unwrap();
+
+        let after_create = list_recordings().expect("list after create");
+        assert!(
+            after_create.iter().any(|m| m.id == r.id),
+            "newly created recording must be visible on the next list_recordings call"
+        );
+
+        // Update the recording — write_metadata must invalidate the cache.
+        update_title(&r.id, "renamed".to_string()).unwrap();
+        let after_update = list_recordings().expect("list after update");
+        let updated = after_update.iter().find(|m| m.id == r.id).expect("recording present");
+        assert_eq!(
+            updated.title, "renamed",
+            "updated title must be visible on the next list_recordings call"
+        );
+
+        // Delete the recording — delete_recording must invalidate the cache.
+        delete_recording(&r.id).unwrap();
+        let after_delete = list_recordings().expect("list after delete");
+        assert!(
+            !after_delete.iter().any(|m| m.id == r.id),
+            "deleted recording must be gone on the next list_recordings call"
+        );
+
+        _test_invalidate_list_cache();
     }
 
     #[test]
