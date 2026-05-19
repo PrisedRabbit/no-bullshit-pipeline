@@ -75,6 +75,23 @@ impl SystemAudioRecorder {
     }
 }
 
+impl Drop for SystemAudioRecorder {
+    /// The capture thread loops on `while !should_stop`, so a recorder that
+    /// is dropped WITHOUT an explicit `stop()` would leave that thread
+    /// running forever — holding its ring buffer, normalizer, ProcessTap and
+    /// IO proc, and never reaching the `CaptureSession` teardown at the end
+    /// of `run_audio_capture`. That happened on the dictation cancel path
+    /// (`handle.abort()` of the spawn_blocking that produced the recorder)
+    /// and the stop-timeout path (handle discarded): every system-audio
+    /// shortcut orphaned a thread, leaking memory unboundedly.
+    ///
+    /// `stop()` is idempotent (it `take()`s the join handle), so this is
+    /// safe alongside an explicit `stop()` on the normal path.
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 pub fn start_system_capture(output_path: std::path::PathBuf, skip_file: bool) -> Result<SystemAudioRecorder> {
     SystemAudioRecorder::new(output_path, skip_file)
 }
@@ -91,6 +108,66 @@ pub fn check_system_audio_permission() -> bool {
             true
         }
         Err(_) => false
+    }
+}
+
+// cidre exposes no binding for this CoreAudio call. Without it the IO proc
+// created by `create_io_proc_id` is never destroyed, so coreaudiod leaks the
+// proc's in-process render/mix buffers. Every recording / dictation cycle
+// with system-audio capture creates a fresh proc → main-process RSS climbs
+// into the gigabytes. CoreAudio is already linked by cidre.
+unsafe extern "C-unwind" {
+    fn AudioDeviceDestroyIOProcID(
+        device: ca::Device,
+        proc_id: Option<ca::DeviceIoProcId>,
+    ) -> os::Status;
+}
+
+/// Owns the started aggregate device + its IO proc and runs the one correct
+/// teardown order on EVERY exit path (normal stop, `?` error, panic):
+///
+///   AudioDeviceStop → AudioDeviceDestroyIOProcID → AggregateDevice destroy
+///
+/// cidre's `StartedDevice::Drop` fuses Stop with the aggregate-device
+/// destroy and leaves no seam to destroy the IO proc in between, so we drive
+/// it explicitly via `StartedDevice::stop()` (which returns the still-alive
+/// aggregate). Idempotent through `Option::take`: an explicit `teardown()`
+/// before the drain loop plus the `Drop` safety net never double-free.
+struct CaptureSession {
+    started: Option<ca::hardware::StartedDevice<ca::AggregateDevice>>,
+    proc_id: ca::DeviceIoProcId,
+}
+
+impl CaptureSession {
+    fn teardown(&mut self) {
+        let Some(started) = self.started.take() else {
+            return;
+        };
+        match started.stop() {
+            Ok(agg) => {
+                // Device is stopped but the aggregate is still alive —
+                // destroy the IO proc before the aggregate drops.
+                unsafe {
+                    let _ = AudioDeviceDestroyIOProcID(
+                        ca::Device(agg.as_ref().0),
+                        Some(self.proc_id),
+                    );
+                }
+                drop(agg); // AudioHardwareDestroyAggregateDevice
+            }
+            Err(e) => {
+                log::warn!(
+                    "system_audio: device stop failed during teardown: {:?}",
+                    e
+                );
+            }
+        }
+    }
+}
+
+impl Drop for CaptureSession {
+    fn drop(&mut self) {
+        self.teardown();
     }
 }
 
@@ -209,8 +286,13 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
     // 7. Create IO Proc ID
     let proc_id = agg_device.create_io_proc_id(audio_proc, Some(&mut ctx))?;
 
-    // 8. Start Device
-    let _started_device = ca::device_start(agg_device, Some(proc_id))?;
+    // 8. Start Device. Wrapped in CaptureSession so the IO proc is destroyed
+    //    on every exit path — without this RSS leaks into the gigabytes.
+    let started = ca::device_start(agg_device, Some(proc_id))?;
+    let mut session = CaptureSession {
+        started: Some(started),
+        proc_id,
+    };
 
     // 9. Encoder & Normalizer Setup
     let asbd = tap.asbd()?;
@@ -354,8 +436,10 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
         thread::sleep(tick_duration);
     }
     
-    // STOP THE STREAM NOW so no new data enters buffer during drain
-    drop(_started_device);
+    // STOP THE STREAM NOW so no new data enters buffer during drain.
+    // teardown() is idempotent — the CaptureSession Drop is the safety net
+    // for the `?`/panic paths above.
+    session.teardown();
     
     // Drain any remaining audio from buffer
     loop {
