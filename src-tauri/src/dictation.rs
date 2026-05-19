@@ -16,6 +16,27 @@ use crate::pipelines::{load_pipelines, ConnectorType};
 
 const TARGET_RATE: u32 = 16_000;
 
+/// Hard ceiling on the in-memory mic capture buffer. A Quick Dictate
+/// session is meant to last seconds. If a stop path ever fails to fire
+/// (or the user walks away with a session live), the cpal input callback
+/// would otherwise `extend_from_slice` into `samples` forever — a single
+/// orphaned session was caught by malloc_history holding 5.8 GB. Past this
+/// many f32 samples we simply stop appending: the transcript gets
+/// truncated instead of the process eating gigabytes. 48 kHz × 2ch × 300s
+/// ≈ 115 MB absolute worst case — far beyond any real dictation.
+const MAX_CAPTURE_SAMPLES: usize = 48_000 * 2 * 300;
+
+/// Append `data` into `buf` but never past `MAX_CAPTURE_SAMPLES`. Structural
+/// safety net: bounds memory regardless of which stop path may have leaked.
+fn append_capped(buf: &mut Vec<f32>, data: &[f32]) {
+    let room = MAX_CAPTURE_SAMPLES.saturating_sub(buf.len());
+    if room == 0 {
+        return;
+    }
+    let take = data.len().min(room);
+    buf.extend_from_slice(&data[..take]);
+}
+
 pub struct DictationState {
     pub is_active: Arc<AtomicBool>,
     inner: Mutex<Option<Session>>,
@@ -381,7 +402,7 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
                 if let Some(tx) = &streaming_tx_f32 {
                     let _ = tx.send(data.to_vec());
                 } else if let Ok(mut buf) = samples_cb.lock() {
-                    buf.extend_from_slice(data);
+                    append_capped(&mut buf, data);
                 }
             },
             err_fn,
@@ -395,7 +416,7 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
                 if let Some(tx) = &streaming_tx_i16 {
                     let _ = tx.send(f);
                 } else if let Ok(mut buf) = samples_cb.lock() {
-                    buf.extend_from_slice(&f);
+                    append_capped(&mut buf, &f);
                 }
             },
             err_fn,
@@ -412,7 +433,7 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
                 if let Some(tx) = &streaming_tx_u16 {
                     let _ = tx.send(f);
                 } else if let Ok(mut buf) = samples_cb.lock() {
-                    buf.extend_from_slice(&f);
+                    append_capped(&mut buf, &f);
                 }
             },
             err_fn,
