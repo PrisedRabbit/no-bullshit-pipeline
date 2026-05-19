@@ -113,7 +113,9 @@ fn list_cache() -> &'static Mutex<Option<Vec<RecordingMetadata>>> {
 /// which rewrites the pipeline_states block in place).
 pub(crate) fn invalidate_list_cache() {
     if let Ok(mut guard) = list_cache().lock() {
+        let prev_n = guard.as_ref().map(|v| v.len());
         *guard = None;
+        log::info!("[ignore-trace] invalidate_list_cache: prev_cached_n={:?}", prev_n);
     }
 }
 
@@ -168,7 +170,9 @@ pub fn create_recording(title: String, tags: Vec<String>) -> Result<RecordingMet
 
 /// Write metadata to disk using atomic temp-file + rename pattern
 pub fn write_metadata(metadata: &RecordingMetadata) -> Result<(), String> {
-    let metadata_path = get_recording_dir(&metadata.id).join("metadata.json");
+    let dir = get_recording_dir(&metadata.id);
+    let dir_existed = dir.exists();
+    let metadata_path = dir.join("metadata.json");
     let temp_path = metadata_path.with_extension("json.tmp");
 
     // Serialize first — if this fails, no file is touched
@@ -181,6 +185,12 @@ pub fn write_metadata(metadata: &RecordingMetadata) -> Result<(), String> {
     fs::rename(&temp_path, &metadata_path)
         .map_err(|e| format!("Failed to finalize metadata: {}", e))?;
 
+    log::info!(
+        "[ignore-trace] write_metadata: id={} status={} dir_existed_before={}",
+        metadata.id,
+        metadata.status,
+        dir_existed
+    );
     invalidate_list_cache();
     Ok(())
 }
@@ -385,9 +395,20 @@ pub fn read_metadata(recording_id: &str) -> Result<RecordingMetadata, String> {
 pub fn list_recordings() -> Result<Vec<RecordingMetadata>, String> {
     if let Ok(guard) = list_cache().lock() {
         if let Some(cached) = guard.as_ref() {
+            let active: Vec<String> = cached
+                .iter()
+                .filter(|m| m.status == "recording" || m.status == "processing")
+                .map(|m| format!("{}({})", m.id, m.status))
+                .collect();
+            log::info!(
+                "[ignore-trace] list_recordings: CACHE HIT, n={}, active={:?}",
+                cached.len(),
+                active
+            );
             return Ok(cached.clone());
         }
     }
+    log::info!("[ignore-trace] list_recordings: CACHE MISS — scanning disk");
 
     let data_dir = get_data_dir();
 
@@ -431,6 +452,16 @@ pub fn list_recordings() -> Result<Vec<RecordingMetadata>, String> {
     if let Ok(mut guard) = list_cache().lock() {
         *guard = Some(recordings.clone());
     }
+    let active: Vec<String> = recordings
+        .iter()
+        .filter(|m| m.status == "recording" || m.status == "processing")
+        .map(|m| format!("{}({})", m.id, m.status))
+        .collect();
+    log::info!(
+        "[ignore-trace] list_recordings: SCAN DONE, n={}, active={:?}",
+        recordings.len(),
+        active
+    );
 
     Ok(recordings)
 }

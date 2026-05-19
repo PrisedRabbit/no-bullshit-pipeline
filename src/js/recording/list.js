@@ -3,6 +3,7 @@ import * as state from '../core/state.js';
 import { setAllRecordings } from '../core/state.js';
 import { escapeHtml, formatDuration, getDuration } from '../core/utils.js';
 import { emit } from '../core/events.js';
+import { trace } from '../ignore-trace.js';
 import { showConfirm } from '../ui/confirm-modal.js';
 import { showToast } from '../ui/toast.js';
 import { allPipelineDefs } from '../pipeline/state.js';
@@ -39,7 +40,7 @@ function formatElapsedSince(createdAt) {
 
 function recordingStatusHtml(rec) {
   const elapsed = formatElapsedSince(rec.created_at);
-  return `<span class="status-recording" style="color:var(--danger,#f87171)">Recording ${elapsed}</span>`;
+  return `<span class="recording-text">Recording ${elapsed}</span>`;
 }
 
 function tickActiveRecordingRows() {
@@ -63,13 +64,21 @@ function syncActiveRecordingTimers() {
   }
 }
 
+let __loadSeq = 0;
 export async function loadRecordings() {
+  const seq = ++__loadSeq;
   try {
+    const t0 = performance.now();
     const recordings = await invoke('list_recordings');
+    const dt = (performance.now() - t0).toFixed(1);
+    const active = (recordings || [])
+      .filter(r => r.status === 'recording' || r.status === 'processing')
+      .map(r => `${r.id.slice(0,8)}=${r.status}`);
+    trace(`JS loadRecordings#${seq} resolved in ${dt}ms, n=${(recordings||[]).length}, active=`, active);
     setAllRecordings(recordings || []);
     renderRecordingsList();
   } catch (error) {
-    console.error('Failed to load recordings:', error);
+    trace('JS loadRecordings failed:', String(error));
   }
 }
 

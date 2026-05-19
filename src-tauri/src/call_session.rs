@@ -79,6 +79,7 @@ pub fn install(app_handle: &tauri::AppHandle) {
 }
 
 fn handle_started(app: &tauri::AppHandle, call_app: Option<String>) {
+    log::info!("[ignore-trace] handle_started: call_app={:?}", call_app);
     // Belt-and-suspenders self-mic guards. call_detector already suppresses
     // call-event(started) when NBP itself just opened the mic, but cover the
     // race window where this listener fires after the flag flipped.
@@ -94,7 +95,7 @@ fn handle_started(app: &tauri::AppHandle, call_app: Option<String>) {
         .load(Ordering::Relaxed);
     if audio_recording || dictation_active {
         log::info!(
-            "call_session: started while NBP-self active (recording={}, dictation={}) — skipping",
+            "[ignore-trace] handle_started: NBP-self active (recording={}, dictation={}) — skipping",
             audio_recording,
             dictation_active
         );
@@ -337,18 +338,29 @@ fn run_start(app: tauri::AppHandle, session_id: String, call_app: Option<String>
 }
 
 fn handle_ended(app: &tauri::AppHandle) {
+    log::info!("[ignore-trace] handle_ended called");
     let owned = {
         let state = app.state::<CallSessionState>();
         let mut active = match state.active.lock() {
             Ok(g) => g,
             Err(_) => return,
         };
+        log::info!(
+            "[ignore-trace] handle_ended: active = {:?}",
+            active.as_ref().map(|s| format!(
+                "session_id={} app={:?} stage={:?}",
+                s.session_id, s.call_app, s.stage
+            ))
+        );
         match active.as_mut() {
-            None => return,
+            None => {
+                log::info!("[ignore-trace] handle_ended: active=None (already cleared by ignore?) — returning");
+                return;
+            }
             Some(s) => match s.stage {
                 CallStage::Starting { .. } => {
                     log::info!(
-                        "call_session: ended while starting (session {}) — flagging abort",
+                        "[ignore-trace] handle_ended: stage=Starting (session {}) — flagging abort_pending",
                         s.session_id
                     );
                     s.stage = CallStage::Starting { abort_pending: true };
@@ -358,6 +370,7 @@ fn handle_ended(app: &tauri::AppHandle) {
                     let rid = id.clone();
                     let call_app = s.call_app.clone();
                     *active = None;
+                    log::info!("[ignore-trace] handle_ended: stage=Recording id={} — cleared *active", rid);
                     Some((rid, call_app))
                 }
             },
@@ -434,18 +447,32 @@ fn handle_ended(app: &tauri::AppHandle) {
 /// force-deletes its directory regardless of duration.
 #[tauri::command]
 pub fn ignore_call_recording(app: tauri::AppHandle) {
+    log::info!("[ignore-trace] entered ignore_call_recording");
     let owned = {
         let state = app.state::<CallSessionState>();
         let mut active = match state.active.lock() {
             Ok(g) => g,
-            Err(_) => return,
+            Err(_) => {
+                log::warn!("[ignore-trace] active lock poisoned, bailing");
+                return;
+            }
         };
+        log::info!(
+            "[ignore-trace] active snapshot: {:?}",
+            active.as_ref().map(|s| format!(
+                "session_id={} app={:?} stage={:?}",
+                s.session_id, s.call_app, s.stage
+            ))
+        );
         match active.as_mut() {
-            None => return,
+            None => {
+                log::info!("[ignore-trace] active=None, returning early");
+                return;
+            }
             Some(s) => match s.stage {
                 CallStage::Starting { .. } => {
                     log::info!(
-                        "call_session: ignore during Starting (session {}) — flagging abort",
+                        "[ignore-trace] stage=Starting (session {}) — flagging abort_pending",
                         s.session_id
                     );
                     s.stage = CallStage::Starting { abort_pending: true };
@@ -454,6 +481,7 @@ pub fn ignore_call_recording(app: tauri::AppHandle) {
                 CallStage::Recording { ref id } => {
                     let rid = id.clone();
                     *active = None;
+                    log::info!("[ignore-trace] stage=Recording id={} — cleared *active", rid);
                     Some(rid)
                 }
             },
@@ -469,30 +497,58 @@ pub fn ignore_call_recording(app: tauri::AppHandle) {
         .lock()
         .ok()
         .and_then(|g| g.as_ref().map(|m| m.id.clone()));
+    log::info!(
+        "[ignore-trace] audio.current_session.id = {:?}, target rid = {}",
+        current_id,
+        rid
+    );
     if current_id.as_ref() == Some(&rid) {
-        let _ = crate::audio::stop_recording(app.clone(), audio_state);
+        log::info!("[ignore-trace] ownership matches, calling stop_recording");
+        match crate::audio::stop_recording(app.clone(), audio_state) {
+            Ok(_) => log::info!("[ignore-trace] stop_recording returned Ok"),
+            Err(e) => log::warn!("[ignore-trace] stop_recording returned Err: {}", e),
+        }
+    } else {
+        log::warn!(
+            "[ignore-trace] ownership MISMATCH (current={:?}, target={}) — skipping stop_recording",
+            current_id,
+            rid
+        );
     }
 
     // Force-delete the recording directory. stop_recording may have already
     // done it for short recordings; for longer ones we still want it gone
     // because the user explicitly said Ignore.
     let dir = crate::storage::get_recording_dir(&rid);
-    if dir.exists() {
+    let dir_existed = dir.exists();
+    log::info!(
+        "[ignore-trace] dir={} exists_before_remove={}",
+        dir.display(),
+        dir_existed
+    );
+    if dir_existed {
         if let Err(e) = std::fs::remove_dir_all(&dir) {
-            log::warn!("call_session: failed to delete {} after ignore: {}", rid, e);
+            log::warn!("[ignore-trace] failed to delete {} after ignore: {}", rid, e);
+        } else {
+            log::info!("[ignore-trace] removed dir {}", dir.display());
         }
     }
+    let dir_after = dir.exists();
+    log::info!("[ignore-trace] dir exists_after_remove={}", dir_after);
+
     // Always invalidate the list cache here — regardless of which path
     // deleted the dir (stop_recording's discard, our remove_dir_all, or
     // finalize racing with us). Without this, loadRecordings on the
     // frontend serves the stale row and the UI keeps showing the recording
     // that disk no longer has.
     crate::storage::invalidate_list_cache();
+    log::info!("[ignore-trace] invalidate_list_cache() done");
 
     // Notify the frontend so the recordings list refreshes immediately.
     // Without this, the row keeps ticking its live timer until something
     // else triggers a list reload.
     let _ = app.emit("recording_discarded", &rid);
+    log::info!("[ignore-trace] emitted recording_discarded({})", rid);
 
-    log::info!("call_session: recording {} ignored & deleted", rid);
+    log::info!("[ignore-trace] DONE: recording {} ignored", rid);
 }

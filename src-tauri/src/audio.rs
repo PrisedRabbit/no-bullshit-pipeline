@@ -205,6 +205,7 @@ pub fn resume_recording(_state: State<'_, AudioState>) -> Result<(), String> {
 
 #[tauri::command]
 pub fn stop_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>) -> Result<(), String> {
+    log::info!("[ignore-trace] stop_recording entered");
     // Stop silence monitor
     if let Ok(mut guard) = state.silence_monitor_stop.lock() {
         if let Some(flag) = guard.take() {
@@ -214,8 +215,10 @@ pub fn stop_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>
 
     let mut is_recording = state.is_recording.lock().map_err(|e| e.to_string())?;
     if !*is_recording {
+        log::info!("[ignore-trace] stop_recording: is_recording=false, returning Ok early");
         return Ok(());
     }
+    log::info!("[ignore-trace] stop_recording: is_recording=true, proceeding to stop captures");
 
     // CORRECT ORDER: Stop capture sources FIRST, then let mixer drain
 
@@ -266,6 +269,12 @@ pub fn stop_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>
     // the optimistic `recording_started` (call-popup flow) or `loadRecordings`
     // (manual flow). Without this, the row lingers until something else
     // triggers a list refresh.
+    log::info!(
+        "[ignore-trace] stop_recording: duration={:.2}s, threshold={:.2}s, path={}",
+        duration_sec,
+        threshold,
+        if duration_sec < threshold { "DISCARD" } else { "FINALIZE" }
+    );
     if duration_sec < threshold {
         let mut session_guard = state.current_session.lock().map_err(|e| e.to_string())?;
         let discarded_id = session_guard.take().map(|meta| {
@@ -275,8 +284,18 @@ pub fn stop_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>
                 id, duration_sec, threshold
             );
             let dir = storage::get_recording_dir(&id);
-            if dir.exists() {
-                let _ = std::fs::remove_dir_all(&dir);
+            let dir_existed = dir.exists();
+            log::info!(
+                "[ignore-trace] stop_recording DISCARD: id={} dir={} existed={}",
+                id,
+                dir.display(),
+                dir_existed
+            );
+            if dir_existed {
+                match std::fs::remove_dir_all(&dir) {
+                    Ok(_) => log::info!("[ignore-trace] stop_recording DISCARD: removed dir"),
+                    Err(e) => log::warn!("[ignore-trace] stop_recording DISCARD: remove failed: {}", e),
+                }
             }
             id
         });
@@ -291,7 +310,10 @@ pub fn stop_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>
             // below) serves the stale row and the list keeps showing the
             // discarded recording.
             storage::invalidate_list_cache();
+            log::info!("[ignore-trace] stop_recording DISCARD: invalidated cache, emitting recording_discarded({})", id);
             let _ = app_handle.emit("recording_discarded", &id);
+        } else {
+            log::warn!("[ignore-trace] stop_recording DISCARD: session_guard.take() returned None — no emit");
         }
         return Ok(());
     }
@@ -334,16 +356,24 @@ pub fn stop_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>
             let finalization_id = id.clone();
             let finalization_app_handle = app_handle.clone();
             Some(std::thread::spawn(move || {
+                log::info!("[ignore-trace] finalize thread started for {}", finalization_id);
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     finalize_recording(&finalization_id, duration_sec, save_mix_only);
                 }));
                 if result.is_err() {
                     eprintln!("Finalization thread panicked for {}", finalization_id);
+                    log::warn!("[ignore-trace] finalize PANICKED for {}", finalization_id);
                     if let Ok(mut m) = storage::read_metadata(&finalization_id) {
                         m.status = "error".to_string();
                         let _ = storage::write_metadata(&m);
                     }
                 }
+                let dir_after = storage::get_recording_dir(&finalization_id).exists();
+                log::info!(
+                    "[ignore-trace] finalize thread DONE for {}, dir_exists={}, emitting recording_complete",
+                    finalization_id,
+                    dir_after
+                );
                 // Notify frontend that recording is finalized and ready
                 let _ = finalization_app_handle.emit("recording_complete", &finalization_id);
             }))

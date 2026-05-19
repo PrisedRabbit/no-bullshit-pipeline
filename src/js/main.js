@@ -3,6 +3,7 @@ import { invoke, listen } from './core/tauri.js';
 import * as state from './core/state.js';
 import { escapeHtml } from './core/utils.js';
 import { on, emit } from './core/events.js';
+import { trace } from './ignore-trace.js';
 
 // UI
 import './ui/confirm-modal.js';
@@ -136,8 +137,11 @@ async function init() {
   // Auto-transcribe + auto-execute on recording completion
   listen('recording_complete', async (event) => {
     const recordingId = event.payload;
+    trace('JS recording_complete:', recordingId);
     state.setIsRecording(false);
     await loadRecordings();
+    trace('JS after loadRecordings (complete), statuses:',
+      state.allRecordings.map(r => `${r.id.slice(0,8)}=${r.status}`));
     if (state.selectedRecordingId === recordingId) showDetailView(recordingId);
 
     if (state.appSettings?.transcription?.enabled) {
@@ -155,10 +159,13 @@ async function init() {
   // after recording_complete fires — same pendingAutoExec pathway the manual
   // flow uses on stop.
   listen('recording_started', async (event) => {
-    const { id, pipelines } = event.payload || {};
+    const { id, pipelines, source } = event.payload || {};
+    trace('JS recording_started:', { id, pipelines, source });
     if (!id) return;
     state.setIsRecording(true);
     await loadRecordings();
+    trace('JS after loadRecordings (started), statuses:',
+      state.allRecordings.map(r => `${r.id.slice(0,8)}=${r.status}`));
     if (Array.isArray(pipelines) && pipelines.length > 0) {
       state.pendingAutoExec.set(id, pipelines);
     }
@@ -170,9 +177,12 @@ async function init() {
   // only signal we get.
   listen('recording_discarded', async (event) => {
     const recordingId = typeof event.payload === 'string' ? event.payload : null;
+    trace('JS recording_discarded:', recordingId);
     state.setIsRecording(false);
     if (recordingId) state.pendingAutoExec.delete(recordingId);
     await loadRecordings();
+    trace('JS after loadRecordings (discarded), statuses:',
+      state.allRecordings.map(r => `${r.id.slice(0,8)}=${r.status}`));
   });
 
   // Track in-flight transcriptions so the recordings list can render a

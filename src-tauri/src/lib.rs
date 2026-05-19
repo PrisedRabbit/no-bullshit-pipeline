@@ -69,6 +69,11 @@ fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+#[tauri::command]
+fn log_from_js(msg: String) {
+    log::info!("[js] {}", msg);
+}
+
 /// True on macOS 26.0+ (Tahoe) — the OS version that ships the SpeechAnalyzer
 /// framework powering the Apple Speech provider. Used by the frontend to hide
 /// the dropdown option on older systems.
@@ -330,6 +335,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_app_version,
+            log_from_js,
             has_apple_speech,
             audio::start_recording,
             audio::stop_recording,

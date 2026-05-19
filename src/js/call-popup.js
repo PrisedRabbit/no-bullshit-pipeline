@@ -130,8 +130,12 @@ if (card && popup && typeof popup.startDragging === 'function') {
   });
 }
 
-ignoreBtn.addEventListener('click', () => {
-  invoke('ignore_call_recording').catch((err) => console.error('ignore_call_recording failed', err));
+ignoreBtn.addEventListener('click', async () => {
+  const { trace } = await import('./ignore-trace.js');
+  trace('popup Ignore clicked at', new Date().toISOString());
+  invoke('ignore_call_recording')
+    .then(() => trace('popup ignore_call_recording invoke resolved'))
+    .catch((err) => trace('popup ignore_call_recording failed:', String(err)));
   hide();
 });
 
