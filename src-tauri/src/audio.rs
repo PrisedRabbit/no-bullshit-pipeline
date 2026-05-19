@@ -285,6 +285,12 @@ pub fn stop_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>
         crate::mic_audio::reset_audio_level();
         crate::system_audio::reset_system_audio_level();
         if let Some(id) = discarded_id {
+            // remove_dir_all bypasses write_metadata, so the list cache
+            // still holds the row with status="recording". Without this the
+            // frontend's loadRecordings (triggered by recording_discarded
+            // below) serves the stale row and the list keeps showing the
+            // discarded recording.
+            storage::invalidate_list_cache();
             let _ = app_handle.emit("recording_discarded", &id);
         }
         return Ok(());

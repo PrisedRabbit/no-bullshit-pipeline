@@ -286,14 +286,12 @@ fn run_start(app: tauri::AppHandle, session_id: String, call_app: Option<String>
                 let dir = crate::storage::get_recording_dir(&recording_id);
                 if dir.exists() {
                     let _ = std::fs::remove_dir_all(&dir);
-                    // remove_dir_all bypasses storage's normal write path,
-                    // so the in-memory list cache still holds a row with
-                    // status="recording" pointing at a directory that no
-                    // longer exists. Without this nudge, the next
-                    // loadRecordings serves the stale entry and the list's
-                    // live timer keeps ticking on a deleted recording.
-                    crate::storage::invalidate_list_cache();
                 }
+                // Always invalidate — the dir may already be gone (stop_recording's
+                // discard path removed it), but the list cache still holds a row
+                // with status="recording". Without this nudge, loadRecordings
+                // would serve the stale entry and the live timer keeps ticking.
+                crate::storage::invalidate_list_cache();
                 // Tell the frontend the recording is gone so the list drops
                 // its row immediately. recording_complete from a failed
                 // finalize might also fire later, but waiting for it would
@@ -482,15 +480,14 @@ pub fn ignore_call_recording(app: tauri::AppHandle) {
     if dir.exists() {
         if let Err(e) = std::fs::remove_dir_all(&dir) {
             log::warn!("call_session: failed to delete {} after ignore: {}", rid, e);
-        } else {
-            // remove_dir_all bypasses write_metadata / delete_recording, so
-            // the in-memory list cache still holds a row with
-            // status="recording" pointing at a now-gone directory. Drop
-            // the cache so the next list_recordings rescans disk and the
-            // row disappears from the UI.
-            crate::storage::invalidate_list_cache();
         }
     }
+    // Always invalidate the list cache here — regardless of which path
+    // deleted the dir (stop_recording's discard, our remove_dir_all, or
+    // finalize racing with us). Without this, loadRecordings on the
+    // frontend serves the stale row and the UI keeps showing the recording
+    // that disk no longer has.
+    crate::storage::invalidate_list_cache();
 
     // Notify the frontend so the recordings list refreshes immediately.
     // Without this, the row keeps ticking its live timer until something
