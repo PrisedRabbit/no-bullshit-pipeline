@@ -75,6 +75,23 @@ impl SystemAudioRecorder {
     }
 }
 
+impl Drop for SystemAudioRecorder {
+    /// The capture thread loops on `while !should_stop`, so a recorder that
+    /// is dropped WITHOUT an explicit `stop()` would leave that thread
+    /// running forever — holding its ring buffer, normalizer, ProcessTap and
+    /// IO proc, and never reaching the `CaptureSession` teardown at the end
+    /// of `run_audio_capture`. That happened on the dictation cancel path
+    /// (`handle.abort()` of the spawn_blocking that produced the recorder)
+    /// and the stop-timeout path (handle discarded): every system-audio
+    /// shortcut orphaned a thread, leaking memory unboundedly.
+    ///
+    /// `stop()` is idempotent (it `take()`s the join handle), so this is
+    /// safe alongside an explicit `stop()` on the normal path.
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 pub fn start_system_capture(output_path: std::path::PathBuf, skip_file: bool) -> Result<SystemAudioRecorder> {
     SystemAudioRecorder::new(output_path, skip_file)
 }

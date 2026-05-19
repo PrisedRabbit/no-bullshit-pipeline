@@ -908,10 +908,11 @@ pub fn cancel_inner(app: &AppHandle) {
     };
     drop(session.stream.take());
     if let Some(handle) = session.system_setup.take() {
-        // Cancel path is sync — can't await. Abort the background setup;
-        // if the tap had already produced a recorder, dropping the join
-        // handle drops the result, which in turn drops the recorder and
-        // stops the capture thread via its own Drop impl.
+        // Cancel path is sync — can't await. Abort the background setup.
+        // If the spawn_blocking already produced a SystemAudioRecorder,
+        // aborting drops that result; SystemAudioRecorder's Drop impl then
+        // calls stop(), joining and ending the capture thread (otherwise it
+        // would loop forever — this was the system-audio memory leak).
         handle.abort();
     }
     unregister_escape_cancel(app);
