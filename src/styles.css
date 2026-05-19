@@ -33,38 +33,12 @@
 }
 
 /* Deep Blue Theme - Modern audio-focused palette */
-body.deep-blue {
-  --bg-primary: #0a1628;
-  --bg-sidebar: #0f1d32;
-  --bg-card: #152238;
-  --bg-input: #1c2d45;
-  --text-primary: #e8f0ff;
-  --text-secondary: #8ba3c7;
-  --accent: #3b82f6;
-  --accent-soft: rgba(59, 130, 246, 0.15);
-  --accent-hover: #60a5fa;
-  --recording: #ef4444;
-  --border: rgba(59, 130, 246, 0.25);
-  --success: #22c55e;
-  --danger: #f87171;
-  --warning: #f59e0b;
-}
-
-/* Deep Blue theme-specific overrides */
-
-body.deep-blue .modal-btn.primary {
-  color: #ffffff;
-}
-
-body.deep-blue .theme-btn.active {
-  color: #ffffff;
-}
-
-body.deep-blue .logo-text {
-  background: linear-gradient(135deg, #3b82f6, #60a5fa);
-  -webkit-background-clip: text;
-  background-clip: text;
-}
+/* Deep Blue theme retired — collapsed into Dark (the former Neon Purple).
+   Theme system is now trinary: Auto / Light / Dark, with Auto following
+   `prefers-color-scheme` via src/js/ui/theme.js. The `:root` block above
+   is the Dark palette; `body.light` below overrides for Light. body.dark
+   intentionally has no override block — it inherits :root and exists only
+   so JS has a class to toggle. */
 
 /* Light Theme - Clean, professional, high contrast */
 body.light {
@@ -806,6 +780,22 @@ body.detail-open .detail-view {
   gap: 0.75rem;
   white-space: nowrap;
   opacity: 0.75;
+}
+
+/* Transcript hint under the row's date/duration meta. Truncated to ~3
+   lines server-side via `truncate_preview`; this just constrains layout
+   and gives it the muted-secondary look. */
+.recording-preview {
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
 }
 
 .recording-tags {

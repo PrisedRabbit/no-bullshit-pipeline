@@ -331,6 +331,28 @@ async fn transcribe_recording_inner(
     std::fs::rename(&temp_path, &json_path)
         .map_err(|e| format!("Failed to finalize transcript: {}", e))?;
 
+    // Populate the metadata `transcript_preview` so the recordings list can
+    // render a hint of what the call was about without re-reading the whole
+    // transcript on every refresh. ~200 chars, broken at word boundary.
+    let preview_text = render_transcript_from_json(&transcript_json);
+    let preview = truncate_preview(&preview_text, 200);
+    if let Ok(mut meta) = crate::storage::read_metadata(&recording_id) {
+        if meta.transcript_preview.as_deref() != Some(preview.as_str()) {
+            meta.transcript_preview = if preview.is_empty() {
+                None
+            } else {
+                Some(preview)
+            };
+            if let Err(e) = crate::storage::write_metadata(&meta) {
+                log::warn!(
+                    "transcription: failed to write preview for {}: {}",
+                    recording_id,
+                    e
+                );
+            }
+        }
+    }
+
     let _ = app_handle.emit("transcription_progress", TranscriptionProgress {
         recording_id: recording_id.clone(),
         stage: "Done".to_string(),
@@ -338,7 +360,25 @@ async fn transcribe_recording_inner(
     });
 
     // Return rendered text for immediate UI display
-    Ok(render_transcript_from_json(&transcript_json))
+    Ok(preview_text)
+}
+
+/// Compress a transcript to a short preview snippet. Collapses whitespace,
+/// truncates to `max` chars at a word boundary, appends an ellipsis if cut.
+fn truncate_preview(text: &str, max: usize) -> String {
+    let cleaned: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if cleaned.chars().count() <= max {
+        return cleaned;
+    }
+    // Char-safe slice to ~max chars.
+    let mut end = 0;
+    for (i, _) in cleaned.char_indices().take(max) {
+        end = i;
+    }
+    // Walk back to the last space so we don't cut a word in half.
+    let cut = &cleaned[..end];
+    let word_end = cut.rfind(' ').unwrap_or(end);
+    format!("{}…", cleaned[..word_end].trim_end())
 }
 
 /// Render text from a TranscriptJson struct

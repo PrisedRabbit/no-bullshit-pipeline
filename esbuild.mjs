@@ -25,10 +25,17 @@ const hudCtx = await esbuild.context({
   format: 'esm',
 });
 
+const callPopupCtx = await esbuild.context({
+  ...sharedOptions,
+  entryPoints: ['src/js/call-popup.js'],
+  outfile: 'src/dist/call-popup.js',
+  format: 'esm',
+});
+
 if (isWatch) {
-  await Promise.all([mainCtx.watch(), hudCtx.watch()]);
+  await Promise.all([mainCtx.watch(), hudCtx.watch(), callPopupCtx.watch()]);
   console.log('esbuild watching...');
 } else {
-  await Promise.all([mainCtx.rebuild(), hudCtx.rebuild()]);
-  await Promise.all([mainCtx.dispose(), hudCtx.dispose()]);
+  await Promise.all([mainCtx.rebuild(), hudCtx.rebuild(), callPopupCtx.rebuild()]);
+  await Promise.all([mainCtx.dispose(), hudCtx.dispose(), callPopupCtx.dispose()]);
 }

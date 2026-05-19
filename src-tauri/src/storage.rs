@@ -21,6 +21,13 @@ pub struct RecordingMetadata {
     pub health: Option<RecordingHealth>,
     #[serde(default)]
     pub pipelines: Vec<PipelineState>,
+    /// First ~200 chars of transcript, populated by `transcription` after the
+    /// transcript is written to disk. Rendered as preview line in the recording
+    /// list so the user can tell what the meeting was about without opening it.
+    /// Absent for never-transcribed recordings; serde default keeps it
+    /// backward-compatible with older metadata files.
+    #[serde(default)]
+    pub transcript_preview: Option<String>,
 }
 
 fn default_status() -> String {
@@ -146,6 +153,7 @@ pub fn create_recording(title: String, tags: Vec<String>) -> Result<RecordingMet
             issues: vec![],
         }),
         pipelines: vec![],
+        transcript_preview: None,
     };
     
     // Create the recording directory
@@ -277,6 +285,85 @@ pub fn delete_recording(recording_id: &str) -> Result<(), String> {
     }
     invalidate_list_cache();
     Ok(())
+}
+
+/// Sweep recordings stuck in `status="recording"` or `status="processing"`
+/// from a previous run.
+///
+/// `processing` is leftover from a crash mid-finalization. `recording` is
+/// leftover from a crash / force-quit / abrupt restart while the recording
+/// was active — no live runtime can possibly be writing to it now, so the
+/// status is stale by definition.
+///
+/// Strategy: flip both to "error" with a health note. The recording's
+/// audio_mix.ogg may still exist on disk and is playable; the user can
+/// review, retry transcription, or delete from the list. We deliberately
+/// don't auto-delete — losing audio silently is worse than a visible
+/// "error" row.
+///
+/// Returns the number of recordings repaired.
+pub fn cleanup_stuck_processing_recordings() -> usize {
+    let data_dir = get_data_dir();
+    if !data_dir.exists() {
+        return 0;
+    }
+    let entries = match fs::read_dir(&data_dir) {
+        Ok(e) => e,
+        Err(_) => return 0,
+    };
+
+    let mut repaired = 0;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let metadata_path = path.join("metadata.json");
+        if !metadata_path.exists() {
+            continue;
+        }
+        let mut metadata: RecordingMetadata = match File::open(&metadata_path)
+            .ok()
+            .and_then(|f| serde_json::from_reader(f).ok())
+        {
+            Some(m) => m,
+            None => continue,
+        };
+        let stale_status = metadata.status == "processing" || metadata.status == "recording";
+        if !stale_status {
+            continue;
+        }
+
+        let id = metadata.id.clone();
+        let prev_status = metadata.status.clone();
+        metadata.status = "error".to_string();
+        let mut health = metadata.health.unwrap_or_default();
+        health.status = "error".to_string();
+        let msg = if prev_status == "recording" {
+            "Recording was active when the app exited — backend lost track of the live session. Audio file may still be playable; transcribe manually or delete."
+        } else {
+            "Recording stuck in processing — app exited mid-finalize. Audio file may still be playable; retry transcription or delete."
+        };
+        health.issues.push(RecordingIssue {
+            issue_type: "error".to_string(),
+            timestamp_ms: 0,
+            message: Some(msg.to_string()),
+        });
+        metadata.health = Some(health);
+
+        if write_metadata(&metadata).is_ok() {
+            log::info!(
+                "storage: repaired stuck {} recording {}",
+                prev_status, id
+            );
+            repaired += 1;
+        }
+    }
+
+    if repaired > 0 {
+        invalidate_list_cache();
+    }
+    repaired
 }
 
 /// Read metadata from disk

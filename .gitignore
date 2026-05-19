@@ -48,6 +48,7 @@ builds
 #tauri
 src-tauri/target
 .claude/commands
+.claude/skills/
 .cursor/commands
 _bmad
 input
@@ -70,6 +71,7 @@ _hltm
 .hltm/logs
 .hltm/human.md
 pilot
+.pilot/
 .hltm-pilot
 
 # Swift sidecar build artifacts

@@ -261,19 +261,32 @@ pub fn stop_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>
 
     let threshold = crate::config::load_settings().auto_discard_seconds as f64;
 
-    // Too short — discard immediately, never enter "processing"
+    // Too short — discard immediately, never enter "processing".
+    // Emit `recording_discarded` so the frontend can drop the row added by
+    // the optimistic `recording_started` (call-popup flow) or `loadRecordings`
+    // (manual flow). Without this, the row lingers until something else
+    // triggers a list refresh.
     if duration_sec < threshold {
         let mut session_guard = state.current_session.lock().map_err(|e| e.to_string())?;
-        if let Some(meta) = session_guard.take() {
-            eprintln!("Discarding recording {} (duration {:.2}s < threshold {:.2}s)", meta.id, duration_sec, threshold);
-            let dir = storage::get_recording_dir(&meta.id);
+        let discarded_id = session_guard.take().map(|meta| {
+            let id = meta.id.clone();
+            eprintln!(
+                "Discarding recording {} (duration {:.2}s < threshold {:.2}s)",
+                id, duration_sec, threshold
+            );
+            let dir = storage::get_recording_dir(&id);
             if dir.exists() {
                 let _ = std::fs::remove_dir_all(&dir);
             }
-        }
+            id
+        });
+        drop(session_guard);
         *is_recording = false;
         crate::mic_audio::reset_audio_level();
         crate::system_audio::reset_system_audio_level();
+        if let Some(id) = discarded_id {
+            let _ = app_handle.emit("recording_discarded", &id);
+        }
         return Ok(());
     }
 

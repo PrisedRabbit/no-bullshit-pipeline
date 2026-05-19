@@ -20,6 +20,49 @@ const dateOptions = {
 // and selection survive when nothing (or only some rows) changed.
 const renderedRows = new Map();
 
+// Live timer for any row in `status: "recording"`. Ticks once per second
+// and patches just the meta span of those rows — avoids full list re-render.
+// Started/stopped by `syncActiveRecordingTimers()` based on whether any
+// recording is currently in the active state.
+let activeTimerInterval = null;
+
+function formatElapsedSince(createdAt) {
+  const start = new Date(createdAt).getTime();
+  if (!Number.isFinite(start)) return '';
+  const elapsedSec = Math.max(0, Math.floor((Date.now() - start) / 1000));
+  const h = Math.floor(elapsedSec / 3600);
+  const m = Math.floor((elapsedSec % 3600) / 60);
+  const s = elapsedSec % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}
+
+function recordingStatusHtml(rec) {
+  const elapsed = formatElapsedSince(rec.created_at);
+  return `<span class="status-recording" style="color:var(--danger,#f87171)">Recording ${elapsed}</span>`;
+}
+
+function tickActiveRecordingRows() {
+  for (const rec of state.allRecordings) {
+    if (rec.status !== 'recording') continue;
+    const row = document.querySelector(`.recording-item[data-id="${CSS.escape(rec.id)}"]`);
+    if (!row) continue;
+    const metaSpans = row.querySelectorAll('.recording-meta > span');
+    if (metaSpans.length === 0) continue;
+    metaSpans[metaSpans.length - 1].outerHTML = recordingStatusHtml(rec);
+  }
+}
+
+function syncActiveRecordingTimers() {
+  const anyActive = state.allRecordings.some((r) => r.status === 'recording');
+  if (anyActive && activeTimerInterval == null) {
+    activeTimerInterval = setInterval(tickActiveRecordingRows, 1000);
+  } else if (!anyActive && activeTimerInterval != null) {
+    clearInterval(activeTimerInterval);
+    activeTimerInterval = null;
+  }
+}
+
 export async function loadRecordings() {
   try {
     const recordings = await invoke('list_recordings');
@@ -32,10 +75,30 @@ export async function loadRecordings() {
 
 function buildRowHtml(rec) {
   const isProcessing = rec.status === 'processing';
+  const isRecordingStatus = rec.status === 'recording';
   const isCurrentlyRecording = state.isRecording && state.selectedRecordingId === rec.id;
-  const metaText = isProcessing
-    ? '<span style="color:var(--accent)">Processing...</span>'
-    : formatDuration(getDuration(rec));
+  const isTranscribing = state.transcribingIds && state.transcribingIds.has(rec.id);
+
+  // Status text takes priority over duration when an action is in flight.
+  // Order: recording > processing > transcribing > duration (idle).
+  let metaText;
+  if (isRecordingStatus) {
+    metaText = recordingStatusHtml(rec);
+  } else if (isProcessing) {
+    metaText = '<span style="color:var(--accent)">Processing…</span>';
+  } else if (isTranscribing) {
+    metaText = '<span style="color:var(--accent)">Transcribing…</span>';
+  } else {
+    metaText = formatDuration(getDuration(rec));
+  }
+
+  // Transcript preview — populated by `transcription` after the run lands.
+  // Tiny 1-3 line snippet so the user can tell what the meeting was about
+  // without opening the recording. Falls back to absent for un-transcribed
+  // or empty-transcript recordings.
+  const previewHtml = rec.transcript_preview
+    ? `<div class="recording-preview">${escapeHtml(rec.transcript_preview)}</div>`
+    : '';
 
   const hasIssues = rec.health && rec.health.status !== 'ok';
   const healthIcon = hasIssues
@@ -69,6 +132,7 @@ function buildRowHtml(rec) {
             <span>${metaText}</span>
           </div>
         </div>
+        ${previewHtml}
         ${pipelineTags ? `<div class="recording-pipeline-tags">${pipelineTags}</div>` : ''}
         ${deleteBtnHtml}
       </div>`;
@@ -154,4 +218,10 @@ export function renderRecordingsList() {
     }
     prevNode = info.element;
   }
+
+  // Drive the per-second tick for any in-progress recording rows so the
+  // "Recording 0:42" stays current. Started here (not on every loadRecordings
+  // call) so it reflects whatever's in state.allRecordings right now and
+  // self-stops when the last active recording finalizes.
+  syncActiveRecordingTimers();
 }

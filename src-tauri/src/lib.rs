@@ -54,6 +54,8 @@ mod integrations;
 pub mod local_llm;
 pub mod realtime_transcription;
 mod call_detector;
+mod call_session;
+mod audio_process_detector;
 mod dictation;
 mod dictation_streaming;
 use audio::AudioState;
@@ -251,6 +253,32 @@ pub fn run() {
                 None
             };
             app.manage(call_detector::CallDetectorState(std::sync::Mutex::new(detector)));
+            app.manage(call_session::CallSessionState::new());
+            call_session::install(app.handle());
+
+            // Heal any recordings stuck in `status="processing"` from a
+            // previous crash / force-quit during finalization. Without this
+            // they would display as "Processing..." forever.
+            let repaired = storage::cleanup_stuck_processing_recordings();
+            if repaired > 0 {
+                log::warn!(
+                    "startup: repaired {} stuck-in-processing recording(s)",
+                    repaired
+                );
+            }
+
+            // HAL per-process audio detector (macOS 14.4+). Runs alongside
+            // the legacy device-level call_detector — both emit `call-event`
+            // and call_session dedups via the existing overwrite policy.
+            // Required for FaceTime detection (avconferenced daemon path
+            // doesn't flip device-level DeviceIsRunningSomewhere).
+            let process_detector = audio_process_detector::AudioProcessDetectorState::new();
+            audio_process_detector::sync_detector(
+                &process_detector,
+                settings.call_detection_enabled,
+                app.handle(),
+            );
+            app.manage(process_detector);
 
             // Build system tray menu
             build_tray(app)?;
@@ -259,6 +287,10 @@ pub fn run() {
             // shown during dictation. Repositioned to the cursor's monitor
             // on each session start (see dictation::start_inner).
             build_dictation_hud(app.handle())?;
+
+            // Call detector debug popup: tiny overlay that flashes on each
+            // call start/end transition. Auto-hides from JS. See call_detector.
+            build_call_popup(app.handle())?;
 
             // Quick Dictate: init plugin (always, even if disabled — so reload works
             // at runtime without restart). Shortcuts are then registered if enabled.
@@ -416,6 +448,8 @@ pub fn run() {
             request_accessibility_permission,
             restart_app,
             set_hud_clickthrough,
+            set_call_popup_clickthrough,
+            call_session::ignore_call_recording,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -610,6 +644,31 @@ fn set_hud_clickthrough(app: tauri::AppHandle, clickthrough: bool) {
     }
 }
 
+/// Mirror of `set_hud_clickthrough` for the call-popup window. JS calls this
+/// when the popup becomes visible (clickthrough=false → user can drag) and
+/// again when it auto-hides (clickthrough=true → idle window doesn't eat
+/// clicks meant for whatever app is below).
+#[tauri::command]
+fn set_call_popup_clickthrough(app: tauri::AppHandle, clickthrough: bool) {
+    let Some(window) = app.get_webview_window("call-popup") else {
+        return;
+    };
+    #[cfg(target_os = "macos")]
+    unsafe {
+        if let Ok(ns_window_ptr) = window.ns_window() {
+            let ns_window: *mut objc2::runtime::AnyObject =
+                ns_window_ptr as *mut objc2::runtime::AnyObject;
+            if !ns_window.is_null() {
+                let _: () = objc2::msg_send![ns_window, setIgnoresMouseEvents: clickthrough];
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window.set_ignore_cursor_events(clickthrough);
+    }
+}
+
 /// Reposition the HUD over the monitor that currently hosts the mouse cursor.
 /// macOS users with multiple displays expect dictation overlays to appear on
 /// the screen they're working on, not on the primary monitor by default.
@@ -745,6 +804,152 @@ fn build_dictation_hud(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error:
         reposition_dictation_hud(app);
     }
     Ok(())
+}
+
+/// Build the call-detector debug popup window. Stays hidden until the
+/// detector emits a `call-event`; JS in `call-popup.js` flips it visible for
+/// ~3s and then hides it again. Will be replaced by a real popup later.
+fn build_call_popup(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    if app.get_webview_window("call-popup").is_some() {
+        return Ok(());
+    }
+
+    let mut builder = WebviewWindowBuilder::new(
+        app,
+        "call-popup",
+        WebviewUrl::App("call-popup.html".into()),
+    )
+    .title("")
+    // 120px tall to fit info row + [Record this meeting] [Ignore] buttons
+    // on prompt; the "saved" mode shows only the info row and pads vertically.
+    // accept_first_mouse(true) so the first click after the popup appears
+    // (when it's not the focused window) still hits Record/Ignore — without
+    // it, that first click only activates the window and is consumed.
+    .inner_size(340.0, 120.0)
+    .position(0.0, 0.0)
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .focused(false)
+    .accept_first_mouse(true)
+    .visible(false)
+    .resizable(false)
+    .shadow(false);
+
+    #[cfg(debug_assertions)]
+    {
+        builder = builder.devtools(true);
+    }
+
+    builder.build()?;
+
+    if let Some(window) = app.get_webview_window("call-popup") {
+        // Float across all macOS Spaces. tao's set_visible_on_all_workspaces
+        // only flips `NSWindowCollectionBehaviorCanJoinAllSpaces` — which
+        // doesn't cover *fullscreen* Spaces (Zoom in screen-share/full video
+        // sits in its own fullscreen Space). We OR in FullScreenAuxiliary
+        // below via NSWindow.collectionBehavior so the popup follows there
+        // too.
+        let _ = window.set_visible_on_all_workspaces(true);
+
+        // Configure NSWindow directly:
+        //   1. setIgnoresMouseEvents:true — initial state is click-through
+        //      (popup is invisible). JS flips this off on `call-event` so the
+        //      user can drag the visible card, then back on after hide.
+        //   2. setLevel:1001 — above kCGScreenSaverWindowLevel (1000) so we
+        //      float over Zoom/Teams call panels. Tauri's always_on_top(true)
+        //      only sets NSFloatingWindowLevel (3), which call apps cheerfully
+        //      sit on top of. Set BEFORE show() so the level is in effect on
+        //      first appearance. CAVEAT: calling tauri set_always_on_top(...)
+        //      later would reset to floating — don't do that on this window.
+        //      Does NOT cover Zoom fullscreen screen-share (CGShieldingWindowLevel
+        //      ≈ INT_MAX); going there is user-hostile and not attempted.
+        //   3. collectionBehavior |= FullScreenAuxiliary (1<<8 = 256) — needed
+        //      so the popup appears even when the foreground app is in a
+        //      fullscreen Space (Zoom call in fullscreen, FaceTime fullscreen,
+        //      etc). Without this the popup is trapped on Desktop 1.
+        //   4. setMovable + setMovableByWindowBackground — borderless windows
+        //      default to non-movable; JS startDragging() needs both to be on.
+        #[cfg(target_os = "macos")]
+        unsafe {
+            if let Ok(ns_window_ptr) = window.ns_window() {
+                let ns_window: *mut objc2::runtime::AnyObject =
+                    ns_window_ptr as *mut objc2::runtime::AnyObject;
+                if !ns_window.is_null() {
+                    let _: () = objc2::msg_send![ns_window, setIgnoresMouseEvents: true];
+                    let _: () = objc2::msg_send![ns_window, setLevel: 1001_i64];
+                    let _: () = objc2::msg_send![ns_window, setMovable: true];
+                    let _: () = objc2::msg_send![ns_window, setMovableByWindowBackground: true];
+
+                    let current: u64 = objc2::msg_send![ns_window, collectionBehavior];
+                    // NSWindowCollectionBehaviorFullScreenAuxiliary = 1 << 8
+                    let updated = current | (1u64 << 8);
+                    let _: () = objc2::msg_send![ns_window, setCollectionBehavior: updated];
+                }
+            }
+        }
+
+        // Position once at build; call_session re-runs `reposition_call_popup`
+        // on each call-event so the popup follows the cursor monitor.
+        reposition_call_popup(app);
+
+        // Reveal the window once content is positioned and NSWindow attrs
+        // are in place. From here on the NSWindow stays shown — visibility
+        // is driven purely by the CSS opacity transition in call-popup.html.
+        // With transparent:true + ignoresMouseEvents:true + body opacity 0
+        // by default, the shown window is functionally invisible and
+        // click-through until JS toggles the `visible` class on body.
+        let _ = window.show();
+    }
+    Ok(())
+}
+
+/// Position the call-popup at top-right of the monitor that currently hosts
+/// the mouse cursor (falls back to the primary monitor). Called once at
+/// build and again from `call_session::handle_started` per call event so a
+/// multi-monitor user gets the popup on the screen they're actually looking
+/// at. No persistence — drag survives the session but a fresh call event
+/// snaps back to this default.
+pub fn reposition_call_popup(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("call-popup") else {
+        return;
+    };
+    let Ok(monitors) = window.available_monitors() else {
+        return;
+    };
+    if monitors.is_empty() {
+        return;
+    }
+    let cursor = window.cursor_position().ok();
+    let active = cursor.and_then(|c| {
+        monitors.iter().find(|m| {
+            let pos = m.position();
+            let size = m.size();
+            let x0 = pos.x as f64;
+            let y0 = pos.y as f64;
+            let x1 = x0 + size.width as f64;
+            let y1 = y0 + size.height as f64;
+            c.x >= x0 && c.x < x1 && c.y >= y0 && c.y < y1
+        })
+    });
+    let monitor = match active.or_else(|| monitors.first()) {
+        Some(m) => m,
+        None => return,
+    };
+    let scale = monitor.scale_factor();
+    let m_pos = monitor.position();
+    let m_size = monitor.size();
+    let popup_w = 340.0_f64;
+    let right_inset = 16.0_f64;          // matches macOS Notification Center
+    let top_inset = 40.0_f64;            // menubar (~24) + cushion (16)
+    let mx = m_pos.x as f64 / scale;
+    let my = m_pos.y as f64 / scale;
+    let mw = m_size.width as f64 / scale;
+    let x = mx + mw - popup_w - right_inset;
+    let y = my + top_inset;
+    let _ = window.set_position(tauri::LogicalPosition::new(x, y));
 }
 
 /// Show the main window and restore dock presence

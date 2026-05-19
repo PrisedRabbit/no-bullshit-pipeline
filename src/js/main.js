@@ -20,6 +20,8 @@ import './recording/waveform.js';
 import './recording/live-transcript.js';
 import { toggleRecording, startRecording } from './recording/controls.js';
 import { loadRecordings, renderRecordingsList } from './recording/list.js';
+// renderRecordingsList is invoked from transcription_progress handler when
+// only the "Transcribing…" status changes — no need to refetch all metadata.
 import { showDetailView, hideDetailView } from './recording/detail.js';
 import { autoTranscribeAndExecute } from './recording/auto-execute.js';
 
@@ -126,6 +128,7 @@ async function init() {
   // Auto-transcribe + auto-execute on recording completion
   listen('recording_complete', async (event) => {
     const recordingId = event.payload;
+    state.setIsRecording(false);
     await loadRecordings();
     if (state.selectedRecordingId === recordingId) showDetailView(recordingId);
 
@@ -135,6 +138,51 @@ async function init() {
       autoTranscribeAndExecute(recordingId, pipelines);
     } else {
       state.pendingAutoExec.delete(recordingId);
+    }
+  });
+
+  // Call-detector auto-started a recording. The main-window list refreshes
+  // and we mirror server-side is_recording so the main Record button reflects
+  // the running state. Default pipeline (if any) is queued for auto-execute
+  // after recording_complete fires — same pendingAutoExec pathway the manual
+  // flow uses on stop.
+  listen('recording_started', async (event) => {
+    const { id, pipelines } = event.payload || {};
+    if (!id) return;
+    state.setIsRecording(true);
+    await loadRecordings();
+    if (Array.isArray(pipelines) && pipelines.length > 0) {
+      state.pendingAutoExec.set(id, pipelines);
+    }
+  });
+
+  // Recording was discarded server-side (duration < auto_discard_seconds).
+  // The row from the optimistic `recording_started` refresh needs to go;
+  // recording_complete never fires for discarded sessions so this is the
+  // only signal we get.
+  listen('recording_discarded', async (event) => {
+    const recordingId = typeof event.payload === 'string' ? event.payload : null;
+    state.setIsRecording(false);
+    if (recordingId) state.pendingAutoExec.delete(recordingId);
+    await loadRecordings();
+  });
+
+  // Track in-flight transcriptions so the recordings list can render a
+  // "Transcribing…" status on the affected row instead of just a duration.
+  // detail.js has its own per-recording progress bar; this is purely for
+  // list visibility. On 'Done' we refresh the list to pick up the freshly-
+  // written `transcript_preview`.
+  listen('transcription_progress', async (event) => {
+    const { recording_id, stage } = event.payload || {};
+    if (!recording_id) return;
+    if (stage === 'Done') {
+      state.transcribingIds.delete(recording_id);
+      await loadRecordings();
+    } else {
+      if (!state.transcribingIds.has(recording_id)) {
+        state.transcribingIds.add(recording_id);
+        renderRecordingsList();
+      }
     }
   });
 

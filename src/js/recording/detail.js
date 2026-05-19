@@ -470,6 +470,21 @@ listen('transcription_progress', (event) => {
     clearTranscriptionTimer();
     btn.disabled = false;
     btn.innerHTML = '<span style="font-weight: 600; font-size: 12px;">Transcribe</span>';
+    // The progress block above replaced the transcript content with the
+    // 100% bar. Without re-rendering from disk the user sees "100%" until
+    // they reopen the recording. Pull the freshly-written transcript and
+    // swap it in.
+    if (detailTranscriptEl) {
+      invoke('get_transcript', { recordingId: recording_id })
+        .then((transcript) => {
+          if (state.selectedRecordingId !== recording_id) return;
+          if (transcript) {
+            applyMarkdownRendering(detailTranscriptEl, transcript);
+            detailTranscriptEl.classList.remove('empty');
+          }
+        })
+        .catch((err) => console.error('get_transcript post-Done failed:', err));
+    }
     return;
   }
 

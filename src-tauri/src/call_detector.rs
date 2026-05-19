@@ -423,6 +423,20 @@ fn get_pipeline_names() -> Vec<String> {
     names
 }
 
+/// Emit `call-event` to the frontend so the debug popup window can show.
+/// `stage` is `"started"` or `"ended"`. Payload mirrors the same shape the
+/// JS side reads.
+fn emit_call_event(app_handle: &tauri::AppHandle, stage: &str, call_app: Option<&str>) {
+    use tauri::Emitter;
+    let payload = serde_json::json!({
+        "stage": stage,
+        "app": call_app,
+    });
+    if let Err(e) = app_handle.emit("call-event", payload) {
+        log::warn!("call_detector: emit call-event failed: {}", e);
+    }
+}
+
 /// Send macOS notification via UNUserNotificationCenter.
 /// Click is handled by the delegate (CallNotificationDelegate) which emits "call-detected".
 fn send_notification(_app_handle: &tauri::AppHandle, call_app: Option<&str>, _pipeline_names: &[String]) {
@@ -457,6 +471,24 @@ pub fn test_call_notification(app_handle: tauri::AppHandle) -> Result<String, St
 
 /// Main detector loop
 fn run_detector(should_stop: Arc<AtomicBool>, app_handle: tauri::AppHandle) {
+    // Device-level detection breaks the moment NBP cpal opens the input
+    // device during call recording: `kAudioDevicePropertyDeviceIsRunningSomewhere`
+    // can't distinguish "Zoom holds mic" from "NBP holds mic", so the
+    // transition from "Zoom alone" → "Zoom + NBP" looks identical to "call
+    // ended" and false-fires ended → premature stop.
+    //
+    // The per-process `audio_process_detector` (macOS 14.4+ HAL Process API)
+    // doesn't have this limitation — it can see Zoom's PID independently
+    // from NBP's. When that detector is operational we defer to it entirely
+    // and exit this thread immediately. This module remains as a legacy
+    // fallback for pre-14.4 systems where only device-level signals exist.
+    if crate::audio_process_detector::hal_process_api_available() {
+        log::info!(
+            "call_detector: HAL Process API is available — deferring to audio_process_detector and exiting (legacy device-level detection would false-fire on NBP self-mic)"
+        );
+        return;
+    }
+
     // Find input devices and track their initial running state
     let device_ids = get_audio_device_ids();
     let input_devices: Vec<u32> = device_ids
@@ -497,59 +529,124 @@ fn run_detector(should_stop: Arc<AtomicBool>, app_handle: tauri::AppHandle) {
     // Check if mic is already active (call in progress) — notify immediately
     let mut was_running = input_devices.iter().any(|&id| device_is_running(id));
     let mut last_notification = Instant::now() - Duration::from_secs(DEBOUNCE_SECS + 1);
+    // Remember which app started the current call so we can label the
+    // "ended" popup with the same app even after its process has exited.
+    let mut active_call_app: Option<String> = None;
 
     if was_running {
         let call_app = detect_call_app();
-        let pipeline_names = get_pipeline_names();
         log::info!("call_detector: mic already active on start, app={:?}", call_app);
-        send_notification(&app_handle, call_app.as_deref(), &pipeline_names);
+        emit_call_event(&app_handle, "started", call_app.as_deref());
+        active_call_app = call_app;
         last_notification = Instant::now();
     }
 
-    // Poll loop — the listener sets the flag, we check periodically
+    // Pending end-confirmation window. When the *call* mic releases we hold
+    // off emitting `ended` for END_CONFIRMATION_SECS in case the call comes
+    // back (Zoom screen-share / camera-switch blips briefly drop the device).
+    let mut end_pending_since: Option<Instant> = None;
+    const END_CONFIRMATION_SECS: u64 = 5;
+
+    // Transitions are tracked on `call_mic_active`, NOT raw `is_running`.
+    // Reason: once NBP itself opens the mic via cpal (because it's recording
+    // a call we already detected), the device stays "running" indefinitely.
+    // Using raw is_running would never see the call end. Computing
+    // `is_running && !mic_is_nbp` masks out our own mic ownership so the
+    // call's lifecycle becomes visible regardless of what NBP is doing.
+    //
+    // `was_running` therefore tracks the *previous tick's* `call_mic_active`,
+    // so transitions (false→true = call started, true→false = call ended)
+    // reflect the call only.
+    was_running = was_running && {
+        // Refine the initial-state computation: if NBP-self is already
+        // recording at startup, that mic activity isn't a call.
+        let dictation_active = tauri::Manager::state::<crate::dictation::DictationState>(&app_handle)
+            .is_active
+            .load(Ordering::Relaxed);
+        let recording_active = tauri::Manager::state::<crate::audio::AudioState>(&app_handle)
+            .is_recording
+            .lock()
+            .map(|g| *g)
+            .unwrap_or(false);
+        !(dictation_active || recording_active)
+    };
+
+    // Poll loop — every 500ms we check device state directly. The Core Audio
+    // property listener still fires `mic_activated` when it can, but we no
+    // longer gate the transition check on that flag. Reason: FaceTime (and
+    // anything else routing through CallKit / avconferenced) doesn't trigger
+    // `kAudioDevicePropertyDeviceIsRunningSomewhere` the way Zoom-style
+    // direct cpal access does. Polling unconditionally costs microseconds
+    // per tick and catches transitions our listener misses.
     while !should_stop.load(Ordering::SeqCst) {
         thread::sleep(Duration::from_millis(500));
 
-        if !mic_activated.swap(false, Ordering::SeqCst) {
-            continue;
-        }
+        // Drain the listener flag — no longer gating, just keeping it clean.
+        let _ = mic_activated.swap(false, Ordering::SeqCst);
 
         let is_running = input_devices.iter().any(|&id| device_is_running(id));
+        let dictation_active = tauri::Manager::state::<crate::dictation::DictationState>(&app_handle)
+            .is_active
+            .load(Ordering::Relaxed);
+        let recording_active = tauri::Manager::state::<crate::audio::AudioState>(&app_handle)
+            .is_recording
+            .lock()
+            .map(|g| *g)
+            .unwrap_or(false);
+        let mic_is_nbp = dictation_active || recording_active;
+        // Call-mic-only view: NBP holding the device doesn't count as a
+        // call. This is the SINGLE source of truth for call lifecycle.
+        let call_mic_active = is_running && !mic_is_nbp;
 
-        // Transition: not-running → running (call started)
-        if is_running && !was_running {
-            // Skip if WE opened the mic — Quick Dictate or main recording
-            // currently active. Otherwise pressing our own shortcut fires a
-            // bogus "call detected" notification.
-            let dictation_active = tauri::Manager::state::<crate::dictation::DictationState>(&app_handle)
-                .is_active
-                .load(Ordering::Relaxed);
-            let recording_active = tauri::Manager::state::<crate::audio::AudioState>(&app_handle)
-                .is_recording
-                .lock()
-                .map(|g| *g)
-                .unwrap_or(false);
-            if dictation_active || recording_active {
+        // (1) Pending-end resolution: fires `ended` if the call mic has
+        // stayed away for END_CONFIRMATION_SECS. Cancellation is now handled
+        // by the started transition below — we no longer cancel here
+        // because the same cancel logic lived in two places and could race.
+        if let Some(end_start) = end_pending_since {
+            if end_start.elapsed() >= Duration::from_secs(END_CONFIRMATION_SECS) {
+                let app_to_emit = active_call_app.take();
                 log::info!(
-                    "call_detector: mic activated by NBP itself (dictation={}, recording={}) — skipping notification",
-                    dictation_active,
-                    recording_active
+                    "call_detector: call mic released >{}s, app={:?}",
+                    END_CONFIRMATION_SECS,
+                    app_to_emit
                 );
-            } else {
-                let since_last = last_notification.elapsed();
-                if since_last >= Duration::from_secs(DEBOUNCE_SECS) {
-                    let call_app = detect_call_app();
-                    let pipeline_names = get_pipeline_names();
-
-                    log::info!("call_detector: mic activated, app={:?}", call_app);
-
-                    send_notification(&app_handle, call_app.as_deref(), &pipeline_names);
-                    last_notification = Instant::now();
-                }
+                emit_call_event(&app_handle, "ended", app_to_emit.as_deref());
+                // Reset the debounce so an immediately-following call (e.g.
+                // Zoom ends, Teams joins within 30s) fires its own started
+                // notification instead of being swallowed.
+                last_notification = Instant::now() - Duration::from_secs(DEBOUNCE_SECS + 1);
+                end_pending_since = None;
             }
         }
 
-        was_running = is_running;
+        // (2) Started transition — call mic went from inactive to active.
+        if call_mic_active && !was_running {
+            // Cancel any pending end-confirmation — the call is back.
+            end_pending_since = None;
+
+            let since_last = last_notification.elapsed();
+            if since_last >= Duration::from_secs(DEBOUNCE_SECS) {
+                let call_app = detect_call_app();
+                log::info!("call_detector: call mic activated, app={:?}", call_app);
+                emit_call_event(&app_handle, "started", call_app.as_deref());
+                active_call_app = call_app;
+                last_notification = Instant::now();
+            }
+        }
+
+        // (3) Ended transition — call mic went from active to inactive.
+        // Arm the pending-end window so brief blips don't fire ended.
+        if !call_mic_active && was_running {
+            log::debug!(
+                "call_detector: call mic released, arming {}s end-confirmation (raw is_running={}, mic_is_nbp={})",
+                END_CONFIRMATION_SECS,
+                is_running,
+                mic_is_nbp
+            );
+            end_pending_since = Some(Instant::now());
+        }
+
+        was_running = call_mic_active;
     }
 
     // Cleanup: remove listeners

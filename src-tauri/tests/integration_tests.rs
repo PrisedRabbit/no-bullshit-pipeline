@@ -160,6 +160,7 @@ fn test_recording_metadata_serialization() {
         },
         health: None,
         pipelines: vec![],
+        transcript_preview: None,
     };
 
     // Serialize to JSON

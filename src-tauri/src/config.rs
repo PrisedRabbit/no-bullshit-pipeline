@@ -325,7 +325,7 @@ impl Default for AppSettings {
         Self {
             storage_path: get_data_dir().to_string_lossy().to_string(),
             auto_discard_seconds: 3,
-            theme: "neon-purple".to_string(),
+            theme: "auto".to_string(),
             onboarding_completed: false,
             transcription: TranscriptionConfig::default(),
             show_recording_notification: true,
@@ -507,12 +507,14 @@ pub fn save_settings(
     app_handle: tauri::AppHandle,
     mut settings: AppSettings,
     detector_state: tauri::State<'_, crate::call_detector::CallDetectorState>,
+    process_detector_state: tauri::State<'_, crate::audio_process_detector::AudioProcessDetectorState>,
 ) -> Result<(), String> {
     // Preserve integrations from disk — frontend doesn't own this data.
     let disk_settings = load_settings();
     settings.integrations = disk_settings.integrations;
 
     crate::call_detector::sync_detector(&detector_state, settings.call_detection_enabled, &app_handle);
+    crate::audio_process_detector::sync_detector(&process_detector_state, settings.call_detection_enabled, &app_handle);
     save_settings_to_disk(&mut settings)
 }
 
