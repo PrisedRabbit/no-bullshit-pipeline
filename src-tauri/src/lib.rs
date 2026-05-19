@@ -61,7 +61,7 @@ mod dictation_streaming;
 use audio::AudioState;
 use transcription::TranscriptionState;
 use tauri::menu::{AboutMetadataBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
 
 #[tauri::command]
@@ -964,65 +964,106 @@ fn show_main_window(app: &tauri::AppHandle) {
 }
 
 /// Build the system tray icon with menu
-fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+/// Build the tray menu from current pipelines + settings. Extracted so it
+/// can be re-invoked when pipelines change (see `refresh_tray_menu`).
+fn build_tray_menu(
+    app: &tauri::AppHandle,
+) -> Result<tauri::menu::Menu<tauri::Wry>, tauri::Error> {
     use tauri::menu::{Menu, PredefinedMenuItem};
 
-    let mut items: Vec<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>> = Vec::new();
+    // Record submenu — "New Record" first (no pipeline), then a separator,
+    // then a flat list of available pipelines (last-used + default surfaced
+    // first, capped at 5 to keep the menu readable).
+    let new_record_item =
+        MenuItemBuilder::with_id("tray-record-new", "New Record").build(app)?;
+    let mut record_submenu = SubmenuBuilder::new(app, "Record")
+        .item(&new_record_item)
+        .separator();
 
-    // Add pipeline items
-    if let Ok(pipeline_list) = pipelines::load_pipelines() {
-        let settings = config::load_settings();
-        let mut names: Vec<String> = Vec::new();
+    let pipeline_items: Vec<tauri::menu::MenuItem<tauri::Wry>> = match pipelines::load_pipelines() {
+        Ok(pipeline_list) => {
+            let settings = config::load_settings();
+            let mut names: Vec<String> = Vec::new();
+            if let Some(ref last) = settings.last_used_pipeline {
+                if pipeline_list.contains_key(last) {
+                    names.push(last.clone());
+                }
+            }
+            if let Some(ref default) = settings.default_pipeline {
+                if pipeline_list.contains_key(default) && !names.contains(default) {
+                    names.push(default.clone());
+                }
+            }
+            for name in pipeline_list.keys() {
+                if !names.contains(name) {
+                    names.push(name.clone());
+                }
+            }
+            names.truncate(5);
+            names
+                .iter()
+                .filter_map(|name| {
+                    MenuItemBuilder::with_id(
+                        format!("pipeline:{}", name),
+                        format!("▶ {}", name),
+                    )
+                    .build(app)
+                    .ok()
+                })
+                .collect()
+        }
+        Err(_) => Vec::new(),
+    };
+    for item in &pipeline_items {
+        record_submenu = record_submenu.item(item);
+    }
+    let record_submenu = record_submenu.build()?;
 
-        // Last-used first
-        if let Some(ref last) = settings.last_used_pipeline {
-            if pipeline_list.contains_key(last) {
-                names.push(last.clone());
+    // Top-level items: Record submenu → Home → separator → Quit.
+    let home_item = MenuItemBuilder::with_id("show", "Home").build(app)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+
+    Menu::with_items(
+        app,
+        &[
+            &record_submenu,
+            &home_item,
+            &separator,
+            &quit_item,
+        ],
+    )
+}
+
+/// Re-fetch pipelines and swap the tray menu live. Called by
+/// `pipelines::save_pipeline` and `pipelines::delete_pipeline` so the
+/// Record submenu reflects edits without restarting the app.
+pub(crate) fn refresh_tray_menu(app: &tauri::AppHandle) {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        log::warn!("refresh_tray_menu: tray '{}' not found", TRAY_ID);
+        return;
+    };
+    match build_tray_menu(app) {
+        Ok(menu) => {
+            if let Err(e) = tray.set_menu(Some(menu)) {
+                log::warn!("refresh_tray_menu: set_menu failed: {}", e);
             }
         }
-        // Default second
-        if let Some(ref default) = settings.default_pipeline {
-            if pipeline_list.contains_key(default) && !names.contains(default) {
-                names.push(default.clone());
-            }
-        }
-        // Rest
-        for name in pipeline_list.keys() {
-            if !names.contains(name) {
-                names.push(name.clone());
-            }
-        }
-        names.truncate(5);
-
-        for name in &names {
-            let item = MenuItemBuilder::with_id(
-                format!("pipeline:{}", name),
-                format!("▶ {}", name),
-            )
-            .build(app)?;
-            items.push(Box::new(item));
-        }
-
-        if !names.is_empty() {
-            items.push(Box::new(PredefinedMenuItem::separator(app)?));
+        Err(e) => {
+            log::warn!("refresh_tray_menu: build_tray_menu failed: {}", e);
         }
     }
+}
 
-    // Show NBP
-    let show_item = MenuItemBuilder::with_id("show", "Show NBP").build(app)?;
-    items.push(Box::new(show_item));
+/// Stable id we use to look the tray up at runtime for menu refresh.
+const TRAY_ID: &str = "nbp-main";
 
-    // Separator + Quit
-    items.push(Box::new(PredefinedMenuItem::separator(app)?));
-    let quit_item = MenuItemBuilder::with_id("quit", "Quit NBP").build(app)?;
-    items.push(Box::new(quit_item));
+fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::Manager;
+    let app_handle = app.app_handle().clone();
+    let menu = build_tray_menu(&app_handle)?;
 
-    // Build menu from items
-    let item_refs: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> =
-        items.iter().map(|i| i.as_ref()).collect();
-    let menu = Menu::with_items(app, &item_refs)?;
-
-    let _tray = TrayIconBuilder::new()
+    let _tray = TrayIconBuilder::with_id(TRAY_ID)
         .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
         .show_menu_on_left_click(true)
@@ -1037,6 +1078,16 @@ fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 }
             } else {
                 match id {
+                    "tray-record-new" => {
+                        // No pipeline — start a clean recording. Frontend
+                        // listener calls startRecording() (vs.
+                        // startRecordingWithPipeline) so the chip bar stays
+                        // untouched and pendingAutoExec stays empty.
+                        show_main_window(app);
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.emit("tray-record-new", ());
+                        }
+                    }
                     "show" => {
                         show_main_window(app);
                     }
@@ -1064,16 +1115,6 @@ fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     }
                     _ => {}
                 }
-            }
-        })
-        .on_tray_icon_event(|tray: &tauri::tray::TrayIcon, event| {
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
-            {
-                show_main_window(tray.app_handle());
             }
         })
         .build(app)?;

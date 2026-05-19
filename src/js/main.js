@@ -108,6 +108,14 @@ async function init() {
     }
   });
 
+  // Tray menu: "New Record" — clean start, no pipeline preselection.
+  // User picks pipelines later via chip bar (or doesn't).
+  listen('tray-record-new', async () => {
+    if (!state.isRecording && !state.isRecordingBusy) {
+      await startRecording();
+    }
+  });
+
   // Auto-start recording when a call is detected
   listen('call-detected', async () => {
     if (!state.isRecording && !state.isRecordingBusy) {

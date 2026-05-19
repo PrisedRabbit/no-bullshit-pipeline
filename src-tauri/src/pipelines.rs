@@ -420,7 +420,7 @@ pub fn get_pipeline(name: String) -> Result<Pipeline, String> {
 
 /// Save (create or update) a pipeline definition
 #[tauri::command]
-pub fn save_pipeline(mut pipeline: Pipeline) -> Result<(), String> {
+pub fn save_pipeline(app: tauri::AppHandle, mut pipeline: Pipeline) -> Result<(), String> {
     validate_pipeline(&pipeline)?;
 
     let mut pipelines = load_pipelines()?;
@@ -435,18 +435,22 @@ pub fn save_pipeline(mut pipeline: Pipeline) -> Result<(), String> {
     pipelines.insert(pipeline.name.clone(), pipeline);
     save_pipelines_to_disk(&pipelines)?;
 
+    // Live-update tray submenu so the "Record" list reflects the change
+    // without an app restart.
+    crate::refresh_tray_menu(&app);
     Ok(())
 }
 
 /// Delete a pipeline definition
 #[tauri::command]
-pub fn delete_pipeline(name: String) -> Result<(), String> {
+pub fn delete_pipeline(app: tauri::AppHandle, name: String) -> Result<(), String> {
     let mut pipelines = load_pipelines()?;
     if pipelines.remove(&name).is_none() {
         return Err(format!("Pipeline '{}' not found", name));
     }
     save_pipelines_to_disk(&pipelines)?;
 
+    crate::refresh_tray_menu(&app);
     Ok(())
 }
 
