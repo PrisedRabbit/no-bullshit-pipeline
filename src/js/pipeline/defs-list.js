@@ -2,6 +2,7 @@
 
 import { invoke } from '../core/tauri.js';
 import { escapeHtml } from '../core/utils.js';
+import { showToast } from '../ui/toast.js';
 import { currentAssignedPipelines } from '../core/state.js';
 import * as pipelineState from './state.js';
 import { renderPipelineFlowHTML } from './flow-renderer.js';
@@ -84,10 +85,12 @@ export function renderPipelineDefsList() {
       const updated = { ...p, auto_run: input.checked };
       try {
         await invoke('save_pipeline', { pipeline: updated });
+        showToast('Pipeline saved', 'success');
         await loadPipelineDefs();
       } catch (err) {
         console.error('Failed to toggle auto-run:', err);
         input.checked = !input.checked;
+        showToast(`Failed to save: ${err}`, 'error');
       }
     });
   });

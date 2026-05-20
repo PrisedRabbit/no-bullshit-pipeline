@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
+use tauri::Manager;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub enum TranscriptionProvider {
@@ -501,19 +502,36 @@ pub fn save_settings_to_disk(settings: &mut AppSettings) -> Result<(), String> {
 /// frontend from accidentally overwriting them, we always preserve the on-disk
 /// integrations block.
 #[tauri::command]
-pub fn save_settings(
+pub async fn save_settings(
     app_handle: tauri::AppHandle,
     mut settings: AppSettings,
-    detector_state: tauri::State<'_, crate::call_detector::CallDetectorState>,
-    process_detector_state: tauri::State<'_, crate::audio_process_detector::AudioProcessDetectorState>,
 ) -> Result<(), String> {
     // Preserve integrations from disk — frontend doesn't own this data.
     let disk_settings = load_settings();
     settings.integrations = disk_settings.integrations;
 
-    crate::call_detector::sync_detector(&detector_state, settings.auto_record_meetings, &app_handle);
-    crate::audio_process_detector::sync_detector(&process_detector_state, settings.auto_record_meetings, &app_handle);
-    save_settings_to_disk(&mut settings)
+    // Disk write is fast (JSON serialize + atomic rename) — keep it on the
+    // command's hot path so the frontend sees Ok only after settings are
+    // persisted.
+    let auto_record = settings.auto_record_meetings;
+    save_settings_to_disk(&mut settings)?;
+
+    // Detector sync is NOT on the hot path: call_detector::sync_detector
+    // and audio_process_detector::sync_detector both call handle.join() on
+    // their worker threads when disabling. Each can take 1-3 seconds
+    // (CoreAudio HAL listener teardown + ~1s poll tick), so doing them
+    // inline made the auto-record toggle visibly lag the UI. Fire them
+    // into spawn_blocking and return Ok immediately — detectors converge
+    // on their own a moment later.
+    let app = app_handle.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let det = app.state::<crate::call_detector::CallDetectorState>();
+        let pdet = app.state::<crate::audio_process_detector::AudioProcessDetectorState>();
+        crate::call_detector::sync_detector(&det, auto_record, &app);
+        crate::audio_process_detector::sync_detector(&pdet, auto_record, &app);
+    });
+
+    Ok(())
 }
 
 /// Resolve the API key for a provider.
