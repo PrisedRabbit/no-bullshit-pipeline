@@ -603,6 +603,29 @@ body.is-recording-active .detail-controls {
   font-weight: 700;
 }
 
+.app-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  vertical-align: -3px;
+  color: var(--text-secondary, #8a8a8a);
+  opacity: 0.55;
+}
+
+.app-icon.app-icon-resolved {
+  opacity: 1;
+}
+
+.app-icon img {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  display: block;
+}
+
 @keyframes pulse-dot {
   0% {
     transform: scale(1);

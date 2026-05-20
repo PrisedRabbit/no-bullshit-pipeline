@@ -190,12 +190,11 @@ pub struct AppSettings {
     /// Last pipeline used — highlighted in chip bar on next launch
     #[serde(default)]
     pub last_used_pipeline: Option<String>,
-    /// Detect calls (mic activation) and send a macOS notification
-    #[serde(default)]
-    pub call_detection_enabled: bool,
-    /// Auto-stop recording after N seconds of silence (0 = disabled)
-    #[serde(default)]
-    pub auto_stop_silence_seconds: u32,
+    /// Automatically record meetings on call detection (mic activation). When
+    /// off, no detection runs — no popup, no recording. Defaults on; the old
+    /// `call_detection_enabled` key is aliased for config migration.
+    #[serde(default = "default_true", alias = "call_detection_enabled")]
+    pub auto_record_meetings: bool,
     /// Whether the user has completed the interactive UI walkthrough
     #[serde(default)]
     pub walkthrough_completed: bool,
@@ -333,8 +332,7 @@ impl Default for AppSettings {
             integrations: IntegrationsConfig::default(),
             default_pipeline: None,
             last_used_pipeline: None,
-            call_detection_enabled: false,
-            auto_stop_silence_seconds: 0,
+            auto_record_meetings: true,
             walkthrough_completed: false,
             local_llm: LocalLlmConfig::default(),
             cli_agent: CliAgentConfig::default(),
@@ -513,8 +511,8 @@ pub fn save_settings(
     let disk_settings = load_settings();
     settings.integrations = disk_settings.integrations;
 
-    crate::call_detector::sync_detector(&detector_state, settings.call_detection_enabled, &app_handle);
-    crate::audio_process_detector::sync_detector(&process_detector_state, settings.call_detection_enabled, &app_handle);
+    crate::call_detector::sync_detector(&detector_state, settings.auto_record_meetings, &app_handle);
+    crate::audio_process_detector::sync_detector(&process_detector_state, settings.auto_record_meetings, &app_handle);
     save_settings_to_disk(&mut settings)
 }
 

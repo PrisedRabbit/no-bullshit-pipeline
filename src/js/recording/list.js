@@ -82,6 +82,45 @@ export async function loadRecordings() {
   }
 }
 
+// Neutral, unobtrusive fallback shown while an icon resolves or when the
+// bundle id can't be resolved to an installed app (muted rounded-square glyph).
+const DEFAULT_APP_ICON_SVG =
+  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/></svg>';
+
+// bundle_id → data URL (or null when unresolved). Avoids re-invoking the Rust
+// command on every list re-render; the backend also caches on disk.
+const appIconCache = new Map();
+
+function applyResolvedIcon(el, url) {
+  if (url) {
+    el.innerHTML = `<img src="${url}" alt="" width="16" height="16" />`;
+    el.classList.add('app-icon-resolved');
+  }
+}
+
+// Fill in app icons after the rows are in the DOM. Marked rows are skipped so
+// repeated renders don't re-process; rebuilt rows (new signature) come back
+// without the marker and get re-hydrated from the cache (cheap, no FFI).
+async function hydrateAppIcons() {
+  const els = document.querySelectorAll('.app-icon[data-bundle]:not([data-hydrated])');
+  for (const el of els) {
+    el.dataset.hydrated = '1';
+    const bundle = el.dataset.bundle;
+    if (!bundle) continue;
+    if (appIconCache.has(bundle)) {
+      applyResolvedIcon(el, appIconCache.get(bundle));
+      continue;
+    }
+    try {
+      const url = await invoke('get_app_icon', { bundleId: bundle });
+      appIconCache.set(bundle, url || null);
+      applyResolvedIcon(el, url || null);
+    } catch {
+      appIconCache.set(bundle, null);
+    }
+  }
+}
+
 function buildRowHtml(rec) {
   const isProcessing = rec.status === 'processing';
   const isRecordingStatus = rec.status === 'recording';
@@ -117,6 +156,12 @@ function buildRowHtml(rec) {
   const safeTitle = escapeHtml(rec.title || 'Untitled');
   const safeId = escapeHtml(rec.id);
 
+  // App icon for auto-recorded calls (resolved async from the bundle id).
+  // Manual recordings have no bundle id → no icon.
+  const appIconHtml = rec.app_bundle_id
+    ? `<span class="app-icon" data-bundle="${escapeHtml(rec.app_bundle_id)}">${DEFAULT_APP_ICON_SVG}</span>`
+    : '';
+
   // Pipeline tags with step chips
   const pipelineTags = (rec.pipelines || []).map(p => {
     const statusClass = p.status === 'Done' ? 'tag-done' : p.status === 'Partial' ? 'tag-partial' : p.status === 'Running' ? 'tag-running' : 'tag-waiting';
@@ -134,7 +179,7 @@ function buildRowHtml(rec) {
 
   return `<div class="recording-item ${isCurrentlyRecording ? 'recording-active' : ''}" data-id="${safeId}" onclick="showDetailView(this.dataset.id)">
         <div class="recording-item-header">
-          <div class="recording-title">${healthIcon}${safeTitle}${isCurrentlyRecording ? ' <span style="color:var(--accent)">●</span>' : ''}</div>
+          <div class="recording-title">${healthIcon}${appIconHtml}${safeTitle}${isCurrentlyRecording ? ' <span style="color:var(--accent)">●</span>' : ''}</div>
           <div class="recording-meta">
             <span>${new Date(rec.created_at).toLocaleString(undefined, dateOptions)}</span>
             <span>·</span>
@@ -233,4 +278,7 @@ export function renderRecordingsList() {
   // call) so it reflects whatever's in state.allRecordings right now and
   // self-stops when the last active recording finalizes.
   syncActiveRecordingTimers();
+
+  // Resolve + swap in real app icons once rows are in the DOM.
+  hydrateAppIcons();
 }

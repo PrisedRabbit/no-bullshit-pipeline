@@ -1,6 +1,6 @@
 [package]
 name = "nbp"
-version = "0.4.54"
+version = "0.4.55"
 description = "A Tauri App"
 authors = ["sk"]
 edition = "2024"
@@ -28,6 +28,7 @@ tauri-plugin-dialog = "2.6"
 tauri-plugin-shell = "2.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+base64 = "0.21"
 cpal = "0.15"
 chrono = { version = "0.4.44", features = ["serde"] }
 hound = "3.5"

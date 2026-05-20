@@ -56,6 +56,7 @@ pub mod realtime_transcription;
 mod call_detector;
 mod call_session;
 mod audio_process_detector;
+mod app_icons;
 mod dictation;
 mod dictation_streaming;
 use audio::AudioState;
@@ -237,8 +238,8 @@ pub fn run() {
                 });
             }
 
-            // Request notification permission if call detection is enabled
-            if settings.call_detection_enabled {
+            // Request notification permission if auto-record is enabled
+            if settings.auto_record_meetings {
                 use tauri_plugin_notification::NotificationExt;
                 use tauri::plugin::PermissionState;
                 if app.notification().permission_state()
@@ -252,7 +253,7 @@ pub fn run() {
             call_detector::init_notification_delegate(app.handle());
 
             // Initialize call detector state (always managed, started conditionally)
-            let detector = if settings.call_detection_enabled {
+            let detector = if settings.auto_record_meetings {
                 Some(call_detector::CallDetector::start(app.handle().clone()))
             } else {
                 None
@@ -280,7 +281,7 @@ pub fn run() {
             let process_detector = audio_process_detector::AudioProcessDetectorState::new();
             audio_process_detector::sync_detector(
                 &process_detector,
-                settings.call_detection_enabled,
+                settings.auto_record_meetings,
                 app.handle(),
             );
             app.manage(process_detector);
@@ -336,6 +337,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_app_version,
             log_from_js,
+            app_icons::get_app_icon,
             has_apple_speech,
             audio::start_recording,
             audio::stop_recording,

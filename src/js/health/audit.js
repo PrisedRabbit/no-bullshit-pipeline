@@ -11,7 +11,6 @@ const AUDIT_ELEMENTS = [
   { id: 'settings-tabs',             desc: 'Settings tab bar' },
   { id: 'save-settings-btn',         desc: 'Save Settings button' },
   { id: 'settings-back-btn',         desc: 'Settings back button' },
-  { id: 'settings-transcription-enabled', desc: 'Auto-transcribe toggle' },
   { id: 'settings-storage-path',     desc: 'Storage path input' },
   { id: 'browse-storage-btn',        desc: 'Browse storage button' },
   { id: 'pipeline-defs-list',        desc: 'Pipeline definitions list' },

@@ -102,6 +102,14 @@ const DAEMON_LABELS: &[(&str, &str)] = &[
     ("continuitycaptured", "Continuity Audio"),
 ];
 
+// Bundle ids for daemon-routed calls so the frontend can still resolve an app
+// icon (NSWorkspace has no icon for the daemon executable itself). Keyed by the
+// same proc name as DAEMON_LABELS.
+const DAEMON_BUNDLE_IDS: &[(&str, &str)] = &[
+    ("avconferenced", "com.apple.FaceTime"),
+    ("callservicesd", "com.apple.FaceTime"),
+];
+
 // --- State -------------------------------------------------------------------
 
 pub struct AudioProcessDetectorState {
@@ -220,15 +228,17 @@ fn run_detector(app_handle: AppHandle, should_stop: Arc<AtomicBool>) {
         // transition was invisible. `call_session.handle_started` already
         // guards against double-recording via its self-mic check; we trust
         // that and always track here.
-        for (pid, label) in &current {
+        for (pid, info) in &current {
+            let label = &info.label;
             match tracked.get(pid) {
                 None => {
                     log::info!(
-                        "audio_process_detector: started pid={} app={:?}",
+                        "audio_process_detector: started pid={} app={:?} bundle={:?}",
                         pid,
-                        label
+                        label,
+                        info.bundle_id
                     );
-                    emit_call_event(&app_handle, "started", Some(label));
+                    emit_call_event(&app_handle, "started", Some(label), info.bundle_id.as_deref());
                     tracked.insert(*pid, label.clone());
                 }
                 Some(prev_label) if prev_label != label => {
@@ -246,7 +256,7 @@ fn run_detector(app_handle: AppHandle, should_stop: Arc<AtomicBool>) {
                         prev_label,
                         label
                     );
-                    emit_call_event(&app_handle, "ended", Some(prev_label));
+                    emit_call_event(&app_handle, "ended", Some(prev_label), None);
                     tracked.remove(pid);
                 }
                 _ => {
@@ -288,7 +298,7 @@ fn run_detector(app_handle: AppHandle, should_stop: Arc<AtomicBool>) {
                     label,
                     END_CONFIRMATION.as_secs()
                 );
-                emit_call_event(&app_handle, "ended", Some(&label));
+                emit_call_event(&app_handle, "ended", Some(&label), None);
             }
             pending_end.remove(&pid);
         }
@@ -316,14 +326,22 @@ pub fn hal_process_api_available() -> bool {
 // maybe_skip_self_mic was removed — see comment at the top of the started
 // transitions loop for why.
 
-/// Single snapshot of `pid → friendly label` for all processes currently with
+/// A process currently using audio input: a user-facing label plus the bundle
+/// id (for icon resolution on the frontend).
+#[derive(Clone)]
+struct AppInfo {
+    label: String,
+    bundle_id: Option<String>,
+}
+
+/// Single snapshot of `pid → AppInfo` for all processes currently with
 /// `kAudioProcessPropertyIsRunningInput = 1`, excluding `self_pid`.
 ///
 /// IMPORTANT: read order is PID → BundleID → IsRunningInput. The cereal
 /// (Granola-style Electron module) project found that querying `piri` BEFORE
 /// `pbid` on a process object crashed CoreAudio on some macOS versions —
 /// keep that lesson in our order too.
-fn snapshot_input_users(self_pid: i32) -> HashMap<i32, String> {
+fn snapshot_input_users(self_pid: i32) -> HashMap<i32, AppInfo> {
     let mut out = HashMap::new();
     for obj_id in enumerate_processes() {
         let pid = read_process_pid(obj_id);
@@ -335,9 +353,23 @@ fn snapshot_input_users(self_pid: i32) -> HashMap<i32, String> {
             continue;
         }
         let label = resolve_label(pid, bundle_id.as_deref());
-        out.insert(pid, label);
+        // Daemon mapping takes precedence — same priority as resolve_label.
+        // CoreAudio reports a non-app bundle id for daemon-routed calls
+        // (avconferenced for FaceTime), which NSWorkspace can't resolve to an
+        // icon, so the known com.apple.* mapping must win over it.
+        let resolved_bundle = daemon_bundle_id(pid).or(bundle_id);
+        out.insert(pid, AppInfo { label, bundle_id: resolved_bundle });
     }
     out
+}
+
+/// Map a daemon process to the bundle id of the user-facing app it routes for.
+fn daemon_bundle_id(pid: i32) -> Option<String> {
+    let short = process_short_name(pid)?;
+    DAEMON_BUNDLE_IDS
+        .iter()
+        .find(|(proc, _)| *proc == short)
+        .map(|(_, bid)| (*bid).to_string())
 }
 
 fn enumerate_processes() -> Vec<u32> {
@@ -576,10 +608,16 @@ fn process_short_name(pid: i32) -> Option<String> {
 
 // --- Event emit --------------------------------------------------------------
 
-fn emit_call_event(app_handle: &AppHandle, stage: &str, call_app: Option<&str>) {
+fn emit_call_event(
+    app_handle: &AppHandle,
+    stage: &str,
+    call_app: Option<&str>,
+    bundle_id: Option<&str>,
+) {
     let payload = serde_json::json!({
         "stage": stage,
         "app": call_app,
+        "bundle_id": bundle_id,
     });
     if let Err(e) = app_handle.emit("call-event", payload) {
         log::warn!("audio_process_detector: emit call-event failed: {}", e);

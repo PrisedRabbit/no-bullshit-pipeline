@@ -161,6 +161,7 @@ fn test_recording_metadata_serialization() {
         health: None,
         pipelines: vec![],
         transcript_preview: None,
+        app_bundle_id: None,
     };
 
     // Serialize to JSON

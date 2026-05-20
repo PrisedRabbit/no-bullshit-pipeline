@@ -28,6 +28,11 @@ pub struct RecordingMetadata {
     /// backward-compatible with older metadata files.
     #[serde(default)]
     pub transcript_preview: Option<String>,
+    /// Bundle id of the app that triggered an auto-recorded call (e.g.
+    /// "us.zoom.xos", "com.apple.FaceTime"). Used to render the app icon next
+    /// to the title. None for manual recordings or unresolved daemons.
+    #[serde(default)]
+    pub app_bundle_id: Option<String>,
 }
 
 fn default_status() -> String {
@@ -156,8 +161,9 @@ pub fn create_recording(title: String, tags: Vec<String>) -> Result<RecordingMet
         }),
         pipelines: vec![],
         transcript_preview: None,
+        app_bundle_id: None,
     };
-    
+
     // Create the recording directory
     let recording_dir = get_recording_dir(&id);
     fs::create_dir_all(&recording_dir).map_err(|e| e.to_string())?;

@@ -69,17 +69,18 @@ pub fn install(app_handle: &tauri::AppHandle) {
         };
         let stage = payload.get("stage").and_then(|v| v.as_str()).unwrap_or("");
         let call_app = payload.get("app").and_then(|v| v.as_str()).map(String::from);
+        let bundle_id = payload.get("bundle_id").and_then(|v| v.as_str()).map(String::from);
 
         match stage {
-            "started" => handle_started(&app, call_app),
+            "started" => handle_started(&app, call_app, bundle_id),
             "ended" => handle_ended(&app),
             other => log::debug!("call_session: ignoring unknown stage {:?}", other),
         }
     });
 }
 
-fn handle_started(app: &tauri::AppHandle, call_app: Option<String>) {
-    log::info!("[ignore-trace] handle_started: call_app={:?}", call_app);
+fn handle_started(app: &tauri::AppHandle, call_app: Option<String>, bundle_id: Option<String>) {
+    log::info!("[ignore-trace] handle_started: call_app={:?} bundle={:?}", call_app, bundle_id);
     // Belt-and-suspenders self-mic guards. call_detector already suppresses
     // call-event(started) when NBP itself just opened the mic, but cover the
     // race window where this listener fires after the flag flipped.
@@ -171,14 +172,19 @@ fn handle_started(app: &tauri::AppHandle, call_app: Option<String>) {
     let session_id_for_start = session_id.clone();
     let call_app_for_start = call_app.clone();
     thread::spawn(move || {
-        run_start(app_for_start, session_id_for_start, call_app_for_start);
+        run_start(app_for_start, session_id_for_start, call_app_for_start, bundle_id);
     });
 }
 
 /// Worker: calls `audio::start_recording`, tags + assigns default pipeline,
 /// then commits to Recording { id } or rolls back if Ignore/ended fired
 /// during the start.
-fn run_start(app: tauri::AppHandle, session_id: String, call_app: Option<String>) {
+fn run_start(
+    app: tauri::AppHandle,
+    session_id: String,
+    call_app: Option<String>,
+    bundle_id: Option<String>,
+) {
     let audio_state = app.state::<crate::audio::AudioState>();
     let save_mix_only = crate::config::load_settings().save_mix_only;
     let start_result = crate::audio::start_recording(app.clone(), audio_state, save_mix_only);
@@ -206,6 +212,7 @@ fn run_start(app: tauri::AppHandle, session_id: String, call_app: Option<String>
             );
             if let Ok(mut meta) = crate::storage::read_metadata(&recording_id) {
                 meta.title = title;
+                meta.app_bundle_id = bundle_id.clone();
                 if let Err(e) = crate::storage::write_metadata(&meta) {
                     log::warn!(
                         "call_session: failed to write title for {}: {}",

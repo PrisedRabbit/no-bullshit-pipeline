@@ -124,17 +124,9 @@ async function init() {
     }
   });
 
-  // Auto-stop recording on silence
-  listen('auto-stop-recording', async () => {
-    if (state.isRecording && !state.isRecordingBusy) {
-      showToast('Auto-stopped: silence detected', 'info');
-      const { stopRecording } = await import('./recording/controls.js');
-      await stopRecording();
-    }
-  });
-
-
-  // Auto-transcribe + auto-execute on recording completion
+  // Auto-transcribe + auto-execute on recording completion. Transcription is
+  // always on (the toggle was removed) — FluidAudio runs on-device so it never
+  // fails offline.
   listen('recording_complete', async (event) => {
     const recordingId = event.payload;
     trace('JS recording_complete:', recordingId);
@@ -144,13 +136,9 @@ async function init() {
       state.allRecordings.map(r => `${r.id.slice(0,8)}=${r.status}`));
     if (state.selectedRecordingId === recordingId) showDetailView(recordingId);
 
-    if (state.appSettings?.transcription?.enabled) {
-      const pipelines = state.pendingAutoExec.get(recordingId) || [];
-      state.pendingAutoExec.delete(recordingId);
-      autoTranscribeAndExecute(recordingId, pipelines);
-    } else {
-      state.pendingAutoExec.delete(recordingId);
-    }
+    const pipelines = state.pendingAutoExec.get(recordingId) || [];
+    state.pendingAutoExec.delete(recordingId);
+    autoTranscribeAndExecute(recordingId, pipelines);
   });
 
   // Call-detector auto-started a recording. The main-window list refreshes

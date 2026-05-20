@@ -9,8 +9,7 @@ import { applyDictationSettings, initShortcutsTab } from './shortcuts.js';
 
 const storagePathInput = document.getElementById('settings-storage-path');
 const saveMixOnlyCheckbox = document.getElementById('settings-save-mix-only');
-const callDetectionCheckbox = document.getElementById('settings-call-detection');
-const autoStopSilenceSelect = document.getElementById('settings-auto-stop-silence');
+const autoRecordCheckbox = document.getElementById('settings-auto-record');
 const settingsBtn = document.getElementById('settings-btn');
 const settingsBackBtn = document.getElementById('settings-back-btn');
 const browseStorageBtn = document.getElementById('browse-storage-btn');
@@ -28,8 +27,7 @@ export async function loadSettings() {
     if (typeof window.__nbpRenderModelsProviders === 'function') window.__nbpRenderModelsProviders();
 
     if (saveMixOnlyCheckbox) saveMixOnlyCheckbox.checked = state.appSettings.save_mix_only !== false;
-    if (callDetectionCheckbox) callDetectionCheckbox.checked = !!state.appSettings.call_detection_enabled;
-    if (autoStopSilenceSelect) autoStopSilenceSelect.value = String(state.appSettings.auto_stop_silence_seconds || 0);
+    if (autoRecordCheckbox) autoRecordCheckbox.checked = state.appSettings.auto_record_meetings !== false;
 
     applyDictationSettings();
 
@@ -45,8 +43,7 @@ export async function saveSettings() {
     collectTranscriptionSettings();
 
     if (saveMixOnlyCheckbox) state.appSettings.save_mix_only = saveMixOnlyCheckbox.checked;
-    if (callDetectionCheckbox) state.appSettings.call_detection_enabled = callDetectionCheckbox.checked;
-    if (autoStopSilenceSelect) state.appSettings.auto_stop_silence_seconds = parseInt(autoStopSilenceSelect.value) || 0;
+    if (autoRecordCheckbox) state.appSettings.auto_record_meetings = autoRecordCheckbox.checked;
 
     await invoke('save_settings', { settings: state.appSettings });
     showToast('Settings saved', 'success');

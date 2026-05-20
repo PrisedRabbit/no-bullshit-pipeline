@@ -6,16 +6,9 @@ import { invoke } from '../core/tauri.js';
 import * as state from '../core/state.js';
 import { isKeyMasked } from '../core/utils.js';
 
-const transcriptionEnabledCheckbox = document.getElementById('settings-transcription-enabled');
-const transcriptionDetailsEl = document.getElementById('transcription-details');
 const transcriptionProviderSelect = document.getElementById('settings-transcription-provider');
 
 const PROVIDER_KEY_MAP = { OpenAI: 'openai', Google: 'google' };
-
-export function updateTranscriptionVisibility() {
-  if (!transcriptionDetailsEl) return;
-  transcriptionDetailsEl.style.display = transcriptionEnabledCheckbox?.checked ? 'flex' : 'none';
-}
 
 export function updateTranscriptionProviderWarnings() {
   if (!transcriptionProviderSelect) return;
@@ -87,7 +80,6 @@ async function hideAppleSpeechIfUnavailable() {
 }
 
 export function initTranscriptionSettings() {
-  if (transcriptionEnabledCheckbox) transcriptionEnabledCheckbox.addEventListener('change', updateTranscriptionVisibility);
   if (transcriptionProviderSelect) transcriptionProviderSelect.addEventListener('change', updateProviderVisibility);
 
   hideAppleSpeechIfUnavailable();
@@ -110,7 +102,6 @@ export function initTranscriptionSettings() {
 
 export function applyTranscriptionSettings() {
   if (!state.appSettings?.transcription) return;
-  if (transcriptionEnabledCheckbox) { transcriptionEnabledCheckbox.checked = state.appSettings.transcription.enabled; updateTranscriptionVisibility(); }
   if (transcriptionProviderSelect) transcriptionProviderSelect.value = state.appSettings.transcription.provider;
   updateProviderVisibility();
   updateTranscriptionProviderWarnings();
@@ -118,7 +109,9 @@ export function applyTranscriptionSettings() {
 
 export function collectTranscriptionSettings() {
   if (!state.appSettings.transcription) state.appSettings.transcription = {};
-  state.appSettings.transcription.enabled = transcriptionEnabledCheckbox?.checked || false;
+  // Transcription is always on — the toggle was removed. FluidAudio (default)
+  // runs on-device so this never fails offline.
+  state.appSettings.transcription.enabled = true;
   state.appSettings.transcription.provider = transcriptionProviderSelect?.value || 'FluidAudio';
 
   if (!state.appSettings.transcription.api_keys) state.appSettings.transcription.api_keys = {};
