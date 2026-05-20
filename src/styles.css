@@ -465,54 +465,30 @@ body {
   opacity: 0.8;
 }
 
-/* Section Visibility Logic */
-.capture-section,
-.detail-controls {
+/* Capture controls (record button + waveform) live in the top bar at all times
+   so the recording status and start/stop control stay available app-wide —
+   list, detail, and settings. Per-recording meta/actions moved into the detail
+   content header. */
+.capture-section {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 1. Default (List View) */
-.detail-controls {
-  opacity: 0;
-  pointer-events: none;
-  display: none !important;
-}
-
-/* 2. Detail View Open + Not Recording -> Show Meta/Actions, Hide Capture */
-body.detail-open:not(.is-recording-active) .capture-section,
-body.settings-open .capture-section {
-  opacity: 0;
-  pointer-events: none;
-  display: none !important;
-}
-
-body.detail-open:not(.is-recording-active) .detail-controls {
-  opacity: 1;
-  pointer-events: auto;
-  display: flex !important;
-}
-
-/* 3. Recording Active -> Force Capture Section visible */
-body.is-recording-active .capture-section {
-  opacity: 1 !important;
-  pointer-events: auto !important;
-  display: flex !important;
-}
-
-body.is-recording-active .detail-controls {
-  opacity: 0 !important;
-  pointer-events: none !important;
-  display: none !important;
-}
-
 .detail-top-nav-simple {
   height: 40px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 0 2rem;
+}
+
+.detail-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .capture-controls {
@@ -560,15 +536,6 @@ body.is-recording-active .detail-controls {
 .capture-controls button.record-btn.is-active .stop-icon {
   display: inline-block;
   font-size: 0.75em;
-}
-
-.capture-controls button.record-btn.is-play-mode {
-  color: var(--accent);
-}
-
-.capture-controls button.record-btn.is-play-mode:hover {
-  background: var(--accent);
-  color: var(--bg-primary);
 }
 
 .recording-text {

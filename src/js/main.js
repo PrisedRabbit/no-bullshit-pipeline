@@ -18,9 +18,9 @@ import { updatePermissionStatus, initPermissions } from './settings/permissions.
 
 // Recording
 import './recording/timer.js';
-import './recording/waveform.js';
+import { startWaveformAnimation, stopWaveformAnimation } from './recording/waveform.js';
 import './recording/live-transcript.js';
-import { toggleRecording, startRecording } from './recording/controls.js';
+import { toggleRecording, startRecording, setRecordingUI } from './recording/controls.js';
 import { loadRecordings, renderRecordingsList } from './recording/list.js';
 // renderRecordingsList is invoked from transcription_progress handler when
 // only the "Transcribing…" status changes — no need to refetch all metadata.
@@ -136,6 +136,8 @@ async function init() {
     const recordingId = event.payload;
     trace('JS recording_complete:', recordingId);
     state.setIsRecording(false);
+    setRecordingUI(false);
+    stopWaveformAnimation();
     await loadRecordings();
     trace('JS after loadRecordings (complete), statuses:',
       state.allRecordings.map(r => `${r.id.slice(0,8)}=${r.status}`));
@@ -161,6 +163,10 @@ async function init() {
     trace('JS recording_started:', { id, pipelines, source });
     if (!id) return;
     state.setIsRecording(true);
+    // Reflect the active recording on the global top-bar control — works for
+    // auto/call recordings too, not just the manual flow (controls.js).
+    setRecordingUI(true);
+    startWaveformAnimation();
     await loadRecordings();
     trace('JS after loadRecordings (started), statuses:',
       state.allRecordings.map(r => `${r.id.slice(0,8)}=${r.status}`));
@@ -177,6 +183,8 @@ async function init() {
     const recordingId = typeof event.payload === 'string' ? event.payload : null;
     trace('JS recording_discarded:', recordingId);
     state.setIsRecording(false);
+    setRecordingUI(false);
+    stopWaveformAnimation();
     if (recordingId) state.pendingAutoExec.delete(recordingId);
     await loadRecordings();
     trace('JS after loadRecordings (discarded), statuses:',

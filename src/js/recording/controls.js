@@ -13,17 +13,8 @@ import { showDetailView } from './detail.js';
 export async function toggleRecording() {
   if (state.isRecordingBusy) return;
 
-  // If we have a recording selected and not recording, play it
-  if (state.selectedRecordingId && !state.isRecording) {
-    try {
-      await invoke('stop_audio');
-      await invoke('play_audio', { recordingId: state.selectedRecordingId });
-    } catch (err) {
-      console.error('Playback error:', err);
-    }
-    return;
-  }
-
+  // The top-bar button is the app-wide recording control only: stop the active
+  // recording, or start a new one. No playback — that's intentionally not here.
   if (state.isRecording) {
     await stopRecording();
   } else {
@@ -39,7 +30,6 @@ export function setRecordingUI(recording) {
     if (recordToggleBtn) {
       recordToggleBtn.innerHTML = '<svg class="stop-icon" width="11" height="11" viewBox="0 0 11 11" fill="currentColor"><rect width="11" height="11" rx="1.5"/></svg>';
       recordToggleBtn.classList.add('is-active');
-      recordToggleBtn.classList.remove('is-play-mode');
       recordToggleBtn.title = 'Stop Recording';
     }
   } else {
@@ -55,17 +45,11 @@ export function updateMainButton() {
   // While recording, setRecordingUI owns the button state (red stop square)
   if (state.isRecording) return;
 
+  // Idle state — always the "start recording" affordance, regardless of whether
+  // a recording is open. The button is the app-wide record control, not a player.
   recordToggleBtn.classList.remove('is-active');
-
-  if (state.selectedRecordingId && !state.isRecording) {
-    recordToggleBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
-    recordToggleBtn.classList.add('is-play-mode');
-    recordToggleBtn.title = 'Play Recording';
-  } else {
-    recordToggleBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 11 11" fill="currentColor"><circle cx="5.5" cy="5.5" r="5.5"/></svg>';
-    recordToggleBtn.classList.remove('is-play-mode');
-    recordToggleBtn.title = 'Start Recording';
-  }
+  recordToggleBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 11 11" fill="currentColor"><circle cx="5.5" cy="5.5" r="5.5"/></svg>';
+  recordToggleBtn.title = 'Start Recording';
 }
 
 export async function startRecording() {

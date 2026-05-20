@@ -51,8 +51,6 @@ export function hideDetailView() {
   stopProcessingPoll();
   updateMainButton();
   ViewManager.showRecordings();
-  const detailControlsEl = document.getElementById('detail-controls');
-  if (detailControlsEl) detailControlsEl.style.display = 'none';
   cleanupPipelineProgress();
 }
 
@@ -69,7 +67,6 @@ export async function showDetailView(id) {
   const detailMetaHeaderEl = document.getElementById('detail-meta-header');
   const detailTranscriptEl = document.getElementById('transcript-content');
   const detailStructuredEl = document.getElementById('structured-content');
-  const detailControlsEl = document.getElementById('detail-controls');
   const deleteBtnHeader = document.getElementById('delete-btn-header');
   const openFolderBtnHeader = document.getElementById('open-folder-btn-header');
   const prBtn = document.getElementById('process-btn');
@@ -90,8 +87,6 @@ export async function showDetailView(id) {
 
   ViewManager.showDetail();
   subscribeToProgress(id);
-
-  if (detailControlsEl) detailControlsEl.style.display = 'flex';
 
   if (deleteBtnHeader) {
     deleteBtnHeader.style.opacity = isProcessing ? '0.3' : '1';

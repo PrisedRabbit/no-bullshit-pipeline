@@ -50,39 +50,6 @@
           </div>
         </div>
 
-        <!-- Section B: Detail View Context (Meta + Actions) -->
-        <div id="detail-controls" class="detail-controls" style="display: none">
-          <div id="detail-meta-header" class="detail-meta-text"></div>
-          <div class="top-actions">
-            <button
-              id="open-folder-btn-header"
-              class="mini-action-btn"
-              title="Open Folder"
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-              </svg>
-            </button>
-            <button
-              id="delete-btn-header"
-              class="mini-action-btn danger"
-              title="Delete"
-            >
-              <span class="icon-trash"></span>
-            </button>
-          </div>
-        </div>
-
         <button id="settings-btn" class="app-bar-settings-btn" title="Settings">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"></circle>
@@ -110,6 +77,18 @@
           <button class="back-link-btn" id="back-btn">
             <span class="icon">←</span> Back
           </button>
+          <div class="detail-top-actions">
+            <span id="detail-meta-header" class="detail-meta-text"></span>
+            <button id="open-folder-btn-header" class="mini-action-btn" title="Open Folder">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+            </button>
+            <button id="delete-btn-header" class="mini-action-btn danger" title="Delete">
+              <span class="icon-trash"></span>
+            </button>
+          </div>
         </div>
 
         <div class="detail-scroller">

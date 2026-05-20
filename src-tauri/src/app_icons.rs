@@ -126,15 +126,25 @@ fn render_icon_png(bundle_id: &str) -> Option<Vec<u8>> {
             return None;
         }
 
-        // NSData* tiff = [icon TIFFRepresentation];
-        let tiff: *mut AnyObject = objc2::msg_send![icon, TIFFRepresentation];
-        if tiff.is_null() {
+        // Flatten the NSImage to a CGImage. macOS 26 (Tahoe) ships app icons as
+        // dynamic `.icon` resources whose `TIFFRepresentation` comes back blank,
+        // so the old TIFF→imageRepWithData path produced an empty PNG.
+        // `CGImageForProposedRect:context:hints:` rasterizes the icon's current
+        // rendering at its natural size and works on macOS 15 too.
+        let cg_image: *mut std::ffi::c_void = objc2::msg_send![
+            icon,
+            CGImageForProposedRect: std::ptr::null::<std::ffi::c_void>(),
+            context: std::ptr::null::<AnyObject>(),
+            hints: std::ptr::null::<AnyObject>()
+        ];
+        if cg_image.is_null() {
             return None;
         }
 
-        // NSBitmapImageRep* rep = [NSBitmapImageRep imageRepWithData:tiff];
+        // NSBitmapImageRep* rep = [[NSBitmapImageRep alloc] initWithCGImage:cgImage];
         let ns_rep = AnyClass::get(c"NSBitmapImageRep")?;
-        let rep: *mut AnyObject = objc2::msg_send![ns_rep, imageRepWithData: tiff];
+        let rep_alloc: *mut AnyObject = objc2::msg_send![ns_rep, alloc];
+        let rep: *mut AnyObject = objc2::msg_send![rep_alloc, initWithCGImage: cg_image];
         if rep.is_null() {
             return None;
         }
