@@ -32,11 +32,9 @@ export async function toggleRecording() {
 }
 
 export function setRecordingUI(recording) {
-  const statusIndicator = document.getElementById('status-indicator');
   const recordToggleBtn = document.getElementById('record-toggle-btn');
 
   if (recording) {
-    if (statusIndicator) statusIndicator.className = 'status-recording';
     document.body.classList.add('is-recording-active');
     if (recordToggleBtn) {
       recordToggleBtn.innerHTML = '<svg class="stop-icon" width="11" height="11" viewBox="0 0 11 11" fill="currentColor"><rect width="11" height="11" rx="1.5"/></svg>';
@@ -45,7 +43,6 @@ export function setRecordingUI(recording) {
       recordToggleBtn.title = 'Stop Recording';
     }
   } else {
-    if (statusIndicator) statusIndicator.className = 'status-idle';
     document.body.classList.remove('is-recording-active');
     updateMainButton();
   }

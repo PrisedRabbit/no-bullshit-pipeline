@@ -571,24 +571,6 @@ body.is-recording-active .detail-controls {
   color: var(--bg-primary);
 }
 
-#status-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.status-idle {
-  background: var(--bg-card) !important;
-  border: 2px solid var(--border);
-}
-
-.status-recording {
-  background: var(--recording) !important;
-  box-shadow: 0 0 12px var(--recording);
-  animation: pulse-dot 1.2s infinite;
-}
-
 .recording-text {
   color: var(--recording, #ef4444);
   font-weight: 700;
@@ -617,20 +599,6 @@ body.is-recording-active .detail-controls {
   display: block;
 }
 
-@keyframes pulse-dot {
-  0% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(1.4);
-    opacity: 0.5;
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
 
 /* ===== MAIN LAYOUT ===== */
 .app-layout {

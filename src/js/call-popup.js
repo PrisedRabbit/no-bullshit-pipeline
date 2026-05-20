@@ -5,7 +5,6 @@
 //
 // Events from Rust (`call-popup`):
 //   • kind: "recording", app: <name>  — recording started, Ignore button live
-//   • kind: "saved",     app: <name>  — call ended, recording was kept
 //   • kind: "error",     message      — start_recording failed
 //
 // Click Ignore → invoke ignore_call_recording → backend stops + deletes.
@@ -25,7 +24,6 @@ const ignoreBtn = document.getElementById('ignore-btn');
 const progressFill = document.getElementById('progress-fill');
 
 const IGNORE_WINDOW_MS = 7_000;
-const SAVED_AUTO_HIDE_MS = 3_000;
 const ERROR_AUTO_HIDE_MS = 5_000;
 
 let hideTimer = null;
@@ -81,7 +79,7 @@ function show(kind, appName, message) {
   // change that happened while the popup window was idle.
   resolveAndApplyTheme();
 
-  dot.classList.remove('recording', 'saved', 'error');
+  dot.classList.remove('recording', 'error');
   body.classList.remove('show-actions');
 
   let ttl;
@@ -91,10 +89,6 @@ function show(kind, appName, message) {
     body.classList.add('show-actions');
     ttl = IGNORE_WINDOW_MS;
     restartProgressBar(IGNORE_WINDOW_MS);
-  } else if (kind === 'saved') {
-    dot.classList.add('saved');
-    msg.textContent = 'Recording saved';
-    ttl = SAVED_AUTO_HIDE_MS;
   } else if (kind === 'error') {
     dot.classList.add('error');
     msg.textContent = message || 'Recording failed';
@@ -144,7 +138,7 @@ listen('call-popup', (event) => {
   const kind = payload.kind;
   const appName = payload.app || null;
   const message = payload.message || null;
-  if (kind === 'recording' || kind === 'saved' || kind === 'error') {
+  if (kind === 'recording' || kind === 'error') {
     show(kind, appName, message);
   } else {
     console.warn('call-popup: unknown kind', kind);

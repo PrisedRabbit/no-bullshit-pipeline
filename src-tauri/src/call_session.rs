@@ -384,7 +384,7 @@ fn handle_ended(app: &tauri::AppHandle) {
         }
     };
 
-    let Some((rid, call_app)) = owned else { return };
+    let Some((rid, _call_app)) = owned else { return };
 
     // Verify ownership before stopping. If the user manually replaced the
     // recording via main-window stop+start, don't yank the unrelated one.
@@ -409,24 +409,16 @@ fn handle_ended(app: &tauri::AppHandle) {
         log::warn!("call_session: stop_recording failed for {}: {}", rid, e);
     }
 
-    // Only claim "saved" if the recording survived the < auto_discard_seconds
-    // gate inside stop_recording.
-    if crate::storage::get_recording_dir(&rid).exists() {
-        let _ = app.emit(
-            "call-popup",
-            serde_json::json!({ "kind": "saved", "app": call_app, "recording_id": rid.clone() }),
-        );
-
-        // Transcription + auto_run pipelines are driven uniformly by the
-        // frontend `recording_complete` listener (fired from stop_recording's
-        // finalize). The main window is hidden-not-destroyed on close, so that
-        // listener is always alive even for background calls. We deliberately
-        // do NOT transcribe here too — a second concurrent transcription raced
-        // the JS flow and made it run pipelines before the transcript existed,
-        // so auto_run pipelines silently no-op'd for calls.
-    } else {
+    // No "saved" popup on call end — it was purely informational noise.
+    // Transcription + auto_run pipelines are driven uniformly by the frontend
+    // `recording_complete` listener (fired from stop_recording's finalize). The
+    // main window is hidden-not-destroyed on close, so that listener is always
+    // alive even for background calls. We deliberately do NOT transcribe here
+    // too — a second concurrent transcription raced the JS flow and made it run
+    // pipelines before the transcript existed, so auto_run silently no-op'd.
+    if !crate::storage::get_recording_dir(&rid).exists() {
         log::info!(
-            "call_session: owned recording {} was too short, auto-discarded — no saved popup",
+            "call_session: owned recording {} was too short, auto-discarded",
             rid
         );
     }

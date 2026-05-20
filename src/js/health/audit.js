@@ -2,7 +2,6 @@ import { escapeHtml } from '../core/utils.js';
 
 const AUDIT_ELEMENTS = [
   { id: 'record-toggle-btn',         desc: 'Record button' },
-  { id: 'status-indicator',          desc: 'Status indicator dot' },
   { id: 'permission-warning',        desc: 'Permission warning banner' },
   { id: 'settings-btn',              desc: 'Settings button' },
   { id: 'settings-view',             desc: 'Settings view section' },
