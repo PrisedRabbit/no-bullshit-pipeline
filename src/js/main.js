@@ -139,8 +139,6 @@ async function init() {
     setRecordingUI(false);
     stopWaveformAnimation();
     await loadRecordings();
-    trace('JS after loadRecordings (complete), statuses:',
-      state.allRecordings.map(r => `${r.id.slice(0,8)}=${r.status}`));
     if (state.selectedRecordingId === recordingId) showDetailView(recordingId);
 
     // Pipelines to run: explicitly-assigned (pendingAutoExec) plus any pipeline
@@ -168,8 +166,6 @@ async function init() {
     setRecordingUI(true);
     startWaveformAnimation();
     await loadRecordings();
-    trace('JS after loadRecordings (started), statuses:',
-      state.allRecordings.map(r => `${r.id.slice(0,8)}=${r.status}`));
     if (Array.isArray(pipelines) && pipelines.length > 0) {
       state.pendingAutoExec.set(id, pipelines);
     }
@@ -187,8 +183,6 @@ async function init() {
     stopWaveformAnimation();
     if (recordingId) state.pendingAutoExec.delete(recordingId);
     await loadRecordings();
-    trace('JS after loadRecordings (discarded), statuses:',
-      state.allRecordings.map(r => `${r.id.slice(0,8)}=${r.status}`));
   });
 
   // Track in-flight transcriptions so the recordings list can render a

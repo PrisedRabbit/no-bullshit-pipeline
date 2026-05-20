@@ -554,6 +554,16 @@ pub async fn stop_inner(app: &AppHandle) -> Result<String, String> {
     // before we drop the stream. Otherwise the tail of the last word is
     // truncated because the OS audio queue hasn't flushed yet.
     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    // Pause the cpal stream BEFORE dropping it. On macOS, cpal::Stream::Drop
+    // does not block on the HAL audio thread — the input callback keeps
+    // running for an unbounded time after drop, still holding its Arc clone
+    // of `samples`. That kept previous sessions' Vec<f32>s alive across
+    // shortcut cycles (5 cycles → 5 live Vecs, ~88 MB stuck in the heap per
+    // malloc_history). `pause()` blocking-stops the device so the callback
+    // is torn down and its Arc is released before drop returns.
+    if let Some(ref s) = session.stream {
+        let _ = s.pause();
+    }
     drop(session.stream.take());
 
     // Stop the parallel system-audio tap (if any). Its `stop()` joins the
@@ -927,6 +937,16 @@ pub fn cancel_inner(app: &AppHandle) {
         Some(s) => s,
         None => return,
     };
+    // Pause the cpal stream BEFORE dropping it. On macOS, cpal::Stream::Drop
+    // does not block on the HAL audio thread — the input callback keeps
+    // running for an unbounded time after drop, still holding its Arc clone
+    // of `samples`. That kept previous sessions' Vec<f32>s alive across
+    // shortcut cycles (5 cycles → 5 live Vecs, ~88 MB stuck in the heap per
+    // malloc_history). `pause()` blocking-stops the device so the callback
+    // is torn down and its Arc is released before drop returns.
+    if let Some(ref s) = session.stream {
+        let _ = s.pause();
+    }
     drop(session.stream.take());
     if let Some(handle) = session.system_setup.take() {
         // Cancel path is sync — can't await. Abort the background setup.
