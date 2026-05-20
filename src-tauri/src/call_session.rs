@@ -417,31 +417,13 @@ fn handle_ended(app: &tauri::AppHandle) {
             serde_json::json!({ "kind": "saved", "app": call_app, "recording_id": rid.clone() }),
         );
 
-        // Force auto-transcribe regardless of JS appSettings gate. User's
-        // contract: every call recording always gets transcribed. Pipelines
-        // remain manual. transcribe_recording itself still respects
-        // settings.transcription.enabled on the Rust side — if user has
-        // disabled transcription globally, this is a polite no-op. Runs in
-        // the Tauri async runtime so handle_ended returns promptly.
-        let app_for_tx = app.clone();
-        let rid_for_tx = rid.clone();
-        tauri::async_runtime::spawn(async move {
-            let ts_state = app_for_tx.state::<crate::transcription::TranscriptionState>();
-            match crate::transcription::transcribe_recording(
-                app_for_tx.clone(),
-                rid_for_tx.clone(),
-                ts_state,
-            )
-            .await
-            {
-                Ok(_) => log::info!("call_session: auto-transcribed {}", rid_for_tx),
-                Err(e) => log::warn!(
-                    "call_session: auto-transcribe failed for {}: {}",
-                    rid_for_tx,
-                    e
-                ),
-            }
-        });
+        // Transcription + auto_run pipelines are driven uniformly by the
+        // frontend `recording_complete` listener (fired from stop_recording's
+        // finalize). The main window is hidden-not-destroyed on close, so that
+        // listener is always alive even for background calls. We deliberately
+        // do NOT transcribe here too — a second concurrent transcription raced
+        // the JS flow and made it run pipelines before the transcript existed,
+        // so auto_run pipelines silently no-op'd for calls.
     } else {
         log::info!(
             "call_session: owned recording {} was too short, auto-discarded — no saved popup",
