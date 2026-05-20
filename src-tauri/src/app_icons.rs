@@ -24,7 +24,7 @@ static MEM_CACHE: Mutex<Option<HashMap<String, Option<String>>>> = Mutex::new(No
 /// id, or `None` if the app can't be resolved (frontend then shows a neutral
 /// default glyph). Result is cached in memory and on disk.
 #[tauri::command]
-pub fn get_app_icon(bundle_id: String) -> Option<String> {
+pub fn get_app_icon(app: tauri::AppHandle, bundle_id: String) -> Option<String> {
     if bundle_id.is_empty() {
         return None;
     }
@@ -49,8 +49,24 @@ pub fn get_app_icon(bundle_id: String) -> Option<String> {
         }
     }
 
-    // 3. Resolve from the OS, render to PNG, persist.
-    let png = render_icon_png(&bundle_id);
+    // 3. Resolve from the OS on the MAIN THREAD, render to PNG, persist.
+    // AppKit icon drawing (lockFocus/drawInRect) must run on the main thread,
+    // and rendering the dynamic `.icon` resources macOS 26 uses requires actual
+    // drawing (no static bitmap rep to read).
+    let png = {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let bid = bundle_id.clone();
+        if app
+            .run_on_main_thread(move || {
+                let _ = tx.send(render_icon_png(&bid));
+            })
+            .is_err()
+        {
+            log::warn!("app_icons: run_on_main_thread failed for {:?}", bundle_id);
+            return None;
+        }
+        rx.recv().ok().flatten()
+    };
     log::info!(
         "app_icons: resolve bundle={:?} -> {}",
         bundle_id,
@@ -102,8 +118,8 @@ const NS_BITMAP_FILE_TYPE_PNG: u64 = 4;
 const ICON_RENDER_PX: f64 = 64.0;
 
 // CoreGraphics geometry structs (NSPoint/NSSize/NSRect are these on 64-bit).
-// Defined locally with Encode impls so we can pass an explicit destination rect
-// to CGImageForProposedRect without pulling in objc2-app-kit / objc2-core-foundation.
+// Defined locally with Encode impls so we can pass NSSize/NSRect by value to
+// AppKit drawing calls without pulling in objc2-app-kit / objc2-core-foundation.
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct CGPoint {
@@ -156,49 +172,68 @@ fn render_icon_png(bundle_id: &str) -> Option<Vec<u8>> {
         let url: *mut AnyObject =
             objc2::msg_send![workspace, URLForApplicationWithBundleIdentifier: bundle_ns];
         if url.is_null() {
+            log::warn!("app_icons[{}]: app URL nil (not installed?)", bundle_id);
             return None;
         }
         let path: *mut AnyObject = objc2::msg_send![url, path];
         if path.is_null() {
+            log::warn!("app_icons[{}]: app path nil", bundle_id);
             return None;
         }
 
         // NSImage* icon = [workspace iconForFile:path];
         let icon: *mut AnyObject = objc2::msg_send![workspace, iconForFile: path];
         if icon.is_null() {
+            log::warn!("app_icons[{}]: iconForFile nil", bundle_id);
             return None;
         }
 
-        // Flatten the NSImage to a CGImage at an explicit size. macOS 26 (Tahoe)
-        // ships app icons as dynamic `.icon` resources: `TIFFRepresentation`
-        // returns blank, and `CGImageForProposedRect` with a NULL rect doesn't
-        // know what size to rasterize so it also yields nothing. Setting the
-        // image size AND passing a concrete destination rect forces a real
-        // raster of the icon's current rendering — works on macOS 15 and 26.
-        let target = CGSize {
+        // Rasterize by DRAWING the icon into an offscreen bitmap. macOS 26
+        // (Tahoe) apps that adopted the new dynamic `.icon` format (e.g. Slack)
+        // produce an NSImage with no static bitmap/CGImage rep, so both
+        // TIFFRepresentation and CGImageForProposedRect come back blank — only
+        // actually drawing composites the live rendering. Old `.icns` apps
+        // (e.g. Telegram) draw fine too. drawInRect/lockFocus require the main
+        // thread, which the caller guarantees via run_on_main_thread.
+        const NS_COMPOSITE_SOURCE_OVER: u64 = 2;
+        let size = CGSize {
             width: ICON_RENDER_PX,
             height: ICON_RENDER_PX,
         };
-        let _: () = objc2::msg_send![icon, setSize: target];
-        let mut rect = CGRect {
+        let dest = CGRect {
             origin: CGPoint { x: 0.0, y: 0.0 },
-            size: target,
+            size,
         };
-        let cg_image: *mut std::ffi::c_void = objc2::msg_send![
-            icon,
-            CGImageForProposedRect: &mut rect as *mut CGRect,
-            context: std::ptr::null::<AnyObject>(),
-            hints: std::ptr::null::<AnyObject>()
-        ];
-        if cg_image.is_null() {
+        let zero = CGRect {
+            origin: CGPoint { x: 0.0, y: 0.0 },
+            size: CGSize { width: 0.0, height: 0.0 },
+        };
+
+        let _: () = objc2::msg_send![icon, setSize: size];
+
+        // canvas = [[NSImage alloc] initWithSize:size]; [canvas lockFocus];
+        let ns_image_cls = AnyClass::get(c"NSImage")?;
+        let canvas: *mut AnyObject = objc2::msg_send![ns_image_cls, alloc];
+        let canvas: *mut AnyObject = objc2::msg_send![canvas, initWithSize: size];
+        if canvas.is_null() {
+            log::warn!("app_icons[{}]: canvas alloc nil", bundle_id);
             return None;
         }
-
-        // NSBitmapImageRep* rep = [[NSBitmapImageRep alloc] initWithCGImage:cgImage];
+        let _: () = objc2::msg_send![canvas, lockFocus];
+        let _: () = objc2::msg_send![
+            icon,
+            drawInRect: dest,
+            fromRect: zero,
+            operation: NS_COMPOSITE_SOURCE_OVER,
+            fraction: 1.0f64
+        ];
+        // rep = [[NSBitmapImageRep alloc] initWithFocusedViewRect:dest];
         let ns_rep = AnyClass::get(c"NSBitmapImageRep")?;
         let rep_alloc: *mut AnyObject = objc2::msg_send![ns_rep, alloc];
-        let rep: *mut AnyObject = objc2::msg_send![rep_alloc, initWithCGImage: cg_image];
+        let rep: *mut AnyObject = objc2::msg_send![rep_alloc, initWithFocusedViewRect: dest];
+        let _: () = objc2::msg_send![canvas, unlockFocus];
         if rep.is_null() {
+            log::warn!("app_icons[{}]: bitmap rep nil after draw", bundle_id);
             return None;
         }
 
@@ -211,6 +246,7 @@ fn render_icon_png(bundle_id: &str) -> Option<Vec<u8>> {
             properties: empty
         ];
         if png.is_null() {
+            log::warn!("app_icons[{}]: PNG encode nil", bundle_id);
             return None;
         }
 
