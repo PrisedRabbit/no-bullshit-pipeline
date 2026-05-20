@@ -2,7 +2,6 @@ import { invoke } from '../core/tauri.js';
 import * as state from '../core/state.js';
 
 const WALKTHROUGH_STEPS = [
-  { selector: '#pipeline-chip-bar',  title: 'Pipeline Chips',  desc: 'Click any chip to instantly start recording with that pipeline pre-assigned.' },
   { selector: '#record-toggle-btn',  title: 'Record Button',   desc: 'Start or stop recording. When a recording is selected, this plays it back instead.' },
   { selector: '#settings-btn',       title: 'Settings',        desc: 'Configure audio, pipelines, templates, integrations, and appearance.' },
   { selector: '#recordings-list',    title: 'Recordings',      desc: 'All your recordings appear here. Click any recording to open its detail view.' },

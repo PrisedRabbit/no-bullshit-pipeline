@@ -208,7 +208,7 @@ fn run_start(
             let title = format!(
                 "{} · {}",
                 app_label,
-                chrono::Local::now().format("%-d %b %H:%M")
+                chrono::Local::now().format("%H:%M")
             );
             if let Ok(mut meta) = crate::storage::read_metadata(&recording_id) {
                 meta.title = title;

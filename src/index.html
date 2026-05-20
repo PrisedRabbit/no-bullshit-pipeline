@@ -8,15 +8,10 @@
   </head>
   <body>
     <!-- Main app bar (Capture & Detail Controls) -->
-    <header class="app-bar">
-      <div class="app-logo">
-        <span class="logo-text">NBP</span> <span id="app-version"></span>
-        <button id="settings-btn" class="app-bar-settings-btn" title="Settings">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="3"></circle>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-          </svg>
-        </button>
+    <header class="app-bar" data-tauri-drag-region>
+      <div class="app-logo" data-tauri-drag-region>
+        <span class="app-name" data-tauri-drag-region>NBP</span>
+        <span id="app-version" data-tauri-drag-region></span>
       </div>
 
       <!-- Permission Warning Banner -->
@@ -30,57 +25,64 @@
         <button id="fix-permissions-btn" class="fix-btn">Fix</button>
       </div>
 
-      <!-- Section A: Universal Capture Controls -->
-      <div id="capture-section" class="capture-section">
-        <div id="status-indicator" class="status-idle"></div>
-        <div id="timer" class="timer">00:00:00</div>
-        <!-- Recording Waveform Visualization -->
-        <div id="recording-waveform" class="recording-waveform">
-          <canvas id="recording-waveform-canvas" class="recording-waveform-canvas" width="40" height="28"></canvas>
-        </div>
-        <div id="pipeline-chip-bar" class="pipeline-chip-bar"></div>
-        <div class="capture-controls">
-          <button
-            id="record-toggle-btn"
-            class="record-btn"
-            title="Start Recording"
-          >
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="currentColor"><circle cx="5.5" cy="5.5" r="5.5"/></svg>
-          </button>
-        </div>
-      </div>
-
-      <!-- Section B: Detail View Context (Meta + Actions) -->
-      <div id="detail-controls" class="detail-controls" style="display: none">
-        <div id="detail-meta-header" class="detail-meta-text"></div>
-        <div class="top-actions">
-          <button
-            id="open-folder-btn-header"
-            class="mini-action-btn"
-            title="Open Folder"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
+      <div class="app-bar-right">
+        <!-- Section A: Universal Capture Controls -->
+        <div id="capture-section" class="capture-section">
+          <div id="status-indicator" class="status-idle"></div>
+          <!-- Recording Waveform Visualization -->
+          <div id="recording-waveform" class="recording-waveform">
+            <canvas id="recording-waveform-canvas" class="recording-waveform-canvas" width="40" height="28"></canvas>
+          </div>
+          <div class="capture-controls">
+            <button
+              id="record-toggle-btn"
+              class="record-btn"
+              title="Start Recording"
             >
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
-          </button>
-          <button
-            id="delete-btn-header"
-            class="mini-action-btn danger"
-            title="Delete"
-          >
-            <span class="icon-trash"></span>
-          </button>
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="currentColor"><circle cx="5.5" cy="5.5" r="5.5"/></svg>
+            </button>
+          </div>
         </div>
+
+        <!-- Section B: Detail View Context (Meta + Actions) -->
+        <div id="detail-controls" class="detail-controls" style="display: none">
+          <div id="detail-meta-header" class="detail-meta-text"></div>
+          <div class="top-actions">
+            <button
+              id="open-folder-btn-header"
+              class="mini-action-btn"
+              title="Open Folder"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+            </button>
+            <button
+              id="delete-btn-header"
+              class="mini-action-btn danger"
+              title="Delete"
+            >
+              <span class="icon-trash"></span>
+            </button>
+          </div>
+        </div>
+
+        <button id="settings-btn" class="app-bar-settings-btn" title="Settings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
       </div>
     </header>
 

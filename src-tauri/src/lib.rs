@@ -286,6 +286,14 @@ pub fn run() {
             );
             app.manage(process_detector);
 
+            // Unify the macOS title bar with our in-app top bar: extend the
+            // webview content under the title bar (fullSizeContentView) and make
+            // the native title bar transparent + title hidden. The `titleBarStyle`
+            // config alone didn't reliably enable fullSizeContentView on this
+            // wry/tao version, so force it here on the live NSWindow.
+            #[cfg(target_os = "macos")]
+            apply_unified_titlebar(app.handle());
+
             // Build system tray menu
             build_tray(app)?;
 
@@ -623,6 +631,50 @@ fn request_accessibility_permission() -> bool {
 #[tauri::command]
 fn restart_app(app: tauri::AppHandle) {
     app.restart();
+}
+
+/// Extend the webview under the macOS title bar (fullSizeContentView) and make
+/// the native title bar transparent with a hidden title, so the traffic-light
+/// strip shares our in-app top bar's color — one continuous bar, no seam.
+/// Forced on the live NSWindow because the `titleBarStyle` config alone didn't
+/// enable fullSizeContentView on this wry/tao version.
+#[cfg(target_os = "macos")]
+fn apply_unified_titlebar(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        log::warn!("apply_unified_titlebar: main window not found");
+        return;
+    };
+    unsafe {
+        if let Ok(ns_window_ptr) = window.ns_window() {
+            let ns_window: *mut objc2::runtime::AnyObject =
+                ns_window_ptr as *mut objc2::runtime::AnyObject;
+            if ns_window.is_null() {
+                return;
+            }
+            // NSWindowStyleMaskFullSizeContentView = 1 << 15
+            const FULL_SIZE_CONTENT_VIEW: usize = 1 << 15;
+            let mask: usize = objc2::msg_send![ns_window, styleMask];
+            let _: () = objc2::msg_send![ns_window, setStyleMask: mask | FULL_SIZE_CONTENT_VIEW];
+            let _: () = objc2::msg_send![ns_window, setTitlebarAppearsTransparent: true];
+            // NSWindowTitleVisibility::Hidden = 1
+            let _: () = objc2::msg_send![ns_window, setTitleVisibility: 1isize];
+
+            // Attach an empty unified toolbar so the title bar grows taller and
+            // the traffic lights drop to vertically center within our taller top
+            // bar. Persistent across resize/focus — unlike repositioning the
+            // standard buttons by hand, which AppKit resets on relayout.
+            if let Some(toolbar_cls) = objc2::runtime::AnyClass::get(c"NSToolbar") {
+                let toolbar: *mut objc2::runtime::AnyObject = objc2::msg_send![toolbar_cls, alloc];
+                let toolbar: *mut objc2::runtime::AnyObject = objc2::msg_send![toolbar, init];
+                if !toolbar.is_null() {
+                    let _: () = objc2::msg_send![toolbar, setShowsBaselineSeparator: false];
+                    let _: () = objc2::msg_send![ns_window, setToolbar: toolbar];
+                    // NSWindowToolbarStyle::Unified = 3
+                    let _: () = objc2::msg_send![ns_window, setToolbarStyle: 3isize];
+                }
+            }
+        }
+    }
 }
 
 /// Toggle whether the dictation HUD NSWindow swallows mouse events.

@@ -9,17 +9,28 @@ import { showToast } from '../ui/toast.js';
 import { allPipelineDefs } from '../pipeline/state.js';
 import { renderPipelineFlowHTML } from '../pipeline/flow-renderer.js';
 
-const dateOptions = {
-  month: 'short',
-  day: 'numeric',
-  year: 'numeric',
-  hour: 'numeric',
-  minute: '2-digit'
-};
+// Stable per-day key for grouping recordings into date sections.
+function dateSectionKey(createdAt) {
+  const d = new Date(createdAt);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
 
-// id → { element, signature } — preserves DOM nodes across polls so scroll
-// and selection survive when nothing (or only some rows) changed.
-const renderedRows = new Map();
+// Human label for a date section: "Today" / "Yesterday" / "MAY 15, 2026".
+function dateSectionLabel(createdAt) {
+  const d = new Date(createdAt);
+  const startOfDay = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate());
+  const diffDays = Math.round((startOfDay(new Date()) - startOfDay(d)) / 86400000);
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  return d
+    .toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+    .toUpperCase();
+}
+
+// key → { element, signature } — preserves DOM nodes across polls so scroll
+// and selection survive when nothing (or only some nodes) changed. Keys are
+// `sec:<dayKey>` for section headers and the recording id for rows.
+const renderedNodes = new Map();
 
 // Live timer for any row in `status: "recording"`. Ticks once per second
 // and patches just the meta span of those rows — avoids full list re-render.
@@ -156,11 +167,12 @@ function buildRowHtml(rec) {
   const safeTitle = escapeHtml(rec.title || 'Untitled');
   const safeId = escapeHtml(rec.id);
 
-  // App icon for auto-recorded calls (resolved async from the bundle id).
-  // Manual recordings have no bundle id → no icon.
+  // App icon: call recordings resolve their app's icon async from the bundle
+  // id; manual recordings (New Record / pipeline) have no bundle id and show
+  // our own app icon instead.
   const appIconHtml = rec.app_bundle_id
     ? `<span class="app-icon" data-bundle="${escapeHtml(rec.app_bundle_id)}">${DEFAULT_APP_ICON_SVG}</span>`
-    : '';
+    : `<span class="app-icon app-icon-resolved"><img src="assets/app-icon.png" alt="" width="16" height="16" /></span>`;
 
   // Pipeline tags with step chips
   const pipelineTags = (rec.pipelines || []).map(p => {
@@ -181,8 +193,6 @@ function buildRowHtml(rec) {
         <div class="recording-item-header">
           <div class="recording-title">${healthIcon}${appIconHtml}${safeTitle}${isCurrentlyRecording ? ' <span style="color:var(--accent)">●</span>' : ''}</div>
           <div class="recording-meta">
-            <span>${new Date(rec.created_at).toLocaleString(undefined, dateOptions)}</span>
-            <span>·</span>
             <span>${metaText}</span>
           </div>
         </div>
@@ -227,43 +237,59 @@ export function renderRecordingsList() {
   if (!recordingsListEl) return;
 
   if (state.allRecordings.length === 0) {
-    if (renderedRows.size > 0 || recordingsListEl.firstChild) {
+    if (renderedNodes.size > 0 || recordingsListEl.firstChild) {
       recordingsListEl.innerHTML = '';
-      renderedRows.clear();
+      renderedNodes.clear();
     }
     if (emptyStateEl) emptyStateEl.style.display = 'block';
     return;
   }
   if (emptyStateEl) emptyStateEl.style.display = 'none';
 
-  // Remove rows no longer present
-  const currentIds = new Set();
-  for (const rec of state.allRecordings) currentIds.add(rec.id);
-  for (const [id, info] of renderedRows) {
-    if (!currentIds.has(id)) {
+  // Build the ordered node list: a date-section header before each new day,
+  // then the rows for that day. `allRecordings` is already sorted newest-first
+  // so days fall out in order.
+  const nodes = [];
+  let lastSectionKey = null;
+  for (const rec of state.allRecordings) {
+    const secKey = dateSectionKey(rec.created_at);
+    if (secKey !== lastSectionKey) {
+      lastSectionKey = secKey;
+      nodes.push({
+        key: `sec:${secKey}`,
+        html: `<div class="recordings-section-header">${escapeHtml(dateSectionLabel(rec.created_at))}</div>`,
+        isRow: false,
+      });
+    }
+    nodes.push({ key: rec.id, html: buildRowHtml(rec), isRow: true });
+  }
+
+  // Remove nodes no longer present (rows and now-empty section headers).
+  const currentKeys = new Set(nodes.map((n) => n.key));
+  for (const [key, info] of renderedNodes) {
+    if (!currentKeys.has(key)) {
       info.element.remove();
-      renderedRows.delete(id);
+      renderedNodes.delete(key);
     }
   }
 
-  // Walk recordings in order; insert/update/move per-row as needed
+  // Walk nodes in order; insert/update/move per-node as needed.
   let prevNode = null;
-  for (const rec of state.allRecordings) {
-    const html = buildRowHtml(rec);
-    let info = renderedRows.get(rec.id);
+  for (const node of nodes) {
+    let info = renderedNodes.get(node.key);
     if (info) {
-      if (info.signature !== html) {
-        const newEl = htmlToElement(html);
+      if (info.signature !== node.html) {
+        const newEl = htmlToElement(node.html);
         info.element.replaceWith(newEl);
-        wireRowDelete(newEl);
+        if (node.isRow) wireRowDelete(newEl);
         info.element = newEl;
-        info.signature = html;
+        info.signature = node.html;
       }
     } else {
-      const newEl = htmlToElement(html);
-      info = { element: newEl, signature: html };
-      renderedRows.set(rec.id, info);
-      wireRowDelete(newEl);
+      const newEl = htmlToElement(node.html);
+      info = { element: newEl, signature: node.html };
+      renderedNodes.set(node.key, info);
+      if (node.isRow) wireRowDelete(newEl);
     }
 
     const expectedAtPos = prevNode ? prevNode.nextSibling : recordingsListEl.firstChild;

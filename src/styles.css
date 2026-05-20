@@ -1,8 +1,8 @@
-@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap");
 
 :root {
-  font-family: "Outfit", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui,
+    "Helvetica Neue", sans-serif;
   font-size: 16px;
   line-height: 24px;
   font-weight: 400;
@@ -66,12 +66,6 @@ body.light .modal-btn.primary {
 
 body.light .theme-btn.active {
   color: #ffffff;
-}
-
-body.light .logo-text {
-  background: linear-gradient(135deg, #2563eb, #059669);
-  -webkit-background-clip: text;
-  background-clip: text;
 }
 
 body.light .app-bar {
@@ -432,13 +426,19 @@ body {
   top: 0;
   left: 0;
   right: 0;
-  height: 64px;
+  /* Height matches the macOS unified-toolbar title bar so our content
+     center-aligns on the same line as the traffic lights. Tune this single
+     value if the lights and our icons drift apart. */
+  height: 52px;
   background: rgba(7, 5, 15, 0.85);
   backdrop-filter: blur(20px);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 1.5rem;
+  /* Left padding clears the macOS traffic lights — the window uses an Overlay
+     title bar so content sits beneath them and the title-bar strip shares the
+     app-bar color (no seam). */
+  padding: 0 1.5rem 0 88px;
   z-index: 100;
   border-bottom: 2px solid var(--border);
 }
@@ -449,14 +449,17 @@ body {
   gap: 8px;
 }
 
-.logo-text {
-  font-weight: 800;
-  letter-spacing: -1px;
-  font-size: 1.4rem;
-  background: linear-gradient(135deg, var(--accent), #f472b6);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+.app-name {
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: -0.3px;
+  color: var(--text-primary);
+}
+
+.app-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 #app-version {
@@ -572,14 +575,6 @@ body.is-recording-active .detail-controls {
   color: var(--bg-primary);
 }
 
-.timer {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: var(--text-primary);
-  min-width: 70px;
-}
-
 #status-indicator {
   width: 8px;
   height: 8px;
@@ -645,8 +640,8 @@ body.is-recording-active .detail-controls {
 .app-layout {
   display: grid;
   grid-template-columns: 1fr;
-  height: calc(100vh - 64px);
-  margin-top: 64px;
+  height: calc(100vh - 52px);
+  margin-top: 52px;
 }
 
 .detail-view {
@@ -756,6 +751,21 @@ body.detail-open .detail-view {
   gap: 1rem;
   max-width: 900px;
   margin: 0 auto;
+}
+
+.recordings-section-header {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  padding: 0 4px;
+  margin-top: 0.75rem;
+  margin-bottom: -0.25rem;
+}
+
+.recordings-section-header:first-child {
+  margin-top: 0;
 }
 
 .recording-item {

@@ -55,7 +55,10 @@ pub fn start_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState
     let data_dir = storage::get_data_dir();
     check_disk_space(&data_dir)?;
 
-    let metadata = storage::create_recording(String::new(), vec![])?;
+    // Default title for manual recordings: "NBP · HH:MM". Call recordings get
+    // this overwritten with "{App} · HH:MM" by call_session::run_start.
+    let title = format!("NBP · {}", chrono::Local::now().format("%H:%M"));
+    let metadata = storage::create_recording(title, vec![])?;
     *state.save_mix_only.lock().map_err(|e| e.to_string())? = save_mix_only;
 
     // --- Real-time Mixer FIRST (so it's ready before capture threads push data) ---

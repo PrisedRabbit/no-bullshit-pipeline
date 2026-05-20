@@ -13,7 +13,9 @@
       {
         "title": "nbp",
         "width": 1260,
-        "height": 840
+        "height": 840,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {

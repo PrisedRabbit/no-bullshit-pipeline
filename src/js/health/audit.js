@@ -2,9 +2,7 @@ import { escapeHtml } from '../core/utils.js';
 
 const AUDIT_ELEMENTS = [
   { id: 'record-toggle-btn',         desc: 'Record button' },
-  { id: 'pipeline-chip-bar',         desc: 'Pipeline chip bar container' },
   { id: 'status-indicator',          desc: 'Status indicator dot' },
-  { id: 'timer',                     desc: 'Timer display' },
   { id: 'permission-warning',        desc: 'Permission warning banner' },
   { id: 'settings-btn',              desc: 'Settings button' },
   { id: 'settings-view',             desc: 'Settings view section' },
