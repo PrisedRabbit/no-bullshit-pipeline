@@ -1710,6 +1710,22 @@ body.settings-open .detail-view {
   min-width: 0;
 }
 
+.pipeline-def-autorun {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  cursor: default;
+}
+
+.pipeline-def-autorun-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-secondary);
+}
+
 .template-item-name,
 .pipeline-def-name {
   font-weight: 700;

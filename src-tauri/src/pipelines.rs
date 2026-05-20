@@ -49,6 +49,10 @@ pub struct Pipeline {
     pub name: String,
     pub description: String,
     pub steps: Vec<PipelineStep>,
+    /// When true, this pipeline runs automatically after every recording
+    /// finishes transcribing (in addition to any explicitly-assigned pipelines).
+    #[serde(default)]
+    pub auto_run: bool,
     #[serde(default = "default_now")]
     pub created_at: String,
     #[serde(default = "default_now")]
@@ -405,7 +409,13 @@ pub fn save_pipelines_to_disk(pipelines: &HashMap<String, Pipeline>) -> Result<(
 #[tauri::command]
 pub fn list_pipelines() -> Result<Vec<Pipeline>, String> {
     let pipelines = load_pipelines()?;
-    Ok(pipelines.into_values().collect())
+    let mut list: Vec<Pipeline> = pipelines.into_values().collect();
+    // HashMap iteration order is non-deterministic and shifts whenever the map
+    // is mutated (e.g. after save_pipeline), which made the list reshuffle on
+    // every reload — toggling one pipeline's auto-run looked like it changed a
+    // different row. Sort by name for a stable, predictable order.
+    list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(list)
 }
 
 /// Get a specific pipeline by name
@@ -462,6 +472,7 @@ mod tests {
         Pipeline {
             name: "test-pipeline".to_string(),
             description: "A test pipeline".to_string(),
+            auto_run: false,
             created_at: String::new(),
             updated_at: String::new(),
             steps: vec![
@@ -526,6 +537,7 @@ mod tests {
         let pipeline = Pipeline {
             name: "bad-pipeline".to_string(),
             description: "test".to_string(),
+            auto_run: false,
             created_at: String::new(),
             updated_at: String::new(),
             steps: vec![
@@ -562,6 +574,7 @@ mod tests {
         let pipeline = Pipeline {
             name: "dup-pipeline".to_string(),
             description: "test".to_string(),
+            auto_run: false,
             created_at: String::new(),
             updated_at: String::new(),
             steps: vec![
@@ -653,6 +666,7 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
+            auto_run: false,
             created_at: String::new(),
             updated_at: String::new(),
             steps: vec![PipelineStep {
@@ -673,6 +687,7 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
+            auto_run: false,
             created_at: String::new(),
             updated_at: String::new(),
             steps: vec![PipelineStep {
@@ -691,6 +706,7 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
+            auto_run: false,
             created_at: String::new(),
             updated_at: String::new(),
             steps: vec![PipelineStep {
@@ -709,6 +725,7 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
+            auto_run: false,
             created_at: String::new(),
             updated_at: String::new(),
             steps: vec![PipelineStep {
@@ -729,6 +746,7 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
+            auto_run: false,
             created_at: String::new(),
             updated_at: String::new(),
             steps: vec![PipelineStep {
@@ -752,6 +770,7 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
+            auto_run: false,
             created_at: String::new(),
             updated_at: String::new(),
             steps: vec![PipelineStep {
@@ -772,6 +791,7 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
+            auto_run: false,
             created_at: String::new(),
             updated_at: String::new(),
             steps: vec![PipelineStep {
@@ -792,6 +812,7 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
+            auto_run: false,
             created_at: String::new(),
             updated_at: String::new(),
             steps: vec![PipelineStep {
@@ -812,6 +833,7 @@ mod tests {
         let pipeline = Pipeline {
             name: "test".to_string(),
             description: "test".to_string(),
+            auto_run: false,
             created_at: String::new(),
             updated_at: String::new(),
             steps: vec![PipelineStep {
@@ -841,6 +863,7 @@ mod tests {
         let pipeline = Pipeline {
             name: "multi-input".to_string(),
             description: "test".to_string(),
+            auto_run: false,
             created_at: String::new(),
             updated_at: String::new(),
             steps: vec![

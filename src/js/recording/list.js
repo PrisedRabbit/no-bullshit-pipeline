@@ -98,6 +98,12 @@ export async function loadRecordings() {
 const DEFAULT_APP_ICON_SVG =
   '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/></svg>';
 
+// NBP's own mark for manual recordings — inline waveform so it uses
+// currentColor and stays visible in both light and dark themes (the app icon
+// PNG is black-on-transparent and would vanish on a dark background).
+const NBP_WAVEFORM_SVG =
+  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="10" x2="4" y2="14"/><line x1="8.5" y1="5" x2="8.5" y2="19"/><line x1="13" y1="2.5" x2="13" y2="21.5"/><line x1="17.5" y1="7" x2="17.5" y2="17"/><line x1="21" y1="10.5" x2="21" y2="13.5"/></svg>';
+
 // bundle_id → data URL (or null when unresolved). Avoids re-invoking the Rust
 // command on every list re-render; the backend also caches on disk.
 const appIconCache = new Map();
@@ -172,7 +178,7 @@ function buildRowHtml(rec) {
   // our own app icon instead.
   const appIconHtml = rec.app_bundle_id
     ? `<span class="app-icon" data-bundle="${escapeHtml(rec.app_bundle_id)}">${DEFAULT_APP_ICON_SVG}</span>`
-    : `<span class="app-icon app-icon-resolved"><img src="assets/app-icon.png" alt="" width="16" height="16" /></span>`;
+    : `<span class="app-icon app-icon-resolved">${NBP_WAVEFORM_SVG}</span>`;
 
   // Pipeline tags with step chips
   const pipelineTags = (rec.pipelines || []).map(p => {

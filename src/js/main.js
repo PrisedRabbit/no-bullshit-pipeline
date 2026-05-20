@@ -30,6 +30,7 @@ import { autoTranscribeAndExecute } from './recording/auto-execute.js';
 import { loadPipelineDefs } from './pipeline/defs-list.js';
 import { renderPipelineFlowHTML } from './pipeline/flow-renderer.js';
 import { renderPipelineChips, startRecordingWithPipeline } from './pipeline/chips.js';
+import { allPipelineDefs } from './pipeline/state.js';
 
 // Prompts
 import { loadPromptTemplates, initPromptTemplates } from './prompts/templates.js';
@@ -136,7 +137,12 @@ async function init() {
       state.allRecordings.map(r => `${r.id.slice(0,8)}=${r.status}`));
     if (state.selectedRecordingId === recordingId) showDetailView(recordingId);
 
-    const pipelines = state.pendingAutoExec.get(recordingId) || [];
+    // Pipelines to run: explicitly-assigned (pendingAutoExec) plus any pipeline
+    // flagged auto_run — those fire after every recording. Deduped, assigned
+    // ones first so their order is preserved.
+    const assigned = state.pendingAutoExec.get(recordingId) || [];
+    const autoRun = (allPipelineDefs || []).filter((p) => p.auto_run).map((p) => p.name);
+    const pipelines = [...new Set([...assigned, ...autoRun])];
     state.pendingAutoExec.delete(recordingId);
     autoTranscribeAndExecute(recordingId, pipelines);
   });

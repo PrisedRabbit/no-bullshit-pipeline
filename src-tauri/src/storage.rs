@@ -239,6 +239,7 @@ pub fn migrate_tags_to_pipeline_labels(metadata: &mut RecordingMetadata) -> Resu
                 name: tag_name.clone(),
                 description: format!("Label (migrated from tag)"),
                 steps: vec![],
+                auto_run: false,
                 created_at: now.clone(),
                 updated_at: now,
             });

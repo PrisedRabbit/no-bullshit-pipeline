@@ -56,11 +56,40 @@ export function renderPipelineDefsList() {
         <div class="pipeline-def-flow">${flowHtml}</div>
         ${meta ? `<div class="pipeline-def-desc">${meta}</div>` : ''}
       </div>
+      <div class="pipeline-def-autorun" title="Run automatically after every recording">
+        <span class="pipeline-def-autorun-label">Auto-run</span>
+        <label class="toggle-switch">
+          <input type="checkbox" data-name="${safeName}" ${p.auto_run ? 'checked' : ''} />
+          <span class="slider round"></span>
+        </label>
+      </div>
     </div>`;
   }).join('');
 
   pipelineDefsListEl.querySelectorAll('.pipeline-def-item').forEach(el => {
-    el.addEventListener('click', () => openPipelineEditor(el.dataset.name));
+    el.addEventListener('click', (e) => {
+      // Clicking the auto-run toggle must not open the editor.
+      if (e.target.closest('.pipeline-def-autorun')) return;
+      openPipelineEditor(el.dataset.name);
+    });
+  });
+
+  // Toggle auto_run inline — saves immediately without opening the editor.
+  pipelineDefsListEl.querySelectorAll('.pipeline-def-autorun input').forEach(input => {
+    input.addEventListener('change', async (e) => {
+      e.stopPropagation();
+      const name = input.dataset.name;
+      const p = pipelineState.allPipelineDefs.find(x => x.name === name);
+      if (!p) return;
+      const updated = { ...p, auto_run: input.checked };
+      try {
+        await invoke('save_pipeline', { pipeline: updated });
+        await loadPipelineDefs();
+      } catch (err) {
+        console.error('Failed to toggle auto-run:', err);
+        input.checked = !input.checked;
+      }
+    });
   });
 }
 

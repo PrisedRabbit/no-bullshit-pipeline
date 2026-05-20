@@ -238,7 +238,18 @@ if (savePipelineDefBtn) {
     }
 
     try {
-      const pipeline = { name, description: desc, steps: pipelineState.pipelineEditorSteps };
+      // auto_run is toggled from the pipeline list, not here — preserve the
+      // existing value so editing a pipeline doesn't silently reset it (the
+      // Rust field is serde-default false when omitted).
+      const existing = pipelineState.editingPipelineDef
+        ? pipelineState.allPipelineDefs.find(p => p.name === pipelineState.editingPipelineDef)
+        : null;
+      const pipeline = {
+        name,
+        description: desc,
+        steps: pipelineState.pipelineEditorSteps,
+        auto_run: existing?.auto_run || false,
+      };
       if (pipelineState.editingPipelineDef && pipelineState.editingPipelineDef !== name) {
         await invoke('delete_pipeline', { name: pipelineState.editingPipelineDef });
       }
