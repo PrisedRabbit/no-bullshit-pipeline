@@ -98,6 +98,49 @@ fn icon_cache_path(bundle_id: &str) -> Option<std::path::PathBuf> {
 /// NSBitmapImageFileType.png == 4 (AppKit, stable since 10.0).
 const NS_BITMAP_FILE_TYPE_PNG: u64 = 4;
 
+/// Target raster size for app icons — 64px covers a 16px display at up to @3x.
+const ICON_RENDER_PX: f64 = 64.0;
+
+// CoreGraphics geometry structs (NSPoint/NSSize/NSRect are these on 64-bit).
+// Defined locally with Encode impls so we can pass an explicit destination rect
+// to CGImageForProposedRect without pulling in objc2-app-kit / objc2-core-foundation.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CGPoint {
+    x: f64,
+    y: f64,
+}
+unsafe impl objc2::encode::Encode for CGPoint {
+    const ENCODING: objc2::encode::Encoding =
+        objc2::encode::Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CGSize {
+    width: f64,
+    height: f64,
+}
+unsafe impl objc2::encode::Encode for CGSize {
+    const ENCODING: objc2::encode::Encoding =
+        objc2::encode::Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]);
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CGRect {
+    origin: CGPoint,
+    size: CGSize,
+}
+unsafe impl objc2::encode::Encode for CGRect {
+    const ENCODING: objc2::encode::Encoding =
+        objc2::encode::Encoding::Struct("CGRect", &[CGPoint::ENCODING, CGSize::ENCODING]);
+}
+unsafe impl objc2::encode::RefEncode for CGRect {
+    const ENCODING_REF: objc2::encode::Encoding =
+        objc2::encode::Encoding::Pointer(&<Self as objc2::encode::Encode>::ENCODING);
+}
+
 fn render_icon_png(bundle_id: &str) -> Option<Vec<u8>> {
     use objc2::rc::autoreleasepool;
     use objc2::runtime::{AnyClass, AnyObject};
@@ -126,14 +169,24 @@ fn render_icon_png(bundle_id: &str) -> Option<Vec<u8>> {
             return None;
         }
 
-        // Flatten the NSImage to a CGImage. macOS 26 (Tahoe) ships app icons as
-        // dynamic `.icon` resources whose `TIFFRepresentation` comes back blank,
-        // so the old TIFF→imageRepWithData path produced an empty PNG.
-        // `CGImageForProposedRect:context:hints:` rasterizes the icon's current
-        // rendering at its natural size and works on macOS 15 too.
+        // Flatten the NSImage to a CGImage at an explicit size. macOS 26 (Tahoe)
+        // ships app icons as dynamic `.icon` resources: `TIFFRepresentation`
+        // returns blank, and `CGImageForProposedRect` with a NULL rect doesn't
+        // know what size to rasterize so it also yields nothing. Setting the
+        // image size AND passing a concrete destination rect forces a real
+        // raster of the icon's current rendering — works on macOS 15 and 26.
+        let target = CGSize {
+            width: ICON_RENDER_PX,
+            height: ICON_RENDER_PX,
+        };
+        let _: () = objc2::msg_send![icon, setSize: target];
+        let mut rect = CGRect {
+            origin: CGPoint { x: 0.0, y: 0.0 },
+            size: target,
+        };
         let cg_image: *mut std::ffi::c_void = objc2::msg_send![
             icon,
-            CGImageForProposedRect: std::ptr::null::<std::ffi::c_void>(),
+            CGImageForProposedRect: &mut rect as *mut CGRect,
             context: std::ptr::null::<AnyObject>(),
             hints: std::ptr::null::<AnyObject>()
         ];
