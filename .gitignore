@@ -76,3 +76,10 @@ pilot
 
 # Swift sidecar build artifacts
 apple-speech-sidecar/.build/
+
+# Sidecar binaries — regenerated locally by `bun run build:sidecar`
+# (called from `dev`/`build` scripts in package.json) and consumed by
+# tauri.conf.json externalBin. Keeping them in git only churns binary
+# diffs after every codesign and bloats history.
+src-tauri/binaries/*-aarch64-apple-darwin
+src-tauri/binaries/*-x86_64-apple-darwin
