@@ -4,6 +4,7 @@ import * as state from './core/state.js';
 import { escapeHtml } from './core/utils.js';
 import { on, emit } from './core/events.js';
 import { trace } from './ignore-trace.js';
+import { checkForUpdates } from './updater.js';
 
 // UI
 import './ui/confirm-modal.js';
@@ -93,6 +94,9 @@ async function init() {
     const versionEl = document.getElementById('app-version');
     if (versionEl) versionEl.textContent = `v${version} `;
   } catch (err) { console.error('Failed to fetch version:', err); }
+
+  // Background update check — silent on failure / no-newer-version.
+  checkForUpdates();
 
   await updatePermissionStatus();
 

@@ -223,14 +223,10 @@ body.light .modal-overlay {
   background: rgba(15, 23, 42, 0.5);
 }
 
-body.light .permission-warning {
-  background: rgba(245, 158, 11, 0.08);
-  border-color: rgba(245, 158, 11, 0.3);
-  color: #b45309;
-}
-
-body.light .permission-warning .warning-text {
-  color: #92400e;
+body.light .app-banner--warning {
+  --banner-bg: rgba(245, 158, 11, 0.08);
+  --banner-border: rgba(245, 158, 11, 0.3);
+  --banner-fg: #92400e;
 }
 
 body.light .slider {
@@ -2453,22 +2449,36 @@ body.settings-open .detail-view {
 }
 
 /* Permission Banner */
-.permission-warning {
-  background: rgba(245, 158, 11, 0.1);
-  border: 1px solid rgba(245, 158, 11, 0.3);
-  padding: 6px 16px;
+/* === App banner (unified) ============================================
+ * Single component for header-bar status chips. Modifiers select the
+ * palette (--warning yellow, --info indigo). Elements: __icon, __text,
+ * __action (primary button), __dismiss (×). Everything else is layout.
+ * Use this for any new banner — do NOT add another bespoke class.
+ */
+.app-banner {
+  --banner-bg: rgba(99, 102, 241, 0.1);
+  --banner-border: rgba(99, 102, 241, 0.3);
+  --banner-fg: #a5b4fc;
+  --banner-btn-bg: #818cf8;
+  --banner-btn-fg: #0b1020;
+
+  background: var(--banner-bg);
+  border: 1px solid var(--banner-border);
+  padding: 6px 14px;
   border-radius: 100px;
   display: flex;
   align-items: center;
   gap: 10px;
   font-size: 0.85rem;
   font-weight: 600;
-  color: #fbbf24;
+  color: var(--banner-fg);
 }
-
-.fix-btn {
-  background: #fbbf24;
-  color: #000;
+.app-banner__icon {
+  display: inline-flex;
+}
+.app-banner__action {
+  background: var(--banner-btn-bg);
+  color: var(--banner-btn-fg);
   border: none;
   padding: 2px 10px;
   border-radius: 6px;
@@ -2476,9 +2486,40 @@ body.settings-open .detail-view {
   font-weight: 700;
   cursor: pointer;
 }
-
-.fix-btn:hover {
+.app-banner__action:hover {
   filter: brightness(1.1);
+}
+.app-banner__dismiss {
+  background: transparent;
+  color: inherit;
+  border: none;
+  padding: 0 2px;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.6;
+}
+.app-banner__dismiss:hover {
+  opacity: 1;
+}
+
+.app-banner--warning {
+  --banner-bg: rgba(245, 158, 11, 0.1);
+  --banner-border: rgba(245, 158, 11, 0.3);
+  --banner-fg: #fbbf24;
+  --banner-btn-bg: #fbbf24;
+  --banner-btn-fg: #000;
+}
+.app-banner--info {
+  /* default palette (indigo) — keep variables as the base values above */
+}
+
+body.light .app-banner--info {
+  --banner-bg: rgba(79, 70, 229, 0.08);
+  --banner-border: rgba(79, 70, 229, 0.3);
+  --banner-fg: #4338ca;
+  --banner-btn-bg: #4f46e5;
+  --banner-btn-fg: #fff;
 }
 
 /* Toggle Switch */

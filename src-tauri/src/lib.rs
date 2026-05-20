@@ -59,6 +59,7 @@ mod audio_process_detector;
 mod app_icons;
 mod dictation;
 mod dictation_streaming;
+mod updater;
 use audio::AudioState;
 use transcription::TranscriptionState;
 use tauri::menu::{AboutMetadataBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
@@ -347,6 +348,7 @@ pub fn run() {
             log_from_js,
             app_icons::get_app_icon,
             has_apple_speech,
+            updater::check_for_updates,
             audio::start_recording,
             audio::stop_recording,
             audio::pause_recording,

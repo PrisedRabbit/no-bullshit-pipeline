@@ -22,7 +22,8 @@
     {
       "identifier": "opener:allow-open-url",
       "allow": [
-        { "url": "https://huggingface.co/**" }
+        { "url": "https://huggingface.co/**" },
+        { "url": "https://github.com/**" }
       ]
     },
     "notification:default",
