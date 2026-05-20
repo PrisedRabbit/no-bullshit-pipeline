@@ -25,6 +25,7 @@ static MEM_CACHE: Mutex<Option<HashMap<String, Option<String>>>> = Mutex::new(No
 /// default glyph). Result is cached in memory and on disk.
 #[tauri::command]
 pub fn get_app_icon(app: tauri::AppHandle, bundle_id: String) -> Option<String> {
+    log::info!("app_icons: get_app_icon called bundle={:?}", bundle_id);
     if bundle_id.is_empty() {
         return None;
     }
@@ -33,6 +34,11 @@ pub fn get_app_icon(app: tauri::AppHandle, bundle_id: String) -> Option<String> 
     if let Ok(mut guard) = MEM_CACHE.lock() {
         let map = guard.get_or_insert_with(HashMap::new);
         if let Some(hit) = map.get(&bundle_id) {
+            log::info!(
+                "app_icons: MEM cache hit bundle={:?} present={}",
+                bundle_id,
+                hit.is_some()
+            );
             return hit.clone();
         }
     }
@@ -42,6 +48,12 @@ pub fn get_app_icon(app: tauri::AppHandle, bundle_id: String) -> Option<String> 
     if let Some(ref path) = cache_path {
         if path.exists() {
             if let Ok(bytes) = std::fs::read(path) {
+                log::info!(
+                    "app_icons: DISK cache hit bundle={:?} ({} bytes) path={}",
+                    bundle_id,
+                    bytes.len(),
+                    path.display()
+                );
                 let url = png_to_data_url(&bytes);
                 store_mem(&bundle_id, Some(url.clone()));
                 return Some(url);
