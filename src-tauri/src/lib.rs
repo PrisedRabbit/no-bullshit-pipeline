@@ -56,7 +56,7 @@ pub mod realtime_transcription;
 mod call_detector;
 mod call_session;
 mod audio_process_detector;
-mod app_icons;
+pub mod app_icons;
 mod dictation;
 mod dictation_streaming;
 mod updater;

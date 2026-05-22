@@ -30,10 +30,19 @@ pub fn get_app_icon(app: tauri::AppHandle, bundle_id: String) -> Option<String> 
         return None;
     }
 
+    // Drop any pre-v2 cache once per launch so users updating from a version
+    // that wrote blank macOS 26 icons or helper-id placeholders re-render clean.
+    purge_legacy_cache();
+
+    // Electron helpers share one parent icon — key the cache by the normalized
+    // id so `…slackmacgap.helper` and `…slackmacgap` collapse to one entry (and
+    // any stale placeholder file at the helper key is bypassed).
+    let cache_key = normalize_bundle_id(&bundle_id).to_string();
+
     // 1. Memory cache.
     if let Ok(mut guard) = MEM_CACHE.lock() {
         let map = guard.get_or_insert_with(HashMap::new);
-        if let Some(hit) = map.get(&bundle_id) {
+        if let Some(hit) = map.get(&cache_key) {
             log::info!(
                 "app_icons: MEM cache hit bundle={:?} present={}",
                 bundle_id,
@@ -44,7 +53,7 @@ pub fn get_app_icon(app: tauri::AppHandle, bundle_id: String) -> Option<String> 
     }
 
     // 2. Disk cache.
-    let cache_path = icon_cache_path(&bundle_id);
+    let cache_path = icon_cache_path(&cache_key);
     if let Some(ref path) = cache_path {
         if path.exists() {
             if let Ok(bytes) = std::fs::read(path) {
@@ -55,7 +64,7 @@ pub fn get_app_icon(app: tauri::AppHandle, bundle_id: String) -> Option<String> 
                     path.display()
                 );
                 let url = png_to_data_url(&bytes);
-                store_mem(&bundle_id, Some(url.clone()));
+                store_mem(&cache_key, Some(url.clone()));
                 return Some(url);
             }
         }
@@ -93,7 +102,7 @@ pub fn get_app_icon(app: tauri::AppHandle, bundle_id: String) -> Option<String> 
         }
     }
     let result = png.map(|b| png_to_data_url(&b));
-    store_mem(&bundle_id, result.clone());
+    store_mem(&cache_key, result.clone());
     result
 }
 
@@ -109,12 +118,38 @@ fn png_to_data_url(bytes: &[u8]) -> String {
     format!("data:image/png;base64,{}", b64)
 }
 
+/// Electron/Chromium apps route audio through a helper process whose bundle id
+/// is `<parent>.helper[.<role>]` (e.g. `com.tinyspeck.slackmacgap.helper`,
+/// `com.google.Chrome.helper.renderer`). The helper `.app` only carries a
+/// generic placeholder icon, so we strip the `.helper…` tail and resolve the
+/// parent app, which has the real icon. Non-helper ids pass through unchanged.
+fn normalize_bundle_id(bundle_id: &str) -> &str {
+    match bundle_id.to_ascii_lowercase().find(".helper") {
+        Some(idx) if idx > 0 => &bundle_id[..idx],
+        _ => bundle_id,
+    }
+}
+
+/// Versioned cache dir. Bumping the suffix invalidates every prior cache on the
+/// next launch, so icons from older (buggy) versions are never served again.
+const ICON_CACHE_DIR: &str = "app_icons_v2";
+
 fn icon_cache_path(bundle_id: &str) -> Option<std::path::PathBuf> {
     let safe: String = bundle_id
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' })
         .collect();
-    Some(crate::storage::get_data_dir().join("app_icons").join(format!("{}.png", safe)))
+    Some(crate::storage::get_data_dir().join(ICON_CACHE_DIR).join(format!("{}.png", safe)))
+}
+
+/// Best-effort, once-per-process removal of the pre-v2 cache dir, whose contents
+/// may include blank or placeholder icons written by older versions.
+fn purge_legacy_cache() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let legacy = crate::storage::get_data_dir().join("app_icons");
+        let _ = std::fs::remove_dir_all(legacy);
+    });
 }
 
 // --- AppKit FFI --------------------------------------------------------------
@@ -169,7 +204,10 @@ unsafe impl objc2::encode::RefEncode for CGRect {
         objc2::encode::Encoding::Pointer(&<Self as objc2::encode::Encode>::ENCODING);
 }
 
-fn render_icon_png(bundle_id: &str) -> Option<Vec<u8>> {
+/// Resolve + rasterize an app icon to PNG bytes. Must run on the main thread
+/// (AppKit `lockFocus`/`drawInRect`). Exposed for the `render_icon` example
+/// harness, which exercises this exact path without launching the full app.
+pub fn render_icon_png(bundle_id: &str) -> Option<Vec<u8>> {
     use objc2::rc::autoreleasepool;
     use objc2::runtime::{AnyClass, AnyObject};
 
@@ -180,18 +218,23 @@ fn render_icon_png(bundle_id: &str) -> Option<Vec<u8>> {
             return None;
         }
 
-        let bundle_ns = nsstring(bundle_id)?;
-        let url: *mut AnyObject =
-            objc2::msg_send![workspace, URLForApplicationWithBundleIdentifier: bundle_ns];
-        if url.is_null() {
-            log::warn!("app_icons[{}]: app URL nil (not installed?)", bundle_id);
-            return None;
-        }
-        let path: *mut AnyObject = objc2::msg_send![url, path];
-        if path.is_null() {
-            log::warn!("app_icons[{}]: app path nil", bundle_id);
-            return None;
-        }
+        // Resolve the parent app first (Electron helpers have no real icon),
+        // falling back to the raw id for the rare standalone `*.helper` app.
+        let normalized = normalize_bundle_id(bundle_id);
+        let path = app_path_for_bundle(workspace, normalized).or_else(|| {
+            if normalized != bundle_id {
+                app_path_for_bundle(workspace, bundle_id)
+            } else {
+                None
+            }
+        });
+        let path = match path {
+            Some(p) => p,
+            None => {
+                log::warn!("app_icons[{}]: app URL/path nil (not installed?)", bundle_id);
+                return None;
+            }
+        };
 
         // NSImage* icon = [workspace iconForFile:path];
         let icon: *mut AnyObject = objc2::msg_send![workspace, iconForFile: path];
@@ -264,6 +307,29 @@ fn render_icon_png(bundle_id: &str) -> Option<Vec<u8>> {
 
         nsdata_to_vec(png)
     })
+}
+
+/// Resolve a bundle id to its app bundle path (NSString*) via
+/// `NSWorkspace.URLForApplicationWithBundleIdentifier`, or None if not installed.
+unsafe fn app_path_for_bundle(
+    workspace: *mut objc2::runtime::AnyObject,
+    bundle_id: &str,
+) -> Option<*mut objc2::runtime::AnyObject> {
+    use objc2::runtime::AnyObject;
+    unsafe {
+        let bundle_ns = nsstring(bundle_id)?;
+        let url: *mut AnyObject =
+            objc2::msg_send![workspace, URLForApplicationWithBundleIdentifier: bundle_ns];
+        if url.is_null() {
+            return None;
+        }
+        let path: *mut AnyObject = objc2::msg_send![url, path];
+        if path.is_null() {
+            None
+        } else {
+            Some(path)
+        }
+    }
 }
 
 /// Build an autoreleased NSString from a Rust &str.
