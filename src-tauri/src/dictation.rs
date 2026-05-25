@@ -39,10 +39,6 @@ pub struct DictationState {
     pub is_active: Arc<AtomicBool>,
     inner: Mutex<Option<Session>>,
     pub last_registration: Mutex<Vec<crate::ShortcutRegistration>>,
-    /// Pre-warmed streaming sidecar — kept idle in the background so the
-    /// first hotkey press never pays the model-load cost. Filled by a task
-    /// spawned during app setup (see `prewarm_streaming` below).
-    pub warm_streaming: Arc<Mutex<Option<crate::dictation_streaming::StreamingSession>>>,
 }
 
 struct Session {
@@ -93,57 +89,8 @@ impl DictationState {
             is_active: Arc::new(AtomicBool::new(false)),
             inner: Mutex::new(None),
             last_registration: Mutex::new(Vec::new()),
-            warm_streaming: Arc::new(Mutex::new(None)),
         }
     }
-}
-
-/// Default capture rate/channels we pre-warm for. Built-in MacBook mic and
-/// most USB mics natively expose 48 kHz mono — if the user later pins a
-/// device with a different rate, we fall back to spawning a fresh inline
-/// session in start_inner.
-const PREWARM_RATE: u32 = 48_000;
-const PREWARM_CHANNELS: u16 = 1;
-
-/// Spawn a background task that fills the warm-streaming slot. Called at app
-/// setup AND after every shortcut press that consumed the warm session, so
-/// the next press also feels instant.
-#[allow(dead_code)]
-pub fn schedule_warm_streaming(app: &AppHandle) {
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let state = app.state::<DictationState>();
-        // Skip if there's already a warm session in the slot.
-        {
-            let guard = match state.warm_streaming.lock() {
-                Ok(g) => g,
-                Err(_) => return,
-            };
-            if guard.is_some() {
-                return;
-            }
-        }
-        log::info!("dictation: warming streaming sidecar in background");
-        match crate::dictation_streaming::StreamingSession::start(
-            &app,
-            String::new(),
-            PREWARM_RATE,
-            PREWARM_CHANNELS,
-        )
-        .await
-        {
-            Ok(session) => {
-                let state = app.state::<DictationState>();
-                if let Ok(mut guard) = state.warm_streaming.lock() {
-                    *guard = Some(session);
-                    log::info!("dictation: warm streaming sidecar ready");
-                }
-            }
-            Err(e) => {
-                log::warn!("dictation: failed to warm streaming sidecar: {}", e);
-            }
-        }
-    });
 }
 
 /// Prewarm on-device transcription models at app startup.
@@ -167,46 +114,26 @@ pub fn prewarm_models(app: &AppHandle) {
             return;
         }
 
-        // Unique on-device engines among Audio shortcuts. Keep a
-        // representative shortcut for each so language/etc. flow through the
-        // exact same transcribe() path a real session would take.
-        let mut seen: Vec<TranscriptionProvider> = Vec::new();
-        let mut reps: Vec<DictationShortcut> = Vec::new();
-        for sc in &settings.dictation.shortcuts {
-            if sc.input_source != crate::config::DictationInputSource::Audio {
-                continue;
-            }
-            let on_device = matches!(
-                sc.engine,
-                TranscriptionProvider::FluidAudio | TranscriptionProvider::AppleSpeech
-            );
-            if on_device && !seen.contains(&sc.engine) {
-                seen.push(sc.engine.clone());
-                reps.push(sc.clone());
-            }
-        }
-        if reps.is_empty() {
+        // Dictation uses the GLOBAL ASR engine (same as recordings) — warm that
+        // ONE model. Cloud / unsupported engines have no local model to compile.
+        let provider = settings.transcription.provider.clone();
+        if !matches!(
+            provider,
+            TranscriptionProvider::FluidAudio
+                | TranscriptionProvider::Qwen3
+                | TranscriptionProvider::AppleSpeech
+        ) {
             return;
         }
 
-        // ~0.3s of silence at 16 kHz. Enough for the sidecar to load + run
-        // the model; FluidAudio reports "No speech detected" → Ok("") and
-        // SpeechAnalyzer yields empty — both fine, we only want the warmup.
+        // ~0.3s of silence at 16 kHz. Enough for the sidecar to load + run the
+        // model (FluidAudio reports "No speech detected" → Ok(""), SpeechAnalyzer
+        // yields empty) — we only want the cold-start compile paid up front, once.
         let silence = vec![0.0f32; (TARGET_RATE as usize) * 3 / 10];
-        for sc in reps {
-            let t0 = std::time::Instant::now();
-            match transcribe(&app, &sc, silence.clone()).await {
-                Ok(_) => log::info!(
-                    "dictation: prewarmed {:?} in {:?}",
-                    sc.engine,
-                    t0.elapsed()
-                ),
-                Err(e) => log::warn!(
-                    "dictation: prewarm {:?} failed (non-fatal): {}",
-                    sc.engine,
-                    e
-                ),
-            }
+        let t0 = std::time::Instant::now();
+        match transcribe(&app, silence).await {
+            Ok(_) => log::info!("dictation: prewarmed {:?} in {:?}", provider, t0.elapsed()),
+            Err(e) => log::warn!("dictation: prewarm failed (non-fatal): {}", e),
         }
     });
 }
@@ -680,7 +607,7 @@ pub async fn stop_inner(app: &AppHandle) -> Result<String, String> {
     };
 
     let t3 = std::time::Instant::now();
-    let transcript = match transcribe(app, &shortcut, mono_16k).await {
+    let transcript = match transcribe(app, mono_16k).await {
         Ok(t) => t,
         Err(e) => return finish_with_error(app, &shortcut_id, "Transcription failed", e),
     };
@@ -809,11 +736,7 @@ async fn process_and_deliver(
     Ok(final_trimmed)
 }
 
-async fn transcribe(
-    app: &AppHandle,
-    _shortcut: &DictationShortcut,
-    mono_16k: Vec<f32>,
-) -> Result<String, String> {
+async fn transcribe(app: &AppHandle, mono_16k: Vec<f32>) -> Result<String, String> {
     // Dictation uses the SAME engine + settings as recordings (the global ASR
     // config from the ASR settings tab), not a per-shortcut engine — one path,
     // so code-switch recovery (translit/vocab/min-len) applies here too. Apple
