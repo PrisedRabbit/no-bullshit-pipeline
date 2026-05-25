@@ -17,6 +17,21 @@ function dirname(path) {
   return idx > 0 ? path.slice(0, idx) : '';
 }
 
+function buildInputOptions(index, currentInput) {
+  const values = ['transcript'];
+  for (const prev of pipelineState.pipelineEditorSteps.slice(0, index)) {
+    const name = (prev.name || '').trim();
+    if (name && !values.includes(name)) values.push(name);
+  }
+  if (currentInput && !values.includes(currentInput)) values.push(currentInput);
+
+  return values.map(value => {
+    const label = value === 'transcript' ? 'Transcript' : value;
+    const selected = value === (currentInput || 'transcript') ? 'selected' : '';
+    return `<option value="${escapeHtml(value)}" ${selected}>${escapeHtml(label)}</option>`;
+  }).join('');
+}
+
 export function addNewStep() {
   const step = {
     name: '',
@@ -113,13 +128,15 @@ export function showStepEditor(index) {
   const savePathOptions = savePathEntries.map(p =>
     `<option value="${escapeHtml(p.id)}" ${currentSavePathId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
   ).join('');
+  const inputOptions = buildInputOptions(index, step.input || 'transcript');
 
   // Build unified editor HTML
   const editorHTML = buildEditorHTML({
     index, toolType, hasPrompt, hasDelivery, cliOptions, cliModelOpts,
     currentProvider, modelResult, toggleBtn, promptTemplateOptions,
     isInlinePrompt, promptText, hasSlack, slackWsOptions, slackEntries,
-    deliveryType, savePathEntries, savePathOptions, currentSavePathId, currentSaveFolder, step,
+    deliveryType, savePathEntries, savePathOptions, currentSavePathId, currentSaveFolder,
+    inputOptions, step,
   });
 
   pipelineState.setEditingStepIndex(index);
@@ -155,6 +172,10 @@ function buildEditorHTML(d) {
           <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:0.85rem;">
             <input type="radio" name="tool-type-${d.index}" value="delivery" ${d.toolType === 'delivery' ? 'checked' : ''} class="tool-type-radio" /> Delivery
           </label>
+        </div>
+        <div class="step-editor-row" style="margin-bottom:8px;">
+          <label>Takes input</label>
+          <select class="step-input-select" ${d.index === 0 ? 'disabled' : ''}>${d.inputOptions}</select>
         </div>
         <div class="tool-cli-section" style="display:${d.toolType === 'cli' ? 'flex' : 'none'};flex-direction:column;gap:8px;">
           <div class="step-editor-row"><label>CLI</label><select class="cli-select">${d.cliOptions}</select></div>
@@ -458,10 +479,12 @@ function wireEditorEvents(editorEl, step, index, cliInfo, slackEntries, hasSlack
   editorEl.querySelector('.step-editor-done').addEventListener('click', () => {
     const tool = editorEl.querySelector('.tool-type-radio:checked')?.value || 'none';
     const promptOn = editorEl.querySelector('.prompt-toggle')?.checked;
+    const inputVal = editorEl.querySelector('.step-input-select')?.value || 'transcript';
     const nameVal = (editorEl.querySelector('.step-name-input')?.value || '').trim();
 
     if (tool === 'cli') {
       step.connector = 'cli_agent';
+      step.input = inputVal;
       step.config = {
         cli: editorEl.querySelector('.cli-select')?.value || 'claude',
         timeout_secs: 300,
@@ -480,6 +503,7 @@ function wireEditorEvents(editorEl, step, index, cliInfo, slackEntries, hasSlack
       step.name = nameVal || ('cli-' + (step.config.cli || 'agent'));
     } else if (tool === 'model') {
       step.connector = 'llm';
+      step.input = inputVal;
       step.config = {
         provider: editorEl.querySelector('.llm-provider-select')?.value || 'openai',
         model: editorEl.querySelector('.llm-model-select')?.value || '',
@@ -495,9 +519,10 @@ function wireEditorEvents(editorEl, step, index, cliInfo, slackEntries, hasSlack
       }
       step.name = nameVal || step.config.prompt_template || ('llm-' + step.config.provider);
     } else if (tool === 'delivery') {
-      const deliveryStep = buildDeliveryStep(step.input || 'transcript', nameVal);
+      const deliveryStep = buildDeliveryStep(inputVal, nameVal);
       if (!deliveryStep) return;
       step.connector = deliveryStep.connector;
+      step.input = deliveryStep.input;
       step.config = deliveryStep.config;
       step.name = deliveryStep.name;
     } else {
