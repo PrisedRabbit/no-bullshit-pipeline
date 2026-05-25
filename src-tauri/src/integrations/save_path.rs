@@ -153,7 +153,7 @@ fn save_save_path_profile(profile: &SavePathProfile) -> Result<(), String> {
 }
 
 /// Load a save path profile from disk by its ID.
-fn load_save_path_profile(id: &str) -> Result<SavePathProfile, String> {
+pub fn load_save_path_profile(id: &str) -> Result<SavePathProfile, String> {
     let file_path = crate::config::get_integrations_dir()
         .join(format!("save-path-{}.json", id));
 

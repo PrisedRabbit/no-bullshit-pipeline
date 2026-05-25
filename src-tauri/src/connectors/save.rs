@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 /// Save connector config parsed from step config JSON
 #[derive(Debug)]
 struct SaveConfig {
-    path: String,
+    path: Option<String>,
+    folder_path: Option<String>,
+    integration_id: Option<String>,
 }
 
 impl SaveConfig {
@@ -13,10 +15,25 @@ impl SaveConfig {
         let path = config
             .get("path")
             .and_then(|v| v.as_str())
-            .ok_or("Save connector config missing 'path'")?
-            .to_string();
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.to_string());
+        let folder_path = config
+            .get("folder_path")
+            .or_else(|| config.get("folder"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.to_string());
+        let integration_id = config
+            .get("integration_id")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.to_string());
 
-        Ok(SaveConfig { path })
+        if path.is_none() && folder_path.is_none() && integration_id.is_none() {
+            return Err("Save connector config missing 'path', 'folder_path', or 'integration_id'".to_string());
+        }
+
+        Ok(SaveConfig { path, folder_path, integration_id })
     }
 }
 
@@ -45,6 +62,61 @@ pub fn resolve_path(raw_path: &str, ctx: &SubstitutionContext) -> PathBuf {
     } else {
         PathBuf::from(resolved)
     }
+}
+
+fn expand_tilde(raw_path: &str) -> PathBuf {
+    if let Some(after_tilde) = raw_path.strip_prefix("~/") {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        PathBuf::from(home).join(after_tilde)
+    } else {
+        PathBuf::from(raw_path)
+    }
+}
+
+fn sanitize_filename_part(value: &str) -> String {
+    let sanitized = value
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '\0' => '-',
+            _ => c,
+        })
+        .collect::<String>();
+    let trimmed = sanitized.trim();
+    if trimmed.is_empty() {
+        "pipeline".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn resolve_folder_target(folder_path: &str, ctx: &SubstitutionContext) -> PathBuf {
+    let folder = expand_tilde(folder_path);
+    let date = Utc::now().format("%Y-%m-%d").to_string();
+    let pipeline_name = sanitize_filename_part(&ctx.pipeline_name);
+    let stem = format!("{}-{}", date, pipeline_name);
+    folder.join(format!("{}.md", stem))
+}
+
+fn uniquify_path(path: &Path) -> PathBuf {
+    if !path.exists() {
+        return path.to_path_buf();
+    }
+
+    let parent = path.parent().unwrap_or_else(|| Path::new(""));
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("output");
+    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("md");
+
+    for i in 1..=999_999 {
+        let candidate = parent.join(format!("{}-{:03}.{}", stem, i, ext));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+
+    path.to_path_buf()
 }
 
 /// Validate that a resolved target path is safe to write to.
@@ -110,13 +182,25 @@ pub async fn execute(
         recording_id: recording_id.to_string(),
         step_name: step_name.to_string(),
     };
-    let target_path = resolve_path(&save_config.path, &ctx);
+    let (target_path, folder_mode) = if let Some(path) = save_config.path.as_deref() {
+        (resolve_path(path, &ctx), false)
+    } else {
+        let folder = if let Some(folder_path) = save_config.folder_path.as_deref() {
+            folder_path.to_string()
+        } else {
+            let integration_id = save_config.integration_id.as_deref().ok_or(
+                "Save connector config missing folder path or integration_id",
+            )?;
+            crate::integrations::save_path::load_save_path_profile(integration_id)?.path
+        };
+        (uniquify_path(&resolve_folder_target(&folder, &ctx)), true)
+    };
 
     // Validate target path is safe
     validate_target_path(&target_path)?;
 
     // Check if file exists (for overwrite warning)
-    let overwrite = target_path.exists();
+    let overwrite = !folder_mode && target_path.exists();
 
     // Create target directory if needed
     if let Some(parent) = target_path.parent()
@@ -244,17 +328,37 @@ mod tests {
         });
         let save_config = SaveConfig::from_value(&config).unwrap();
         assert_eq!(
-            save_config.path,
-            "~/Documents/{date}-{pipeline-name}.md"
+            save_config.path.as_deref(),
+            Some("~/Documents/{date}-{pipeline-name}.md")
         );
     }
 
     #[test]
-    fn test_save_config_missing_path() {
+    fn test_save_config_from_folder_path() {
+        let config = serde_json::json!({
+            "folder_path": "~/Documents/Notes"
+        });
+        let save_config = SaveConfig::from_value(&config).unwrap();
+        assert_eq!(save_config.folder_path.as_deref(), Some("~/Documents/Notes"));
+    }
+
+    #[test]
+    fn test_save_config_missing_destination() {
         let config = serde_json::json!({});
         let result = SaveConfig::from_value(&config);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("path"));
+        assert!(result.unwrap_err().contains("folder_path"));
+    }
+
+    #[test]
+    fn test_resolve_folder_target_uses_date_pipeline_filename() {
+        let ctx = make_ctx();
+        let result = resolve_folder_target("/tmp/notes", &ctx);
+        let date_str = Utc::now().format("%Y-%m-%d").to_string();
+        assert_eq!(
+            result,
+            PathBuf::from(format!("/tmp/notes/{}-meeting-notes.md", date_str))
+        );
     }
 
     #[test]

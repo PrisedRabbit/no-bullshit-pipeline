@@ -1,6 +1,6 @@
 [package]
 name = "nbp"
-version = "0.4.66"
+version = "0.4.67"
 description = "A Tauri App"
 authors = ["sk"]
 edition = "2024"

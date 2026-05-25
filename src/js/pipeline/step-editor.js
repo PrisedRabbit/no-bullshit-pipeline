@@ -1,13 +1,21 @@
 // Step editor: unified step editor panel with Tool/Prompt/Delivery sections
 
-import { invoke } from '../core/tauri.js';
+import { invoke, openDialog } from '../core/tauri.js';
 import { escapeHtml } from '../core/utils.js';
 import { allPromptTemplates, slackIntegrations } from '../core/state.js';
+import { showToast } from '../ui/toast.js';
+import * as intState from '../integrations/state.js';
 import { FALLBACK_CLI_INFO } from './constants.js';
 import * as pipelineState from './state.js';
 import { cliAvailabilityCache, buildModelOptions } from './models.js';
 import { maybeAutoName } from './delivery-options.js';
 import { fixStepInputs, closeStepEditorPanel, renderPipelineSteps } from './editor.js';
+
+function dirname(path) {
+  if (!path) return '';
+  const idx = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  return idx > 0 ? path.slice(0, idx) : '';
+}
 
 export function addNewStep() {
   const step = {
@@ -34,6 +42,7 @@ export function showStepEditor(index) {
   let toolType = 'none';
   let hasPrompt = false;
   let hasDelivery = false;
+  let deliveryType = 'save';
 
   if (step.connector === 'cli_agent') {
     toolType = 'cli';
@@ -42,9 +51,15 @@ export function showStepEditor(index) {
     toolType = 'model';
     hasPrompt = !!(step.config?.prompt_template || step.config?.prompt_inline);
   } else if (step.connector === 'slack') {
+    toolType = 'delivery';
     hasDelivery = true;
+    deliveryType = 'slack';
+  } else if (step.connector === 'save') {
+    toolType = 'delivery';
+    hasDelivery = true;
+    deliveryType = 'save';
   }
-  if (!['llm', 'cli_agent', 'slack', ''].includes(step.connector) && step.connector) {
+  if (!['llm', 'cli_agent', 'slack', 'save', ''].includes(step.connector) && step.connector) {
     toolType = 'model';
   }
 
@@ -86,11 +101,25 @@ export function showStepEditor(index) {
     `<option value="${escapeHtml(id)}" ${step.config?.integration_id === id ? 'selected' : ''}>${escapeHtml(data.name)}</option>`
   ).join('');
 
+  // Save path data
+  const savePathEntries = intState.savePathIntegrations || [];
+  const currentSavePathId = step.connector === 'save' ? (step.config?.integration_id || '') : '';
+  let currentSaveFolder = step.connector === 'save'
+    ? (step.config?.folder_path || step.config?.folder || dirname(step.config?.path || ''))
+    : '';
+  if (!currentSaveFolder && currentSavePathId) {
+    currentSaveFolder = savePathEntries.find(p => p.id === currentSavePathId)?.path || '';
+  }
+  const savePathOptions = savePathEntries.map(p =>
+    `<option value="${escapeHtml(p.id)}" ${currentSavePathId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
+  ).join('');
+
   // Build unified editor HTML
   const editorHTML = buildEditorHTML({
     index, toolType, hasPrompt, hasDelivery, cliOptions, cliModelOpts,
     currentProvider, modelResult, toggleBtn, promptTemplateOptions,
-    isInlinePrompt, promptText, hasSlack, slackWsOptions, slackEntries, step,
+    isInlinePrompt, promptText, hasSlack, slackWsOptions, slackEntries,
+    deliveryType, savePathEntries, savePathOptions, currentSavePathId, currentSaveFolder, step,
   });
 
   pipelineState.setEditingStepIndex(index);
@@ -123,6 +152,9 @@ function buildEditorHTML(d) {
           <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:0.85rem;">
             <input type="radio" name="tool-type-${d.index}" value="model" ${d.toolType === 'model' ? 'checked' : ''} class="tool-type-radio" /> Model
           </label>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:0.85rem;">
+            <input type="radio" name="tool-type-${d.index}" value="delivery" ${d.toolType === 'delivery' ? 'checked' : ''} class="tool-type-radio" /> Delivery
+          </label>
         </div>
         <div class="tool-cli-section" style="display:${d.toolType === 'cli' ? 'flex' : 'none'};flex-direction:column;gap:8px;">
           <div class="step-editor-row"><label>CLI</label><select class="cli-select">${d.cliOptions}</select></div>
@@ -139,7 +171,7 @@ function buildEditorHTML(d) {
           <div class="step-editor-row"><label>Model</label><div><select class="llm-model-select">${d.modelResult.html}</select>${d.toggleBtn}</div></div>
         </div>
       </div>
-      <div class="step-section" style="border-top:1px solid var(--border-color);padding-top:12px;">
+      <div class="step-section prompt-section" style="display:${d.toolType === 'cli' || d.toolType === 'model' ? 'block' : 'none'};border-top:1px solid var(--border-color);padding-top:12px;">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
           <input type="checkbox" class="prompt-toggle" ${d.hasPrompt ? 'checked' : ''} />
           <span class="step-section-label" style="margin:0;">Prompt</span>
@@ -160,16 +192,32 @@ function buildEditorHTML(d) {
         </div>
       </div>
       <div class="step-section" style="border-top:1px solid var(--border-color);padding-top:12px;">
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-          <input type="checkbox" class="delivery-toggle" ${d.hasDelivery ? 'checked' : ''} ${!d.hasSlack ? 'disabled' : ''} />
-          <span class="step-section-label" style="margin:0;">Delivery</span>
-          ${!d.hasSlack ? '<span style="font-size:0.75rem;color:var(--text-secondary);">(no Slack connected)</span>' : ''}
-        </label>
-        <div class="delivery-body" style="display:${d.hasDelivery && d.hasSlack ? 'flex' : 'none'};flex-direction:column;gap:8px;margin-top:8px;">
-          ${d.slackEntries.length > 1 ? `<div class="step-editor-row"><label>Workspace</label><select class="slack-workspace-select"><option value="">Select...</option>${d.slackWsOptions}</select></div>` : ''}
-          <div class="step-editor-row"><label>Channel</label>
-            <select class="slack-target-select"><option value="">Select channel or person...</option></select>
-            <div class="slack-target-loading" style="display:none;font-size:0.8rem;color:var(--text-secondary);margin-top:4px;">Loading...</div>
+        <div class="delivery-body" style="display:${d.toolType === 'delivery' ? 'flex' : 'none'};flex-direction:column;gap:8px;">
+          <div class="step-section-label">Delivery</div>
+          <div style="display:flex;gap:12px;">
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:0.85rem;">
+              <input type="radio" name="delivery-type-${d.index}" value="save" ${d.deliveryType === 'save' ? 'checked' : ''} class="delivery-type-radio" /> Save to folder
+            </label>
+            <label style="display:flex;align-items:center;gap:4px;cursor:${d.hasSlack ? 'pointer' : 'not-allowed'};font-size:0.85rem;opacity:${d.hasSlack ? '1' : '0.5'};">
+              <input type="radio" name="delivery-type-${d.index}" value="slack" ${d.deliveryType === 'slack' ? 'checked' : ''} ${!d.hasSlack ? 'disabled' : ''} class="delivery-type-radio" /> Slack
+            </label>
+          </div>
+          <div class="delivery-save-section" style="display:${d.deliveryType === 'save' ? 'flex' : 'none'};flex-direction:column;gap:8px;">
+            ${d.savePathEntries.length > 0 ? `<div class="step-editor-row"><label>Saved folder</label><select class="save-path-select"><option value="">Custom folder...</option>${d.savePathOptions}</select></div>` : ''}
+            <div class="step-editor-row"><label>Folder</label>
+              <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+                <span class="save-folder-display" style="flex:1;min-width:0;font-size:0.8rem;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(d.currentSaveFolder || 'No folder selected')}</span>
+                <button type="button" class="mini-action-btn browse-save-folder-btn">Browse</button>
+              </div>
+            </div>
+            <div style="font-size:0.75rem;color:var(--text-secondary);">File: {date}-{pipeline-name}.md; duplicates get -001, -002, ...</div>
+          </div>
+          <div class="delivery-slack-section" style="display:${d.deliveryType === 'slack' && d.hasSlack ? 'flex' : 'none'};flex-direction:column;gap:8px;">
+            ${d.slackEntries.length > 1 ? `<div class="step-editor-row"><label>Workspace</label><select class="slack-workspace-select"><option value="">Select...</option>${d.slackWsOptions}</select></div>` : ''}
+            <div class="step-editor-row"><label>Channel</label>
+              <select class="slack-target-select"><option value="">Select channel or person...</option></select>
+              <div class="slack-target-loading" style="display:none;font-size:0.8rem;color:var(--text-secondary);margin-top:4px;">Loading...</div>
+            </div>
           </div>
         </div>
       </div>
@@ -183,6 +231,16 @@ function buildEditorHTML(d) {
 }
 
 function wireEditorEvents(editorEl, step, index, cliInfo, slackEntries, hasSlack, hasDelivery) {
+  const saveProfiles = intState.savePathIntegrations || [];
+  let selectedSaveFolder = step.connector === 'save'
+    ? (step.config?.folder_path || step.config?.folder || dirname(step.config?.path || ''))
+    : '';
+  const existingSavePathId = step.connector === 'save' ? (step.config?.integration_id || '') : '';
+  if (!selectedSaveFolder && existingSavePathId) {
+    const profile = saveProfiles.find(p => p.id === existingSavePathId);
+    if (profile) selectedSaveFolder = profile.path;
+  }
+
   // Close
   editorEl.querySelector('.step-editor-close').addEventListener('click', () => {
     if (!step.name && !step.config?.cli && !step.config?.provider && !step.config?.integration_id) {
@@ -199,6 +257,14 @@ function wireEditorEvents(editorEl, step, index, cliInfo, slackEntries, hasSlack
     radio.addEventListener('change', () => {
       editorEl.querySelector('.tool-cli-section').style.display = radio.value === 'cli' ? 'flex' : 'none';
       editorEl.querySelector('.tool-model-section').style.display = radio.value === 'model' ? 'flex' : 'none';
+      const promptSection = editorEl.querySelector('.prompt-section');
+      if (promptSection) promptSection.style.display = (radio.value === 'cli' || radio.value === 'model') ? 'block' : 'none';
+      const deliveryBody = editorEl.querySelector('.delivery-body');
+      if (deliveryBody) deliveryBody.style.display = radio.value === 'delivery' ? 'flex' : 'none';
+      if (radio.value === 'delivery') {
+        const deliveryType = editorEl.querySelector('.delivery-type-radio:checked')?.value || 'save';
+        if (deliveryType === 'slack' && hasSlack) loadSlackTargets();
+      }
     });
   });
 
@@ -267,13 +333,43 @@ function wireEditorEvents(editorEl, step, index, cliInfo, slackEntries, hasSlack
     });
   }
 
-  // Delivery toggle
-  const deliveryToggle = editorEl.querySelector('.delivery-toggle');
-  const deliveryBody = editorEl.querySelector('.delivery-body');
-  if (deliveryToggle && deliveryBody) {
-    deliveryToggle.addEventListener('change', () => {
-      deliveryBody.style.display = deliveryToggle.checked ? 'flex' : 'none';
-      if (deliveryToggle.checked) loadSlackTargets();
+  editorEl.querySelectorAll('.delivery-type-radio').forEach(radio => {
+    radio.addEventListener('change', () => {
+      const isSave = radio.value === 'save';
+      const saveSection = editorEl.querySelector('.delivery-save-section');
+      const slackSection = editorEl.querySelector('.delivery-slack-section');
+      if (saveSection) saveSection.style.display = isSave ? 'flex' : 'none';
+      if (slackSection) slackSection.style.display = !isSave && hasSlack ? 'flex' : 'none';
+      if (!isSave && hasSlack) loadSlackTargets();
+    });
+  });
+
+  const savePathSelect = editorEl.querySelector('.save-path-select');
+  const saveFolderDisplay = editorEl.querySelector('.save-folder-display');
+  if (savePathSelect) {
+    savePathSelect.addEventListener('change', () => {
+      const profile = saveProfiles.find(p => p.id === savePathSelect.value);
+      selectedSaveFolder = profile ? profile.path : '';
+      if (saveFolderDisplay) saveFolderDisplay.textContent = selectedSaveFolder || 'No folder selected';
+    });
+  }
+
+  const browseSaveFolderBtn = editorEl.querySelector('.browse-save-folder-btn');
+  if (browseSaveFolderBtn) {
+    browseSaveFolderBtn.addEventListener('click', async () => {
+      try {
+        const selected = await openDialog({
+          directory: true,
+          multiple: false,
+          defaultPath: selectedSaveFolder || undefined,
+        });
+        if (!selected) return;
+        selectedSaveFolder = Array.isArray(selected) ? selected[0] : selected;
+        if (saveFolderDisplay) saveFolderDisplay.textContent = selectedSaveFolder;
+        if (savePathSelect) savePathSelect.value = '';
+      } catch (err) {
+        showToast('Folder picker failed: ' + err, 'error');
+      }
     });
   }
 
@@ -323,11 +419,45 @@ function wireEditorEvents(editorEl, step, index, cliInfo, slackEntries, hasSlack
   if (wsSelect) wsSelect.addEventListener('change', () => loadSlackTargets(wsSelect.value));
   if (hasDelivery && hasSlack) loadSlackTargets();
 
+  function buildDeliveryStep(inputName, nameOverride = '') {
+    const deliveryType = editorEl.querySelector('.delivery-type-radio:checked')?.value || 'save';
+    if (deliveryType === 'save') {
+      const selectedProfileId = editorEl.querySelector('.save-path-select')?.value || '';
+      const config = {};
+      if (selectedProfileId) {
+        config.integration_id = selectedProfileId;
+      } else if (selectedSaveFolder) {
+        config.folder_path = selectedSaveFolder;
+      } else {
+        showToast('Select a folder for Save delivery', 'error');
+        return null;
+      }
+      return {
+        name: nameOverride || 'save-to-folder',
+        connector: 'save',
+        input: inputName,
+        config,
+      };
+    }
+
+    if (!hasSlack) {
+      showToast('Connect Slack first', 'error');
+      return null;
+    }
+    const wsVal = editorEl.querySelector('.slack-workspace-select')?.value || (slackEntries.length === 1 ? slackEntries[0][0] : '');
+    const targetVal = editorEl.querySelector('.slack-target-select')?.value || '';
+    return {
+      name: nameOverride || 'send-to-slack',
+      connector: 'slack',
+      input: inputName,
+      config: { integration_id: wsVal, target: targetVal },
+    };
+  }
+
   // Done button
   editorEl.querySelector('.step-editor-done').addEventListener('click', () => {
     const tool = editorEl.querySelector('.tool-type-radio:checked')?.value || 'none';
     const promptOn = editorEl.querySelector('.prompt-toggle')?.checked;
-    const deliveryOn = editorEl.querySelector('.delivery-toggle')?.checked;
     const nameVal = (editorEl.querySelector('.step-name-input')?.value || '').trim();
 
     if (tool === 'cli') {
@@ -364,37 +494,18 @@ function wireEditorEvents(editorEl, step, index, cliInfo, slackEntries, hasSlack
         }
       }
       step.name = nameVal || step.config.prompt_template || ('llm-' + step.config.provider);
-    } else if (deliveryOn) {
-      step.connector = 'slack';
-      const wsVal = editorEl.querySelector('.slack-workspace-select')?.value || (slackEntries.length === 1 ? slackEntries[0][0] : '');
-      const targetVal = editorEl.querySelector('.slack-target-select')?.value || '';
-      step.config = { integration_id: wsVal, target: targetVal };
-      step.name = nameVal || 'send-to-slack';
+    } else if (tool === 'delivery') {
+      const deliveryStep = buildDeliveryStep(step.input || 'transcript', nameVal);
+      if (!deliveryStep) return;
+      step.connector = deliveryStep.connector;
+      step.config = deliveryStep.config;
+      step.name = deliveryStep.name;
     } else {
       pipelineState.pipelineEditorSteps.splice(index, 1);
       pipelineState.setEditingStepIndex(null);
       closeStepEditorPanel();
       renderPipelineSteps();
       return;
-    }
-
-    // If tool + delivery both selected, auto-add a chained Slack step
-    if (tool !== 'none' && deliveryOn) {
-      const wsVal = editorEl.querySelector('.slack-workspace-select')?.value || (slackEntries.length === 1 ? slackEntries[0][0] : '');
-      const targetVal = editorEl.querySelector('.slack-target-select')?.value || '';
-      const slackStep = {
-        name: 'send-to-slack',
-        connector: 'slack',
-        input: step.name,
-        config: { integration_id: wsVal, target: targetVal },
-      };
-      const nextStep = pipelineState.pipelineEditorSteps[index + 1];
-      if (!nextStep || nextStep.connector !== 'slack') {
-        pipelineState.pipelineEditorSteps.splice(index + 1, 0, slackStep);
-      } else {
-        nextStep.config = slackStep.config;
-        nextStep.input = step.name;
-      }
     }
 
     fixStepInputs();

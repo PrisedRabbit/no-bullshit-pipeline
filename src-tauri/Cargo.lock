@@ -2738,7 +2738,7 @@ dependencies = [
 
 [[package]]
 name = "nbp"
-version = "0.4.66"
+version = "0.4.67"
 dependencies = [
  "anyhow",
  "base64 0.21.7",
