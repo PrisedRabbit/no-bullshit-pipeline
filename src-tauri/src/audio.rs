@@ -48,6 +48,16 @@ pub fn start_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState
         return Err("Already recording".to_string());
     }
 
+    // Leaked-session probe: at the start of a fresh recording no mic stream
+    // should be alive. >0 here means a prior session never disposed its cpal
+    // stream (the "still recording after restart" symptom).
+    let leaked = crate::mic_audio::active_mic_streams();
+    if leaked > 0 {
+        log::warn!("[mic-debug] start_recording: {leaked} mic stream(s) already active before start — previous session not disposed");
+    } else {
+        log::info!("[mic-debug] start_recording: clean (active_mic_streams=0)");
+    }
+
     // Wait for any previous finalization to complete before starting new recording
     state.wait_for_finalization();
 
@@ -146,6 +156,11 @@ pub fn stop_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>
         return Ok(());
     }
     log::info!("[ignore-trace] stop_recording: is_recording=true, proceeding to stop captures");
+
+    // Dismiss the call-detection popup immediately — recording is ending, so its
+    // Ignore window is moot. Covers every stop route (in-app button, Ignore
+    // click, call end). Harmless no-op if the popup isn't visible.
+    let _ = app_handle.emit("call-popup", serde_json::json!({ "kind": "hide" }));
 
     // CORRECT ORDER: Stop capture sources FIRST, then let mixer drain
 

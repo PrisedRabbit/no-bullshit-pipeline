@@ -7,6 +7,12 @@
   line-height: 24px;
   font-weight: 400;
 
+  /* Layout heights — single source of truth. Content offsets/heights derive
+     from these via calc(), so adjusting the bar/strip height never needs
+     hunting down magic numbers elsewhere. */
+  --app-bar-h: 52px;
+  --model-banner-h: 36px;
+
   /* Neon Purple Premium Palette - Higher Contrast */
   --bg-primary: #07050f;
   --bg-sidebar: #0e0a1f;
@@ -410,7 +416,13 @@ select:focus-visible,
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
+  /* Lock the shell to exactly the viewport. `min-height` let the body grow
+     taller than the screen, and since the only scroll affordance is the fixed
+     app-bar + an inner `.detail-scroller`, a stray focus()/scrollIntoView could
+     programmatically scroll the (overflow:hidden but still scrollable) body —
+     dragging the settings sticky-header up behind the app-bar so Back vanished.
+     Capping to 100vh means scrollHeight == clientHeight: nothing can shift. */
+  height: 100vh;
   overflow: hidden;
   background: var(--bg-primary);
   color: var(--text-primary);
@@ -425,7 +437,7 @@ body {
   /* Height matches the macOS unified-toolbar title bar so our content
      center-aligns on the same line as the traffic lights. Tune this single
      value if the lights and our icons drift apart. */
-  height: 52px;
+  height: var(--app-bar-h);
   background: rgba(7, 5, 15, 0.85);
   backdrop-filter: blur(20px);
   display: flex;
@@ -571,8 +583,8 @@ body {
 .app-layout {
   display: grid;
   grid-template-columns: 1fr;
-  height: calc(100vh - 52px);
-  margin-top: 52px;
+  height: calc(100vh - var(--app-bar-h));
+  margin-top: var(--app-bar-h);
 }
 
 .detail-view {
@@ -2447,6 +2459,37 @@ body.settings-open .detail-view {
 }
 .app-banner--info {
   /* default palette (indigo) — keep variables as the base values above */
+}
+
+/* Full-width system-style strip under the top bar (model update / download).
+   Fixed just below the 52px app-bar; when shown, body.has-model-banner pushes
+   the content down so nothing is covered. Reuses .app-banner__action/__dismiss
+   via the --banner-btn-* vars set here. */
+.model-banner {
+  position: fixed;
+  top: var(--app-bar-h);
+  left: 0;
+  right: 0;
+  z-index: 99;
+  height: var(--model-banner-h);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 1.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: #e0f2fe;
+  color: #0c4a6e;
+  border-bottom: 1px solid #bae6fd;
+  --banner-btn-bg: #0284c7;
+  --banner-btn-fg: #ffffff;
+}
+.model-banner__spacer {
+  flex: 1;
+}
+body.has-model-banner .app-layout {
+  margin-top: calc(var(--app-bar-h) + var(--model-banner-h));
+  height: calc(100vh - var(--app-bar-h) - var(--model-banner-h));
 }
 
 body.light .app-banner--info {

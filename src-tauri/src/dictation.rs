@@ -9,9 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::config::{
-    get_api_key_for_provider, load_settings, DictationShortcut, TranscriptionProvider,
-};
+use crate::config::{load_settings, DictationShortcut, TranscriptionProvider};
 use crate::pipelines::{load_pipelines, ConnectorType};
 
 const TARGET_RATE: u32 = 16_000;
@@ -813,28 +811,22 @@ async fn process_and_deliver(
 
 async fn transcribe(
     app: &AppHandle,
-    shortcut: &DictationShortcut,
+    _shortcut: &DictationShortcut,
     mono_16k: Vec<f32>,
 ) -> Result<String, String> {
-    match &shortcut.engine {
-        TranscriptionProvider::FluidAudio => run_fluidaudio(app, &mono_16k).await,
+    // Dictation uses the SAME engine + settings as recordings (the global ASR
+    // config from the ASR settings tab), not a per-shortcut engine — one path,
+    // so code-switch recovery (translit/vocab/min-len) applies here too. Apple
+    // locale also comes from the global setting.
+    let settings = load_settings();
+    match settings.transcription.provider {
+        TranscriptionProvider::FluidAudio | TranscriptionProvider::Qwen3 => {
+            run_fluidaudio(app, &mono_16k, &settings).await
+        }
         TranscriptionProvider::AppleSpeech => {
-            run_apple_speech(app, &mono_16k, shortcut.language.as_deref()).await
+            run_apple_speech(app, &mono_16k, Some(&settings.transcription.apple_locale)).await
         }
-        TranscriptionProvider::OpenAI => {
-            let settings = load_settings();
-            let api_key = get_api_key_for_provider(&settings, "openai")
-                .ok_or("OpenAI API key not configured")?;
-            let tmp = std::env::temp_dir().join(format!(
-                "nbp-dict-{}.wav",
-                uuid::Uuid::new_v4().simple()
-            ));
-            write_mono_wav(&tmp, &mono_16k, TARGET_RATE)?;
-            let result = crate::cloud_ai::transcribe_with_whisper(&api_key, &tmp).await;
-            let _ = std::fs::remove_file(&tmp);
-            result
-        }
-        other => Err(format!("Unsupported dictation engine: {:?}", other)),
+        other => Err(format!("Unsupported ASR provider for dictation: {:?}", other)),
     }
 }
 
@@ -1213,7 +1205,11 @@ struct FluidOut {
     model: String,
 }
 
-async fn run_fluidaudio(app: &AppHandle, samples_16k: &[f32]) -> Result<String, String> {
+async fn run_fluidaudio(
+    app: &AppHandle,
+    samples_16k: &[f32],
+    settings: &crate::config::AppSettings,
+) -> Result<String, String> {
     use tauri_plugin_shell::ShellExt;
 
     let tmp = std::env::temp_dir().join(format!(
@@ -1222,15 +1218,21 @@ async fn run_fluidaudio(app: &AppHandle, samples_16k: &[f32]) -> Result<String, 
     ));
     write_mono_wav(&tmp, samples_16k, TARGET_RATE)?;
 
-    // Quick Dictate is single-speaker — skip diarization entirely. Saves the
-    // diarizer model download + load + process time, and dodges the
-    // "No speech detected" VAD failure on short/quiet clips.
-    let (mut rx, _child) = app
+    // Quick Dictate is single-speaker — always skip diarization (saves the
+    // diarizer load/process + dodges the "No speech detected" VAD failure on
+    // short clips). Engine + code-switch recovery flags are the SAME as the
+    // recording path (fluidaudio_engine_args), so dictation and recordings
+    // can't drift.
+    let mut cmd = app
         .shell()
         .sidecar("fluidaudio-sidecar")
         .map_err(|e| format!("sidecar create: {}", e))?
         .arg(tmp.to_str().ok_or("invalid tmp path")?)
-        .arg("--no-diarize")
+        .arg("--no-diarize");
+    for a in crate::transcription::fluidaudio_engine_args(settings) {
+        cmd = cmd.arg(a);
+    }
+    let (mut rx, _child) = cmd
         .spawn()
         .map_err(|e| format!("sidecar spawn: {}", e))?;
 
@@ -1254,6 +1256,15 @@ async fn run_fluidaudio(app: &AppHandle, samples_16k: &[f32]) -> Result<String, 
     }
 
     let _ = std::fs::remove_file(&tmp);
+
+    // Surface sidecar diagnostics (incl. TRANSLIT:/VOCAB: replacement lines) to
+    // the dev terminal, same as the recording path — so code-switch fixes are
+    // observable for dictation too.
+    for line in stderr_buf.lines() {
+        if !line.starts_with("PROGRESS:") && !line.is_empty() {
+            eprintln!("{}", line);
+        }
+    }
 
     if exit_code != Some(0) {
         // "No speech detected" isn't a failure — it's the sidecar's polite
@@ -1383,18 +1394,19 @@ fn get_system_output_volume() -> Option<u32> {
 
 // Tracks the previously-spawned fade osascript so we can kill it when a new
 // fade starts — otherwise an in-flight down-fade keeps clobbering the up-fade.
-static ACTIVE_FADE: std::sync::OnceLock<std::sync::Mutex<Option<std::process::Child>>> =
+static ACTIVE_FADE: std::sync::OnceLock<std::sync::Mutex<Option<u32>>> =
     std::sync::OnceLock::new();
 
-fn active_fade_slot() -> &'static std::sync::Mutex<Option<std::process::Child>> {
+fn active_fade_slot() -> &'static std::sync::Mutex<Option<u32>> {
     ACTIVE_FADE.get_or_init(|| std::sync::Mutex::new(None))
 }
 
 fn fade_system_volume(from: u32, to: u32, duration_ms: u64) {
     if let Ok(mut guard) = active_fade_slot().lock() {
-        if let Some(mut prev) = guard.take() {
-            let _ = prev.kill();
-            let _ = prev.wait();
+        if let Some(prev_pid) = guard.take() {
+            unsafe {
+                let _ = libc::kill(prev_pid as libc::pid_t, libc::SIGKILL);
+            }
         }
     }
 
@@ -1409,14 +1421,23 @@ fn fade_system_volume(from: u32, to: u32, duration_ms: u64) {
         "set startV to {}\nset endV to {}\nset steps to {}\nrepeat with i from 1 to steps\n  set v to startV + ((endV - startV) * i / steps)\n  set volume output volume v\n  delay {:.4}\nend repeat",
         from, to, steps, step_delay
     );
-    if let Ok(child) = std::process::Command::new("osascript")
+    if let Ok(mut child) = std::process::Command::new("osascript")
         .arg("-e")
         .arg(&script)
         .spawn()
     {
+        let pid = child.id();
         if let Ok(mut guard) = active_fade_slot().lock() {
-            *guard = Some(child);
+            *guard = Some(pid);
         }
+        std::thread::spawn(move || {
+            let _ = child.wait();
+            if let Ok(mut guard) = active_fade_slot().lock() {
+                if *guard == Some(pid) {
+                    *guard = None;
+                }
+            }
+        });
     }
 }
 

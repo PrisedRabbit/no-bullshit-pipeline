@@ -5,8 +5,18 @@
 import { invoke } from '../core/tauri.js';
 import * as state from '../core/state.js';
 import { isKeyMasked } from '../core/utils.js';
+import { showToast } from '../ui/toast.js';
+import { repoToName } from './model-version.js';
 
 const transcriptionProviderSelect = document.getElementById('settings-transcription-provider');
+const diarizeCheckbox = document.getElementById('settings-diarize');
+const translitLangSelect = document.getElementById('settings-translit-lang');
+const translitThresholdInput = document.getElementById('settings-translit-threshold');
+const translitMinLenInput = document.getElementById('settings-translit-min-len');
+const vocabTextarea = document.getElementById('settings-vocab');
+const vocabSaveBtn = document.getElementById('settings-vocab-save');
+const qwen3VariantSelect = document.getElementById('settings-qwen3-variant');
+const appleLocaleSelect = document.getElementById('settings-apple-locale');
 
 const PROVIDER_KEY_MAP = { OpenAI: 'openai', Google: 'google' };
 
@@ -55,10 +65,48 @@ export function updateTranscriptionKeyStatusDot() {
   if (setKeyBtn) setKeyBtn.style.display = hasKey ? 'none' : '';
 }
 
+/// Show only the settings the selected engine actually supports. Each option
+/// declares its engines via `data-engines` (the single source — mirrors the
+/// per-engine flag wiring in transcription.rs). A section left with no visible
+/// items is hidden too, so we never strand a lone header.
+function applyEngineCapabilities(provider) {
+  const tab = document.querySelector('.settings-tab-content[data-tab="asr"]');
+  if (!tab) return;
+  tab.querySelectorAll('[data-engines]').forEach((el) => {
+    const ok = el.dataset.engines.split(',').map((s) => s.trim()).includes(provider);
+    el.style.display = ok ? '' : 'none';
+  });
+  const shown = [];
+  tab.querySelectorAll('.settings-section').forEach((sec) => {
+    const items = sec.querySelectorAll('.settings-item');
+    if (!items.length) return;
+    const anyVisible = [...items].some((it) => it.style.display !== 'none');
+    sec.style.display = anyVisible ? '' : 'none';
+    if (anyVisible) shown.push(sec.querySelector('h3')?.textContent || '?');
+  });
+  console.debug(`[asr-ui] capabilities provider=${provider} sections=[${shown.join(', ')}]`);
+}
+
+/// Within the (Parakeet-only) Custom vocabulary group, sensitivity + word list
+/// only matter when recovery is on — hide them when it's "Off". Also respects
+/// the engine gate, so they never reappear for a non-Parakeet engine.
+function applyRecoveryVisibility(provider) {
+  const off = !translitLangSelect || translitLangSelect.value === 'off';
+  const tab = document.querySelector('.settings-tab-content[data-tab="asr"]');
+  if (!tab) return;
+  tab.querySelectorAll('[data-when-recovery]').forEach((el) => {
+    const engines = (el.dataset.engines || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const engineOk = !engines.length || engines.includes(provider);
+    el.style.display = engineOk && !off ? '' : 'none';
+  });
+}
+
 export async function updateProviderVisibility() {
   if (!transcriptionProviderSelect) return;
   const provider = transcriptionProviderSelect.value;
-  const isCloud = provider !== 'FluidAudio' && provider !== 'AppleSpeech';
+  applyEngineCapabilities(provider);
+  applyRecoveryVisibility(provider);
+  const isCloud = provider !== 'FluidAudio' && provider !== 'AppleSpeech' && provider !== 'Qwen3';
 
   const statusEl = document.getElementById('cloud-provider-status');
   const setKeyBtn = document.getElementById('set-api-key-btn');
@@ -66,6 +114,28 @@ export async function updateProviderVisibility() {
   if (setKeyBtn) setKeyBtn.style.display = 'none';
 
   if (isCloud) updateTranscriptionKeyStatusDot();
+}
+
+/// Label the on-device engine options with their real model names, sourced from
+/// FluidAudio's `Repo` enum (no hand-written copy, no drift). The repo id is a
+/// compile-time constant, so this works before any model is downloaded. Apple
+/// Speech is an OS framework with no HF repo — its label stays as-is.
+async function labelModelOptions() {
+  if (!transcriptionProviderSelect) return;
+  let map;
+  try {
+    map = await invoke('list_asr_models');
+  } catch (e) {
+    console.warn('list_asr_models failed, keeping fallback labels:', e);
+    return;
+  }
+  const setLabel = (value, repo) => {
+    const name = repoToName(repo);
+    const opt = transcriptionProviderSelect.querySelector(`option[value="${value}"]`);
+    if (opt && name) opt.textContent = name;
+  };
+  setLabel('FluidAudio', map['parakeet-v3']);
+  setLabel('Qwen3', map['qwen3']);
 }
 
 /// Hide Apple Speech option from any select that contains
@@ -77,12 +147,33 @@ async function hideAppleSpeechIfUnavailable() {
   document.querySelectorAll('option[data-needs-apple-speech="1"]').forEach((opt) => {
     opt.remove();
   });
+  const appleLocaleRow = document.getElementById('apple-locale-row');
+  if (appleLocaleRow) appleLocaleRow.style.display = 'none';
 }
 
 export function initTranscriptionSettings() {
   if (transcriptionProviderSelect) transcriptionProviderSelect.addEventListener('change', updateProviderVisibility);
+  if (translitLangSelect) {
+    translitLangSelect.addEventListener('change', () =>
+      applyRecoveryVisibility(transcriptionProviderSelect?.value));
+  }
 
   hideAppleSpeechIfUnavailable();
+  labelModelOptions();
+
+  if (vocabSaveBtn) {
+    vocabSaveBtn.addEventListener('click', async () => {
+      if (!vocabTextarea) return;
+      const terms = vocabTextarea.value.split('\n').map((t) => t.trim()).filter(Boolean);
+      try {
+        await invoke('save_vocab', { terms });
+        showToast('Words saved', 'success');
+      } catch (e) {
+        console.error('save_vocab failed:', e);
+        showToast('Failed to save words', 'error');
+      }
+    });
+  }
 
   const setApiKeyBtn = document.getElementById('set-api-key-btn');
   if (setApiKeyBtn) {
@@ -103,6 +194,13 @@ export function initTranscriptionSettings() {
 export function applyTranscriptionSettings() {
   if (!state.appSettings?.transcription) return;
   if (transcriptionProviderSelect) transcriptionProviderSelect.value = state.appSettings.transcription.provider;
+  if (diarizeCheckbox) diarizeCheckbox.checked = state.appSettings.transcription.diarize !== false;
+  if (translitLangSelect) translitLangSelect.value = state.appSettings.transcription.translit_lang || 'ru';
+  if (translitThresholdInput) translitThresholdInput.value = state.appSettings.transcription.translit_threshold ?? 0.72;
+  if (translitMinLenInput) translitMinLenInput.value = state.appSettings.transcription.translit_min_len ?? 4;
+  if (vocabTextarea) invoke('get_vocab').then((terms) => { vocabTextarea.value = (terms || []).join('\n'); }).catch(() => {});
+  if (qwen3VariantSelect) qwen3VariantSelect.value = state.appSettings.transcription.qwen3_variant || 'f32';
+  if (appleLocaleSelect) appleLocaleSelect.value = state.appSettings.transcription.apple_locale || 'en-US';
   updateProviderVisibility();
   updateTranscriptionProviderWarnings();
 }
@@ -113,6 +211,22 @@ export function collectTranscriptionSettings() {
   // runs on-device so this never fails offline.
   state.appSettings.transcription.enabled = true;
   state.appSettings.transcription.provider = transcriptionProviderSelect?.value || 'FluidAudio';
+  state.appSettings.transcription.diarize = diarizeCheckbox ? diarizeCheckbox.checked : true;
+  state.appSettings.transcription.translit_lang = translitLangSelect ? translitLangSelect.value : 'ru';
+  if (translitThresholdInput) {
+    const th = parseFloat(translitThresholdInput.value);
+    state.appSettings.transcription.translit_threshold = Number.isFinite(th) ? th : 0.72;
+  }
+  if (translitMinLenInput) {
+    const ml = parseInt(translitMinLenInput.value, 10);
+    state.appSettings.transcription.translit_min_len = Number.isFinite(ml) ? ml : 4;
+  }
+  if (vocabTextarea) {
+    const terms = vocabTextarea.value.split('\n').map((t) => t.trim()).filter(Boolean);
+    invoke('save_vocab', { terms }).catch((e) => console.error('save_vocab failed:', e));
+  }
+  if (qwen3VariantSelect) state.appSettings.transcription.qwen3_variant = qwen3VariantSelect.value || 'f32';
+  if (appleLocaleSelect) state.appSettings.transcription.apple_locale = appleLocaleSelect.value || 'en-US';
 
   if (!state.appSettings.transcription.api_keys) state.appSettings.transcription.api_keys = {};
   if (!state.appSettings.providers) state.appSettings.providers = {};

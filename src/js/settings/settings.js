@@ -6,6 +6,7 @@ import { ViewManager } from '../ui/view-manager.js';
 import { emit } from '../core/events.js';
 import { applyTranscriptionSettings, collectTranscriptionSettings } from './transcription.js';
 import { applyDictationSettings, initShortcutsTab } from './shortcuts.js';
+import { refreshModelVersion } from './model-version.js';
 
 const storagePathInput = document.getElementById('settings-storage-path');
 const saveMixOnlyCheckbox = document.getElementById('settings-save-mix-only');
@@ -17,9 +18,21 @@ const themeButtons = document.querySelectorAll('.theme-btn');
 const settingsTabs = document.getElementById('settings-tabs');
 const settingsContainer = document.getElementById('settings-view');
 
+// Last-saved ASR engine identity (provider + Qwen3 variant). The model-version
+// check only matters when this changes — every other settings tweak (diarize,
+// sensitivity, …) leaves the model untouched, so we must not spawn the sidecar
+// or hit HuggingFace on those. Set on load, compared on save.
+let lastEngineKey = null;
+
+function engineKey() {
+  const t = state.appSettings?.transcription || {};
+  return `${t.provider}:${t.qwen3_variant || ''}`;
+}
+
 export async function loadSettings() {
   try {
     state.setAppSettings(await invoke('load_settings'));
+    lastEngineKey = engineKey();
     if (storagePathInput) storagePathInput.value = state.appSettings.storage_path;
 
     applyTranscriptionSettings();
@@ -47,6 +60,16 @@ export async function saveSettings() {
 
     await invoke('save_settings', { settings: state.appSettings });
     showToast('Settings saved', 'success');
+
+    // Re-check the model ONLY when the engine actually changed. force=false so
+    // the 24h cache answers instantly when switching back to an engine we've
+    // already checked — no redundant sidecar spawn / HuggingFace request on
+    // every settings tweak or back-and-forth switch.
+    const key = engineKey();
+    if (key !== lastEngineKey) {
+      lastEngineKey = key;
+      refreshModelVersion(false);
+    }
   } catch (err) {
     console.error('Failed to save settings:', err);
     showToast('Failed to save settings', 'error');

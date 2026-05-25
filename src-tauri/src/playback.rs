@@ -42,6 +42,7 @@ static DURATION_MS: AtomicU64 = AtomicU64::new(0);
 
 lazy_static::lazy_static! {
     static ref CURRENT_RECORDING_ID: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+    static ref PLAYBACK_THREAD: std::sync::Mutex<Option<thread::JoinHandle<()>>> = std::sync::Mutex::new(None);
 }
 
 /// Start audio playback on a dedicated thread
@@ -79,7 +80,7 @@ pub fn play_audio(recording_id: String) -> Result<(), String> {
 
     // Spawn high-priority playback thread
     let path = audio_path.clone();
-    thread::Builder::new()
+    let handle = thread::Builder::new()
         .name("audio-playback".to_string())
         .spawn(move || {
             if let Err(e) = run_playback(path) {
@@ -88,6 +89,10 @@ pub fn play_audio(recording_id: String) -> Result<(), String> {
             IS_PLAYING.store(false, Ordering::SeqCst);
         })
         .map_err(|e| format!("Failed to spawn playback thread: {}", e))?;
+
+    if let Ok(mut thread_guard) = PLAYBACK_THREAD.lock() {
+        *thread_guard = Some(handle);
+    }
 
     Ok(())
 }
@@ -110,29 +115,40 @@ fn run_playback(audio_path: std::path::PathBuf) -> Result<(), String> {
     sink.append(source);
     sink.play();
 
-    let start = std::time::Instant::now();
+    let mut last_tick = std::time::Instant::now();
+    let mut accumulated_ms = 0u64;
     let duration_ms = DURATION_MS.load(Ordering::SeqCst);
 
     // Minimal monitoring loop - let rodio do the work
     while !sink.empty() && !STOP_SIGNAL.load(Ordering::Relaxed) {
+        let now = std::time::Instant::now();
+        let delta = now.duration_since(last_tick).as_millis() as u64;
+        last_tick = now;
+
         // Handle pause
         if PAUSE_SIGNAL.load(Ordering::Relaxed) {
             sink.pause();
             while PAUSE_SIGNAL.load(Ordering::Relaxed) && !STOP_SIGNAL.load(Ordering::Relaxed) {
-                thread::sleep(Duration::from_millis(100));
+                thread::sleep(Duration::from_millis(10));
             }
+            last_tick = std::time::Instant::now(); // Reset tick timer after pause
             if !STOP_SIGNAL.load(Ordering::Relaxed) {
                 sink.play();
             }
+        } else {
+            accumulated_ms += delta;
         }
 
-        // Update position (less frequently to reduce overhead)
-        let elapsed = start.elapsed().as_millis() as u64;
-        let position = elapsed.min(duration_ms);
+        let position = accumulated_ms.min(duration_ms);
         CURRENT_POSITION_MS.store(position, Ordering::Relaxed);
 
-        // Sleep longer to reduce CPU usage and prevent interference
-        thread::sleep(Duration::from_millis(200));
+        // Sleep shorter but in a loop to respond quickly to STOP_SIGNAL
+        for _ in 0..20 {
+            if STOP_SIGNAL.load(Ordering::Relaxed) || PAUSE_SIGNAL.load(Ordering::Relaxed) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 
     sink.stop();
@@ -160,8 +176,19 @@ pub fn resume_audio() -> Result<(), String> {
 pub fn stop_audio() -> Result<(), String> {
     STOP_SIGNAL.store(true, Ordering::SeqCst);
     PAUSE_SIGNAL.store(false, Ordering::SeqCst);
-    // Give thread time to stop
-    thread::sleep(Duration::from_millis(50));
+    
+    // Join the thread to make sure it is completely stopped
+    let handle = {
+        if let Ok(mut thread_guard) = PLAYBACK_THREAD.lock() {
+            thread_guard.take()
+        } else {
+            None
+        }
+    };
+    if let Some(h) = handle {
+        let _ = h.join();
+    }
+
     IS_PLAYING.store(false, Ordering::SeqCst);
     CURRENT_POSITION_MS.store(0, Ordering::SeqCst);
     Ok(())

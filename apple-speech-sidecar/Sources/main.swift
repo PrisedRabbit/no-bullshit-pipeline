@@ -133,6 +133,28 @@ func pcmBufferFromF32Bytes(_ data: Data, sampleRate: Double) -> AVAudioPCMBuffer
 @main
 struct AppleSpeechSidecar {
     static func main() async {
+        #if canImport(Speech)
+        if CommandLine.arguments.contains("--list-locales") {
+            if #available(macOS 26.0, *) {
+                let sup = await SpeechTranscriber.supportedLocales
+                print("SpeechTranscriber SUPPORTED (\(sup.count)): " + sup.map { $0.identifier(.bcp47) }.sorted().joined(separator: ", "))
+                let ruST = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: "ru-RU"))
+                print("SpeechTranscriber ru-RU => \(String(describing: ruST))")
+
+                let dsup = await DictationTranscriber.supportedLocales
+                print("DictationTranscriber SUPPORTED (\(dsup.count)): " + dsup.map { $0.identifier(.bcp47) }.sorted().joined(separator: ", "))
+                let ruDT = await DictationTranscriber.supportedLocale(equivalentTo: Locale(identifier: "ru-RU"))
+                print("DictationTranscriber ru-RU => \(String(describing: ruDT))")
+
+                let sf = SFSpeechRecognizer(locale: Locale(identifier: "ru-RU"))
+                print("SFSpeechRecognizer ru-RU: available=\(sf != nil) onDevice=\(sf?.supportsOnDeviceRecognition ?? false)")
+                exit(0)
+            } else {
+                writeError("SpeechTranscriber requires macOS 26.0 or later")
+            }
+        }
+        #endif
+
         let parsed = parseArgs()
 
         #if canImport(Speech)

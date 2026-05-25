@@ -20,8 +20,6 @@ const hotkeyInput = () => document.getElementById('dict-editor-hotkey');
 const inputSourceSel = () => document.getElementById('dict-editor-input-source');
 const deviceSel = () => document.getElementById('dict-editor-device');
 const deviceField = () => document.getElementById('dict-editor-device-field');
-const engineSel = () => document.getElementById('dict-editor-engine');
-const engineField = () => document.getElementById('dict-editor-engine-field');
 const pipelineSel = () => document.getElementById('dict-editor-pipeline');
 const autoPasteCb = () => document.getElementById('dict-editor-auto-paste');
 const systemAudioCb = () => document.getElementById('dict-editor-system-audio');
@@ -91,9 +89,7 @@ function renderList() {
   }
 
   container.innerHTML = items.map((sc) => {
-    const engineLabel = sc.input_source === 'Clipboard'
-      ? 'Clipboard'
-      : `Mic · ${escapeHtml(sc.engine || '')}`;
+    const engineLabel = sc.input_source === 'Clipboard' ? 'Clipboard' : 'Mic';
     const pipelinePart = sc.pipeline
       ? `<span class="meta-divider">·</span><span class="meta-pipe">→ ${escapeHtml(sc.pipeline)}</span>`
       : '';
@@ -187,8 +183,6 @@ async function populatePipelineDropdown(selected) {
 
 function syncInputSourceFields() {
   const isAudio = inputSourceSel().value === 'Audio';
-  const eField = engineField();
-  if (eField) eField.style.display = isAudio ? '' : 'none';
   const dField = deviceField();
   if (dField) dField.style.display = isAudio ? '' : 'none';
   const sField = systemAudioField();
@@ -265,7 +259,6 @@ async function openEditor(id) {
   nameInput().value = data.name || '';
   hotkeyInput().value = data.hotkey || '';
   inputSourceSel().value = data.input_source || 'Audio';
-  engineSel().value = data.engine || 'FluidAudio';
   autoPasteCb().checked = data.auto_paste !== false;
   systemAudioCb().checked = !!data.capture_system_audio;
   syncInputSourceFields();
@@ -329,7 +322,6 @@ async function handleSave() {
     name,
     hotkey,
     input_source: inputSource,
-    engine: engineSel().value,
     device_name: (() => {
       const v = (deviceSel().value || '').trim();
       return v === '' ? null : v;
@@ -527,8 +519,6 @@ export function initShortcutsTab() {
   const db = deleteBtn();
   if (db) db.addEventListener('click', handleDelete);
 
-  const es = engineSel();
-  if (es) es.addEventListener('change', syncInputSourceFields);
   const iss = inputSourceSel();
   if (iss) iss.addEventListener('change', syncInputSourceFields);
 

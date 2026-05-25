@@ -77,6 +77,145 @@ func joinTokens(_ tokens: [String]) -> String {
         .trimmingCharacters(in: .whitespaces)
 }
 
+/// Split audio into windows no longer than ~targetSec, snapping each cut to the
+/// quietest 20ms point within a +/- slack window so we don't slice through a
+/// word (a mid-word seam worsens code-switch). Qwen3's KV cache caps the total
+/// sequence at maxCacheSeqLen (512); audio tokenizes at ~13.5 tok/s, so long
+/// audio MUST be chunked or the decoder overflows ("prompt length exceeds cache").
+func chunkBySilence(_ samples: [Float], sampleRate: Int, targetSec: Double, slackSec: Double) -> [[Float]] {
+    let target = Int(targetSec * Double(sampleRate))
+    let slack = Int(slackSec * Double(sampleRate))
+    guard samples.count > target + slack else { return [samples] }
+    var chunks: [[Float]] = []
+    var start = 0
+    let win = max(1, sampleRate / 50) // 20ms
+    while start < samples.count {
+        let nominalEnd = start + target
+        if nominalEnd >= samples.count {
+            chunks.append(Array(samples[start...]))
+            break
+        }
+        // Search [nominalEnd - slack, nominalEnd + slack] for the quietest window.
+        let lo = max(start + win, nominalEnd - slack)
+        let hi = min(samples.count - win, nominalEnd + slack)
+        var bestCut = nominalEnd
+        var bestEnergy = Float.greatestFiniteMagnitude
+        var p = lo
+        while p < hi {
+            var e: Float = 0
+            for i in p..<(p + win) { e += samples[i] * samples[i] }
+            if e < bestEnergy { bestEnergy = e; bestCut = p + win / 2 }
+            p += win
+        }
+        chunks.append(Array(samples[start..<bestCut]))
+        start = bestCut
+    }
+    return chunks
+}
+
+/// Pragmatic Cyrillic->Latin phonetic transliteration (for fuzzy matching only,
+/// not display). Makes "папилайн"->"papilayn" so a char-level distance to the
+/// English canonical "pipeline" becomes meaningful (≈0.6) instead of ~0.
+func translitRuToLat(_ s: String) -> String {
+    let map: [Character: String] = [
+        "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "yo",
+        "ж": "zh", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
+        "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+        "ф": "f", "х": "kh", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "sch",
+        "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya",
+    ]
+    var out = ""
+    for ch in s.lowercased() {
+        if let r = map[ch] { out += r } else { out.append(ch) }
+    }
+    return out
+}
+
+/// Levenshtein similarity in [0,1]: 1 - dist/maxLen.
+func levSim(_ a: String, _ b: String) -> Float {
+    let s = Array(a), t = Array(b)
+    if s.isEmpty || t.isEmpty { return (s.isEmpty && t.isEmpty) ? 1 : 0 }
+    var prev = Array(0...t.count)
+    var cur = [Int](repeating: 0, count: t.count + 1)
+    for i in 1...s.count {
+        cur[0] = i
+        for j in 1...t.count {
+            let cost = s[i - 1] == t[j - 1] ? 0 : 1
+            cur[j] = Swift.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+        }
+        swap(&prev, &cur)
+    }
+    return 1 - Float(prev[t.count]) / Float(max(s.count, t.count))
+}
+
+/// Load canonical terms (the part before ':' on each line) from a vocab file.
+/// Aliases are intentionally ignored — the whole point of translit matching is
+/// to NOT need hand-written manglings.
+func loadCanonicalTerms(_ path: String) -> [String] {
+    guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else { return [] }
+    var terms: [String] = []
+    for line in contents.split(whereSeparator: { $0.isNewline }) {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        if t.isEmpty || t.hasPrefix("#") { continue }
+        let canon = t.split(separator: ":").first.map {
+            String($0).trimmingCharacters(in: .whitespaces)
+        } ?? t
+        if !canon.isEmpty { terms.append(canon) }
+    }
+    return terms
+}
+
+/// Phonetic key: transliterate, fold c/q/k->k and z/s->s, drop vowels, collapse
+/// runs. "папилайн"->"pln", "pipeline"->"pln"; "клод"->"kld", "claude"->"kld".
+/// Recovers heavily-mangled cross-script matches that raw edit distance misses.
+func phoneticKey(_ s: String) -> String {
+    let lat = translitRuToLat(s).lowercased()
+    var mapped = ""
+    for ch in lat {
+        switch ch {
+        case "c", "q", "k": mapped.append("k")
+        case "z", "s": mapped.append("s")
+        case "a", "e", "i", "o", "u", "y": break  // drop vowels
+        case "a"..."z": mapped.append(ch)
+        default: break  // drop punctuation/digits
+        }
+    }
+    var key = ""
+    var last: Character? = nil
+    for ch in mapped where ch != last { key.append(ch); last = ch }
+    return key
+}
+
+/// Replace Cyrillic words whose transliteration is close to an English canonical.
+/// Word-level, length>=4, Cyrillic-only candidates; preserves surrounding
+/// punctuation and the canonical's original casing. Returns (text, replacements).
+func translitRescore(text: String, canonicals: [String], threshold: Float, minLen: Int = 4, matchAll: Bool = false) -> (String, [(String, String, Float)]) {
+    var repls: [(String, String, Float)] = []
+    let words = text.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+    var out: [String] = []
+    for w in words {
+        let core = w.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        let hasCyr = core.unicodeScalars.contains { $0.value >= 0x0400 && $0.value <= 0x04FF }
+        if core.count >= minLen, hasCyr || matchAll {
+            let coreKey = phoneticKey(core)
+            var best: (String, Float)? = nil
+            if !coreKey.isEmpty {
+                for c in canonicals {
+                    let sim = levSim(coreKey, phoneticKey(c))
+                    if sim >= threshold, best == nil || sim > best!.1 { best = (c, sim) }
+                }
+            }
+            if let b = best {
+                out.append(w.replacingOccurrences(of: core, with: b.0))
+                repls.append((core, b.0, b.1))
+                continue
+            }
+        }
+        out.append(w)
+    }
+    return (out.joined(separator: " "), repls)
+}
+
 /// Merge ASR word timings with diarization segments.
 func mergeAsrWithDiarization(
     tokenTimings: [TokenTiming],
@@ -349,13 +488,151 @@ func runStreamMode() async {
     }
 }
 
+/// Report whether the active engine/variant is already downloaded, plus its HF
+/// repo id (for NBP's Rust side to check the remote version). Uses FluidAudio's
+/// public `modelsExist` so cache-layout knowledge stays inside the library.
+struct ModelStatusJSON: Encodable {
+    let engine: String
+    let variant: String
+    let repo: String
+    let cached: Bool
+}
+
+/// Emit the HF repo id for every managed on-device engine, sourced from
+/// FluidAudio's own `Repo` enum. Lets NBP label the model picker with real
+/// model names (single source — can't drift from what FluidAudio downloads).
+func runListModels() {
+    let models: [String: String] = [
+        "parakeet-v3": Repo.parakeetV3.remotePath,
+        "qwen3": Repo.qwen3Asr.remotePath,
+    ]
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    if let data = try? encoder.encode(models) {
+        FileHandle.standardOutput.write(data)
+        FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+    exit(0)
+}
+
+func runStatus(argv: [String]) async {
+    var engine = "parakeet-v3"
+    var variant = "f32"
+    var i = 1
+    while i < argv.count {
+        switch argv[i] {
+        case "--engine": if i + 1 < argv.count { engine = argv[i + 1].lowercased(); i += 1 }
+        case "--variant": if i + 1 < argv.count { variant = argv[i + 1].lowercased(); i += 1 }
+        default: break
+        }
+        i += 1
+    }
+
+    var cached = false
+    let repo: String
+    if engine == "qwen3" {
+        let v: Qwen3AsrVariant = (variant == "int8") ? .int8 : .f32
+        // Repo id from FluidAudio's own enum — single source of truth, can't
+        // drift from what FluidAudio actually downloads.
+        repo = (v == .int8 ? Repo.qwen3AsrInt8 : Repo.qwen3Asr).remotePath
+        if #available(macOS 15, iOS 18, *) {
+            cached = Qwen3AsrModels.modelsExist(at: Qwen3AsrModels.defaultCacheDirectory(variant: v))
+        }
+    } else {
+        repo = Repo.parakeetV3.remotePath
+        cached = AsrModels.modelsExist(at: AsrModels.defaultCacheDirectory(for: .v3))
+    }
+
+    let out = ModelStatusJSON(engine: engine, variant: variant, repo: repo, cached: cached)
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    if let data = try? encoder.encode(out) {
+        FileHandle.standardOutput.write(data)
+        FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+    exit(0)
+}
+
+/// Download (or force-redownload) the active engine/variant via FluidAudio.
+/// `--force` removes the cached model dir first, so an update re-pulls main.
+/// Throttles progress emission to whole-percent changes — avoids flooding
+/// stderr / the IPC pipe with thousands of byte-level ticks on a multi-GB pull.
+final class ProgressThrottle: @unchecked Sendable {
+    private var last = ""
+    private let lock = NSLock()
+    /// Emit on any change of stage OR whole percent — so a phase flip at the
+    /// same percent (e.g. download→compile at 50%) still surfaces in the UI.
+    func shouldEmit(_ stage: String, _ pct: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let key = "\(stage):\(pct)"
+        if key != last {
+            last = key
+            return true
+        }
+        return false
+    }
+}
+
+func runDownload(argv: [String]) async {
+    var engine = "parakeet-v3"
+    var variant = "f32"
+    var force = false
+    var i = 1
+    while i < argv.count {
+        switch argv[i] {
+        case "--engine": if i + 1 < argv.count { engine = argv[i + 1].lowercased(); i += 1 }
+        case "--variant": if i + 1 < argv.count { variant = argv[i + 1].lowercased(); i += 1 }
+        case "--force": force = true
+        default: break
+        }
+        i += 1
+    }
+
+    do {
+        // Real progress from FluidAudio: fractionCompleted spans download +
+        // compile (0→1). Throttled to whole percents.
+        let throttle = ProgressThrottle()
+        let onProgress: DownloadUtils.ProgressHandler = { p in
+            let pct = Int(p.fractionCompleted * 100)
+            // Forward FluidAudio's real phase (label kept colon-free for the
+            // `PROGRESS:stage:pct` line the Rust side parses).
+            let stage: String
+            switch p.phase {
+            case .listing: stage = "Preparing"
+            case .downloading: stage = "Downloading"
+            case .compiling: stage = "Compiling"
+            }
+            if throttle.shouldEmit(stage, pct) { writeProgress(stage, pct) }
+        }
+        writeProgress("Preparing", 0)
+        if engine == "qwen3" {
+            guard #available(macOS 15, iOS 18, *) else {
+                writeError("Qwen3-ASR requires macOS 15 or later")
+            }
+            let v: Qwen3AsrVariant = (variant == "int8") ? .int8 : .f32
+            _ = try await Qwen3AsrModels.download(variant: v, force: force, progressHandler: onProgress)
+        } else {
+            if force {
+                try? FileManager.default.removeItem(at: AsrModels.defaultCacheDirectory(for: .v3))
+            }
+            _ = try await AsrModels.downloadAndLoad(version: .v3, progressHandler: onProgress)
+        }
+        writeProgress("Complete", 100)
+        FileHandle.standardOutput.write(Data("{\"ok\":true}\n".utf8))
+        exit(0)
+    } catch {
+        writeError(error.localizedDescription)
+    }
+}
+
 // MARK: - Main
 
 @main
 struct FluidAudioSidecar {
     static func main() async {
         guard CommandLine.arguments.count >= 2 else {
-            writeError("Usage: fluidaudio-sidecar <path-to-wav> [--no-diarize]  |  fluidaudio-sidecar --stream")
+            writeError("Usage: fluidaudio-sidecar <path-to-wav> [--engine parakeet-v3|qwen3] [--variant f32|int8] [--vocab <file>] [--lang <code>] [--no-diarize]  |  fluidaudio-sidecar --stream")
         }
 
         if CommandLine.arguments[1] == "--stream" {
@@ -363,12 +640,81 @@ struct FluidAudioSidecar {
             return
         }
 
-        let args = CommandLine.arguments.dropFirst()
-        let noDiarize = args.contains("--no-diarize")
-        let wavPath = args.first(where: { !$0.hasPrefix("--") }) ?? ""
+        // Report cache state for the active engine/variant (used by NBP's model
+        // version checker). Uses FluidAudio's own modelsExist — we don't
+        // duplicate its cache layout.
+        if CommandLine.arguments.contains("--list-models") {
+            runListModels()
+            return
+        }
+
+        if CommandLine.arguments.contains("--status") {
+            await runStatus(argv: CommandLine.arguments)
+            return
+        }
+
+        // Explicitly (re)download the active model. `--force` clears the cache
+        // first (for updates). FluidAudio owns the actual download.
+        if CommandLine.arguments.contains("--download") {
+            await runDownload(argv: CommandLine.arguments)
+            return
+        }
+
+        // Parse args: first non-flag token is the WAV path; flags select the
+        // engine and per-engine options. Defaults preserve the legacy behavior
+        // (`<wav> [--no-diarize]` → Parakeet v3 batch + diarization).
+        let argv = CommandLine.arguments
+        var wavPath = ""
+        var engine = "parakeet-v3"
+        var variant = "f32"
+        var vocabPath: String? = nil
+        var vocabCbw: Float? = nil
+        var vocabMinSim: Float? = nil
+        var vocabMinScore: Float? = nil
+        var useTranslit = false
+        var useTranslitAll = false
+        var translitThreshold: Float = 0.68
+        var translitMinLen = 4
+        var langCode: String? = nil
+        var noDiarize = false
+        var ai = 1
+        while ai < argv.count {
+            switch argv[ai] {
+            case "--no-diarize": noDiarize = true
+            case "--engine": if ai + 1 < argv.count { engine = argv[ai + 1].lowercased(); ai += 1 }
+            case "--variant": if ai + 1 < argv.count { variant = argv[ai + 1].lowercased(); ai += 1 }
+            case "--vocab": if ai + 1 < argv.count { vocabPath = argv[ai + 1]; ai += 1 }
+            case "--vocab-cbw": if ai + 1 < argv.count { vocabCbw = Float(argv[ai + 1]); ai += 1 }
+            case "--vocab-min-sim": if ai + 1 < argv.count { vocabMinSim = Float(argv[ai + 1]); ai += 1 }
+            case "--vocab-min-score": if ai + 1 < argv.count { vocabMinScore = Float(argv[ai + 1]); ai += 1 }
+            case "--translit": useTranslit = true
+            case "--translit-all": useTranslit = true; useTranslitAll = true
+            case "--translit-threshold": if ai + 1 < argv.count { translitThreshold = Float(argv[ai + 1]) ?? translitThreshold; ai += 1 }
+            case "--translit-min-len": if ai + 1 < argv.count { translitMinLen = Int(argv[ai + 1]) ?? translitMinLen; ai += 1 }
+            case "--lang", "--language", "-l": if ai + 1 < argv.count { langCode = argv[ai + 1]; ai += 1 }
+            default:
+                if !argv[ai].hasPrefix("--") && wavPath.isEmpty { wavPath = argv[ai] }
+            }
+            ai += 1
+        }
         if wavPath.isEmpty {
             writeError("Missing WAV path")
         }
+
+        // Qwen3 is a separate generative engine — dispatch and return early.
+        if engine == "qwen3" {
+            await runQwen3(wavPath: wavPath, variant: variant, langCode: langCode)
+            return
+        }
+        if engine != "parakeet-v3" && engine != "parakeet" {
+            writeError("Unknown --engine '\(engine)'. Use parakeet-v3 or qwen3.")
+        }
+
+        // Optional script-aware language hint for Parakeet v3 (nil = none).
+        // NOTE: forcing a language SUPPRESSES the other script — leave nil for
+        // RU+EN code-switch; only set via --lang for deliberate experiments.
+        let language: Language? = langCode.flatMap { Language(rawValue: $0) }
+
         let fileURL = URL(fileURLWithPath: wavPath)
 
         guard FileManager.default.fileExists(atPath: wavPath) else {
@@ -439,8 +785,8 @@ struct FluidAudioSidecar {
 
             // FluidAudio 0.14.5: transcribe takes an inout decoder state.
             let tTranscribe = CFAbsoluteTimeGetCurrent()
-            var decoderState = try TdtDecoderState()
-            let asrResult = try await asrManager.transcribe(fileURL, decoderState: &decoderState)
+            var decoderState = TdtDecoderState.make(decoderLayers: await asrManager.decoderLayerCount)
+            let asrResult = try await asrManager.transcribe(fileURL, decoderState: &decoderState, language: language)
             tick("asrManager.transcribe", tTranscribe)
             progressTask.cancel()
             writeProgress("Transcribing", 60)
@@ -466,17 +812,92 @@ struct FluidAudioSidecar {
             }
 
             writeProgress("Finalizing", 90)
+
+            // Optional custom-vocabulary rescoring (Parakeet v3): re-insert
+            // domain / English terms the TDT path mangled, via an auxiliary CTC
+            // keyword spotter + rescorer over the existing token timings.
+            // English-oriented spotter — aimed at boosting English insertions
+            // inside Russian speech. Beta; unverified for mixed script.
+            var fullText = asrResult.text
+            var modelLabel = "parakeet-tdt-v3"
+            if let vp = vocabPath {
+                if useTranslit {
+                    writeProgress("Transliteration matching", 92)
+                    let canon = loadCanonicalTerms(vp)
+                    let (newText, repls) = translitRescore(
+                        text: asrResult.text, canonicals: canon, threshold: translitThreshold,
+                        minLen: translitMinLen, matchAll: useTranslitAll)
+                    fullText = newText
+                    FileHandle.standardError.write(Data(
+                        "TRANSLIT: \(repls.count) replacement(s) [threshold=\(translitThreshold), \(canon.count) terms]\n".utf8))
+                    for (o, n, sim) in repls {
+                        FileHandle.standardError.write(Data(
+                            "TRANSLIT:  '\(o)' -> '\(n)' (sim=\(String(format: "%.2f", sim)))\n".utf8))
+                    }
+                    modelLabel = "parakeet-tdt-v3+translit"
+                } else {
+                writeProgress("Vocabulary boosting", 92)
+                let (customVocab, ctcModels) = try await CustomVocabularyContext.loadWithCtcTokens(from: vp)
+                let blankId = ctcModels.vocabulary.count
+                let spotter = CtcKeywordSpotter(models: ctcModels, blankId: blankId)
+                let vocabSamples = try AudioConverter().resampleAudioFile(path: wavPath)
+                let spotResult = try await spotter.spotKeywordsWithLogProbs(
+                    audioSamples: vocabSamples,
+                    customVocabulary: customVocab,
+                    minScore: vocabMinScore
+                )
+                if let tokenTimings = asrResult.tokenTimings,
+                    !tokenTimings.isEmpty, !spotResult.logProbs.isEmpty
+                {
+                    let ctcModelDir = CtcModels.defaultCacheDirectory(for: ctcModels.variant)
+                    let vocabConfig = ContextBiasingConstants.rescorerConfig(forVocabSize: customVocab.terms.count)
+                    let cbw = vocabCbw ?? vocabConfig.cbw
+                    let minSim = vocabMinSim ?? vocabConfig.minSimilarity
+                    let rescorer = try await VocabularyRescorer.create(
+                        spotter: spotter,
+                        vocabulary: customVocab,
+                        config: VocabularyRescorer.Config.default,
+                        ctcModelDirectory: ctcModelDir
+                    )
+                    let rescoreOutput = rescorer.ctcTokenRescore(
+                        transcript: asrResult.text,
+                        tokenTimings: tokenTimings,
+                        logProbs: spotResult.logProbs,
+                        frameDuration: spotResult.frameDuration,
+                        cbw: cbw,
+                        marginSeconds: ContextBiasingConstants.defaultMarginSeconds,
+                        minSimilarity: minSim
+                    )
+                    let scoreDesc = vocabMinScore.map { String($0) } ?? "default"
+                    if rescoreOutput.wasModified {
+                        fullText = rescoreOutput.text
+                        FileHandle.standardError.write(Data(
+                            "VOCAB: \(rescoreOutput.replacements.count) replacement(s) [cbw=\(cbw) minSim=\(minSim) minScore=\(scoreDesc)]\n".utf8))
+                        for r in rescoreOutput.replacements where r.shouldReplace {
+                            FileHandle.standardError.write(Data(
+                                "VOCAB:  '\(r.originalWord)' -> '\(r.replacementWord ?? "")'\n".utf8))
+                        }
+                    } else {
+                        FileHandle.standardError.write(Data(
+                            "VOCAB: no replacements [cbw=\(cbw) minSim=\(minSim) minScore=\(scoreDesc)]\n".utf8))
+                    }
+                }
+                modelLabel = "parakeet-tdt-v3+vocab"
+                }
+            }
+            if let lc = langCode { modelLabel += "+lang:\(lc)" }
+
             let timings = asrResult.tokenTimings ?? []
             let (segments, speakerCount) = mergeAsrWithDiarization(
                 tokenTimings: timings,
-                fullText: asrResult.text,
+                fullText: fullText,
                 diarizationSegments: diarizationSegments
             )
 
             let output = FluidAudioOutputJSON(
-                text: asrResult.text,
+                text: fullText,
                 speakerCount: speakerCount,
-                model: "parakeet-tdt-v3",
+                model: modelLabel,
                 segments: segments
             )
 
@@ -501,6 +922,71 @@ struct FluidAudioSidecar {
             // 600MB CoreML model synchronously which delays process exit
             // (Rust sees Terminated late and counts it as transcribe time).
             // The OS frees everything on exit anyway.
+            exit(0)
+        } catch {
+            writeError(error.localizedDescription)
+        }
+    }
+
+    /// Qwen3-ASR engine path. Generative encoder-decoder (no script-suppression
+    /// filter), the best on-device candidate for RU+EN code-switching. Plain
+    /// text only — no diarization / token timings. Requires macOS 15+ (CoreML
+    /// MLState for the decoder KV-cache).
+    static func runQwen3(wavPath: String, variant variantStr: String, langCode: String?) async {
+        guard #available(macOS 15, iOS 18, *) else {
+            writeError("Qwen3-ASR requires macOS 15 or later")
+        }
+        let variant: Qwen3AsrVariant = (variantStr == "int8") ? .int8 : .f32
+        let language: Qwen3AsrConfig.Language? = langCode.flatMap { Qwen3AsrConfig.Language(from: $0) }
+        do {
+            writeProgress("Preparing Qwen3 model", 0)
+            let manager = Qwen3AsrManager()
+            let cacheDir = try await Qwen3AsrModels.download(variant: variant)
+            writeProgress("Loading Qwen3 model", 20)
+            try await manager.loadModels(from: cacheDir)
+
+            writeProgress("Transcribing", 40)
+            let samples = try AudioConverter().resampleAudioFile(path: wavPath)
+            let sr = Qwen3AsrConfig.sampleRate
+
+            // Chunk long audio under the KV-cache budget (see chunkBySilence).
+            // Per chunk, cap generated tokens so prompt + output stays < 512.
+            let chunks = chunkBySilence(samples, sampleRate: sr, targetSec: 18.0, slackSec: 2.0)
+            var pieces: [String] = []
+            for (idx, chunk) in chunks.enumerated() {
+                let promptEst = Int(14.0 * Double(chunk.count) / Double(sr))
+                let maxNew = max(48, min(240, Qwen3AsrConfig.maxCacheSeqLen - promptEst - 24))
+                let piece = try await manager.transcribe(
+                    audioSamples: chunk,
+                    language: language,
+                    maxNewTokens: maxNew
+                )
+                pieces.append(piece.trimmingCharacters(in: .whitespacesAndNewlines))
+                let pct = 40 + Int(Double(idx + 1) / Double(max(1, chunks.count)) * 55.0)
+                writeProgress("Transcribing", min(95, pct))
+            }
+            let text = pieces.filter { !$0.isEmpty }.joined(separator: " ")
+
+            let duration = samples.isEmpty ? 0 : Double(samples.count) / Double(sr)
+            var modelLabel = "qwen3-asr-\(variant.rawValue)"
+            if let lc = langCode { modelLabel += "+lang:\(lc)" }
+            let output = FluidAudioOutputJSON(
+                text: text,
+                speakerCount: 1,
+                model: modelLabel,
+                segments: [
+                    SpeakerSegment(speakerId: "Speaker 1", startTime: 0, endTime: duration, text: text)
+                ]
+            )
+
+            writeProgress("Complete", 100)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            let json = try encoder.encode(output)
+            FileHandle.standardOutput.write(json)
+            FileHandle.standardOutput.write(Data("\n".utf8))
+            try? FileHandle.standardOutput.close()
+            try? FileHandle.standardError.close()
             exit(0)
         } catch {
             writeError(error.localizedDescription)

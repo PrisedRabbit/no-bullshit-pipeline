@@ -3,9 +3,9 @@ import PackageDescription
 
 let package = Package(
     name: "fluidaudio-sidecar",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("15.0")],
     dependencies: [
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.14.5"),
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.14.7"),
     ],
     targets: [
         .executableTarget(

@@ -242,11 +242,32 @@ extern "C" fn device_is_alive_changed(
     0 // noErr
 }
 
+#[derive(Clone, Copy)]
 #[repr(C)]
 struct AudioObjectPropertyAddress {
     selector: u32,
     scope: u32,
     element: u32,
+}
+
+struct AudioListenerGuard {
+    device_id: u32,
+    address: AudioObjectPropertyAddress,
+    listener: extern "C" fn(u32, u32, *const AudioObjectPropertyAddress, *mut c_void) -> i32,
+    client_data: *mut c_void,
+}
+
+impl Drop for AudioListenerGuard {
+    fn drop(&mut self) {
+        unsafe {
+            AudioObjectRemovePropertyListener(
+                self.device_id,
+                &self.address,
+                self.listener,
+                self.client_data,
+            );
+        }
+    }
 }
 
 // Core Audio constants
@@ -512,6 +533,7 @@ fn run_detector(should_stop: Arc<AtomicBool>, app_handle: tauri::AppHandle) {
         element: K_AUDIO_OBJECT_PROPERTY_ELEMENT_MAIN,
     };
 
+    let mut _guards = Vec::new();
     for &device_id in &input_devices {
         unsafe {
             AudioObjectAddPropertyListener(
@@ -520,6 +542,12 @@ fn run_detector(should_stop: Arc<AtomicBool>, app_handle: tauri::AppHandle) {
                 device_is_alive_changed,
                 Arc::as_ptr(&mic_activated) as *mut c_void,
             );
+            _guards.push(AudioListenerGuard {
+                device_id,
+                address,
+                listener: device_is_alive_changed,
+                client_data: Arc::as_ptr(&mic_activated) as *mut c_void,
+            });
         }
     }
 
@@ -647,18 +675,6 @@ fn run_detector(should_stop: Arc<AtomicBool>, app_handle: tauri::AppHandle) {
         }
 
         was_running = call_mic_active;
-    }
-
-    // Cleanup: remove listeners
-    for &device_id in &input_devices {
-        unsafe {
-            AudioObjectRemovePropertyListener(
-                device_id,
-                &address,
-                device_is_alive_changed,
-                Arc::as_ptr(&mic_activated) as *mut c_void,
-            );
-        }
     }
 
     log::info!("call_detector: stopped");

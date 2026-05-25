@@ -639,8 +639,21 @@ struct CachedModel {
 // We only access the cached model behind a Mutex, so this is safe.
 unsafe impl Send for CachedModel {}
 
+
+
 lazy_static::lazy_static! {
     static ref CACHED_MODEL: Mutex<Option<CachedModel>> = Mutex::new(None);
+}
+
+/// Manually unload the cached local LLM model from memory
+#[tauri::command]
+pub fn unload_llm_model() -> Result<(), String> {
+    let mut cache = CACHED_MODEL.lock().map_err(|e| e.to_string())?;
+    if let Some(c) = &*cache {
+        eprintln!("Manually unloading local LLM: {}", c.model_id);
+        *cache = None;
+    }
+    Ok(())
 }
 
 /// Resolve model_id → local file path

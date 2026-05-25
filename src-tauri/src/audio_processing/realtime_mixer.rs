@@ -126,6 +126,12 @@ impl RealtimeMixer {
     }
 }
 
+impl Drop for RealtimeMixer {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Result<()> {
     #[cfg(debug_assertions)]
     eprintln!("Real-time mixer: Starting with adaptive normalization");

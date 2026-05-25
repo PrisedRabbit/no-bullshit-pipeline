@@ -255,6 +255,7 @@ pub async fn execute(
     cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
+    cmd.kill_on_drop(true);
 
     let mut child = cmd.spawn().map_err(|e| {
         format!(
@@ -519,6 +520,7 @@ pub async fn process_with_cli(
     cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
+    cmd.kill_on_drop(true);
 
     let mut child = cmd.spawn().map_err(|e| {
         format!("Failed to spawn '{}': {} (is it installed and in PATH?)", cli, e)

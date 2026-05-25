@@ -11,6 +11,7 @@ use tauri::Manager;
 pub enum TranscriptionProvider {
     #[default]
     FluidAudio,
+    Qwen3,
     OpenAI,
     Google,
     Anthropic,
@@ -142,6 +143,29 @@ pub struct TranscriptionConfig {
     pub realtime_enabled: bool,
     #[serde(default, skip_serializing)]
     pub realtime_provider: RealtimeTranscriptionProvider,
+    /// Speaker labels (diarization) for recordings — tags who said what.
+    /// On-device FluidAudio only; Quick Dictate always runs without it.
+    #[serde(default = "default_true")]
+    pub diarize: bool,
+    /// Code-switch correction language: which language's Cyrillic mangling to
+    /// recover (phonetic-key matching against the user's word list, Parakeet
+    /// only). "off" disables; "ru" = Russian (the only map today).
+    #[serde(default = "default_translit_lang")]
+    pub translit_lang: String,
+    /// Phonetic match sensitivity for translit (~0.5–0.9). Higher = stricter.
+    #[serde(default = "default_translit_threshold")]
+    pub translit_threshold: f32,
+    /// Minimum word length for translit matching. Below this, words are skipped
+    /// (guards against false matches on short tokens). Lower = catches short
+    /// terms like "MVP"/"code" at the cost of more false positives.
+    #[serde(default = "default_translit_min_len")]
+    pub translit_min_len: u32,
+    /// Qwen3 model variant: "f32" (quality) or "int8" (lighter/faster).
+    #[serde(default = "default_qwen3_variant")]
+    pub qwen3_variant: String,
+    /// Apple SpeechTranscriber locale (BCP-47). Locale-locked; default en-US.
+    #[serde(default = "default_apple_locale")]
+    pub apple_locale: String,
 }
 
 impl TranscriptionConfig {
@@ -165,6 +189,12 @@ impl Default for TranscriptionConfig {
             api_key: None,
             realtime_enabled: false,
             realtime_provider: RealtimeTranscriptionProvider::default(),
+            diarize: true,
+            translit_lang: "ru".to_string(),
+            translit_threshold: 0.72,
+            translit_min_len: 4,
+            qwen3_variant: "f32".to_string(),
+            apple_locale: "en-US".to_string(),
         }
     }
 }
@@ -284,6 +314,26 @@ fn default_dictation_engine() -> TranscriptionProvider {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_translit_threshold() -> f32 {
+    0.72
+}
+
+fn default_translit_lang() -> String {
+    "ru".to_string()
+}
+
+fn default_translit_min_len() -> u32 {
+    4
+}
+
+fn default_qwen3_variant() -> String {
+    "f32".to_string()
+}
+
+fn default_apple_locale() -> String {
+    "en-US".to_string()
 }
 
 fn default_providers() -> HashMap<String, ProviderConfig> {

@@ -6,6 +6,7 @@
 // Events from Rust (`call-popup`):
 //   • kind: "recording", app: <name>  — recording started, Ignore button live
 //   • kind: "error",     message      — start_recording failed
+//   • kind: "hide"                     — recording stopped, dismiss popup now
 //
 // Click Ignore → invoke ignore_call_recording → backend stops + deletes.
 
@@ -140,6 +141,8 @@ listen('call-popup', (event) => {
   const message = payload.message || null;
   if (kind === 'recording' || kind === 'error') {
     show(kind, appName, message);
+  } else if (kind === 'hide') {
+    hide();
   } else {
     console.warn('call-popup: unknown kind', kind);
   }

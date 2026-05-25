@@ -15,7 +15,31 @@ lazy_static::lazy_static! {
     static ref PIPELINE_EXEC_LOCKS: std::sync::Mutex<HashMap<String, Arc<TokioMutex<()>>>> =
         std::sync::Mutex::new(HashMap::new());
 }
+struct TempFileGuard {
+    path: PathBuf,
+}
 
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+struct LockMapGuard {
+    key: String,
+}
+
+impl Drop for LockMapGuard {
+    fn drop(&mut self) {
+        if let Ok(mut locks) = PIPELINE_EXEC_LOCKS.lock() {
+            if let Some(entry) = locks.get(&self.key) {
+                if Arc::strong_count(entry) <= 2 {
+                    locks.remove(&self.key);
+                }
+            }
+        }
+    }
+}
 /// Known topic heading labels (case-insensitive match for Latin)
 const TOPIC_LABELS: &[&str] = &["topic", "тема", "tema"];
 
@@ -553,13 +577,19 @@ pub async fn execute_pipeline_internal(
     pipeline_name: &str,
     app_handle: Option<&tauri::AppHandle>,
 ) -> Result<PipelineStatus, String> {
+    let key = format!("{}:{}", recording_id, pipeline_name);
+
     // Serialize execution: if the same pipeline is already running on this recording, wait.
     let lock = {
-        let key = format!("{}:{}", recording_id, pipeline_name);
         let mut locks = PIPELINE_EXEC_LOCKS.lock().unwrap();
-        locks.entry(key).or_insert_with(|| Arc::new(TokioMutex::new(()))).clone()
+        locks.entry(key.clone()).or_insert_with(|| Arc::new(TokioMutex::new(()))).clone()
     };
+    let _map_guard = LockMapGuard { key };
     let _exec_guard = lock.lock().await;
+
+    // Temporary rendered transcript file guard to ensure cleanup on early exit/panic
+    let rendered_path = get_data_dir().join(recording_id).join("transcript_rendered.txt");
+    let _temp_guard = TempFileGuard { path: rendered_path };
 
     // Load pipeline definition — if deleted since assignment, mark as Partial and bail
     let pipelines = load_pipelines()?;
@@ -1215,10 +1245,6 @@ pub async fn execute_pipeline_internal(
         }
     }
 
-    // Clean up temporary rendered transcript file
-    let rendered_path = get_data_dir().join(recording_id).join("transcript_rendered.txt");
-    let _ = fs::remove_file(&rendered_path);
-
     Ok(final_status)
 }
 
@@ -1226,7 +1252,6 @@ pub async fn execute_pipeline_internal(
 /// On macOS/Unix, uses flock(2). Returns a guard that releases the lock on drop.
 struct FileLockGuard {
     _lock_file: fs::File,
-    lock_path: PathBuf,
 }
 
 impl FileLockGuard {
@@ -1249,7 +1274,6 @@ impl FileLockGuard {
 
         Ok(FileLockGuard {
             _lock_file: lock_file,
-            lock_path: lock_path.clone(),
         })
     }
 }
@@ -1257,8 +1281,6 @@ impl FileLockGuard {
 impl Drop for FileLockGuard {
     fn drop(&mut self) {
         // Lock is released when _lock_file is dropped (fd closed).
-        // Clean up lock file (best effort).
-        let _ = fs::remove_file(&self.lock_path);
     }
 }
 

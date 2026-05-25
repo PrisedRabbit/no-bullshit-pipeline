@@ -110,6 +110,19 @@ const DAEMON_BUNDLE_IDS: &[(&str, &str)] = &[
     ("callservicesd", "com.apple.FaceTime"),
 ];
 
+// System / UI processes that legitimately open the audio input but are NOT
+// calls — e.g. System Settings → Sound opens the mic to drive its input-level
+// meter. Counting them as calls causes false auto-record (seen on a dev rebuild
+// while the Sound pane was open) and a stream of `app_icons … UNRESOLVED` noise.
+// A blanket `com.apple.*` skip is wrong: FaceTime/Phone route through daemons
+// (avconferenced/callservicesd) that get mapped to com.apple.FaceTime, so we
+// match exact bundle ids of known non-call system UI instead.
+const IGNORED_INPUT_BUNDLE_IDS: &[&str] = &[
+    "com.apple.Sound-Settings.extension", // Settings → Sound input-level meter
+    "com.apple.controlcenter",            // Control Center menu-bar UI
+    "com.apple.systempreferences",        // System Settings host process
+];
+
 // --- State -------------------------------------------------------------------
 
 pub struct AudioProcessDetectorState {
@@ -179,6 +192,12 @@ const END_CONFIRMATION: Duration = Duration::from_secs(5);
 
 fn run_detector(app_handle: AppHandle, should_stop: Arc<AtomicBool>) {
     let self_pid = std::process::id() as i32;
+    // Our own bundle id — used to skip a stale PREVIOUS NBP instance (same
+    // bundle, different PID) that hasn't released the mic yet after a restart
+    // (e.g. `cargo tauri dev` rebuild). PID-only self-filter misses it, so the
+    // new instance would see the old one as a "call" and auto-record.
+    let self_bundle = own_bundle_id();
+    log::info!("audio_process_detector: self_bundle={:?}", self_bundle);
 
     // Currently-considered-active PIDs and their last-known labels. A PID
     // here means we have emitted `started` and not yet emitted `ended`.
@@ -213,7 +232,7 @@ fn run_detector(app_handle: AppHandle, should_stop: Arc<AtomicBool>) {
             continue;
         }
 
-        let current = snapshot_input_users(self_pid);
+        let current = snapshot_input_users(self_pid, self_bundle.as_deref());
 
         // (a) Started transitions — PIDs in `current` not yet `tracked`.
         //     Also catch PID reuse: same PID in both maps but different
@@ -341,7 +360,7 @@ struct AppInfo {
 /// (Granola-style Electron module) project found that querying `piri` BEFORE
 /// `pbid` on a process object crashed CoreAudio on some macOS versions —
 /// keep that lesson in our order too.
-fn snapshot_input_users(self_pid: i32) -> HashMap<i32, AppInfo> {
+fn snapshot_input_users(self_pid: i32, self_bundle: Option<&str>) -> HashMap<i32, AppInfo> {
     let mut out = HashMap::new();
     for obj_id in enumerate_processes() {
         let pid = read_process_pid(obj_id);
@@ -349,6 +368,20 @@ fn snapshot_input_users(self_pid: i32) -> HashMap<i32, AppInfo> {
             continue;
         }
         let bundle_id = read_process_bundle_id(obj_id);
+        // Skip any other NBP instance (same bundle id, different PID) — a stale
+        // dev/restart copy must never be mistaken for a third-party call.
+        if let (Some(sb), Some(bid)) = (self_bundle, bundle_id.as_deref()) {
+            if sb == bid {
+                continue;
+            }
+        }
+        // Skip system UI that opens the input but isn't a call (Sound settings
+        // meter, Control Center, …) — otherwise it triggers false auto-record.
+        if let Some(bid) = bundle_id.as_deref() {
+            if IGNORED_INPUT_BUNDLE_IDS.contains(&bid) {
+                continue;
+            }
+        }
         if !read_process_is_running_input(obj_id) {
             continue;
         }
@@ -546,6 +579,34 @@ fn resolve_label(pid: i32, bundle_id: Option<&str>) -> String {
     }
     // Priority 5: last resort.
     format!("pid {}", pid)
+}
+
+/// This process's own bundle id via `NSBundle.mainBundle`. Stable across NBP
+/// instances (same app = same bundle), so it identifies a stale prior copy that
+/// PID comparison can't.
+fn own_bundle_id() -> Option<String> {
+    use objc2::rc::autoreleasepool;
+    use objc2::runtime::AnyClass;
+    autoreleasepool(|_| unsafe {
+        let cls = AnyClass::get(c"NSBundle")?;
+        let main: *mut objc2::runtime::AnyObject = objc2::msg_send![cls, mainBundle];
+        if main.is_null() {
+            return None;
+        }
+        let bid: *mut objc2::runtime::AnyObject = objc2::msg_send![main, bundleIdentifier];
+        if bid.is_null() {
+            return None;
+        }
+        let utf8: *const i8 = objc2::msg_send![bid, UTF8String];
+        if utf8.is_null() {
+            return None;
+        }
+        std::ffi::CStr::from_ptr(utf8)
+            .to_str()
+            .ok()
+            .map(String::from)
+            .filter(|s| !s.is_empty())
+    })
 }
 
 fn nsrunning_application_localized_name(pid: i32) -> Option<String> {

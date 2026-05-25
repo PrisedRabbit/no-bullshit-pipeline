@@ -60,6 +60,8 @@ pub mod app_icons;
 mod dictation;
 mod dictation_streaming;
 mod updater;
+mod vocab;
+mod asr_models;
 use audio::AudioState;
 use transcription::TranscriptionState;
 use tauri::menu::{AboutMetadataBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
@@ -366,6 +368,12 @@ pub fn run() {
             permissions::open_privacy_settings,
             config::load_settings,
             config::save_settings,
+            vocab::get_vocab,
+            vocab::save_vocab,
+            asr_models::get_asr_model_state,
+            asr_models::list_asr_models,
+            asr_models::download_asr_model,
+            asr_models::dismiss_asr_update,
             transcription::transcribe_recording,
             transcription::is_transcribing,
             transcription::get_transcript,
@@ -441,6 +449,7 @@ pub fn run() {
             local_llm::download_llm_model,
             local_llm::cancel_llm_download,
             local_llm::delete_llm_model,
+            local_llm::unload_llm_model,
             local_llm::check_model_freshness,
             local_llm::check_all_llm_freshness,
             local_llm::cancel_llm_freshness,
@@ -482,8 +491,56 @@ pub fn run() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            match event {
+                // Cmd+Q / menu Quit route through ExitRequested — tear down audio
+                // the same as the tray Quit so no capture is left holding the mic.
+                tauri::RunEvent::ExitRequested { .. } => {
+                    graceful_audio_shutdown(app_handle);
+                }
+                // Dock-icon click → macOS sends Reopen. Unhandled, it did nothing
+                // when the window was hidden/minimized (only the tray Show path
+                // worked, because it called show explicitly). Restore + focus.
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::Reopen { .. } => {
+                    show_main_window(app_handle);
+                }
+                _ => {}
+            }
+        });
+}
+
+/// Stop all live audio capture (mic, system tap, realtime, mixer) and wait for
+/// finalization. Shared by every graceful quit path (tray Quit + the
+/// RunEvent::ExitRequested handler), so audio is released cleanly instead of
+/// relying on Drop, which may not run at process exit.
+fn graceful_audio_shutdown(app: &tauri::AppHandle) {
+    let state = app.state::<AudioState>();
+    {
+        let is_recording = state.is_recording.lock().unwrap_or_else(|e| e.into_inner());
+        if *is_recording {
+            drop(is_recording);
+            let mut mic = state.mic_recorder.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(mut r) = mic.take() {
+                r.stop();
+            }
+            let mut sys = state.system_recorder.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(mut r) = sys.take() {
+                r.stop();
+            }
+            let mut rt = state.realtime_transcriber.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(mut h) = rt.take() {
+                h.stop();
+            }
+            let mut mix = state.realtime_mixer.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(mut m) = mix.take() {
+                m.stop();
+            }
+        }
+    }
+    state.wait_for_finalization();
 }
 
 /// Per-shortcut registration result returned to the frontend so it can show
@@ -1154,25 +1211,7 @@ fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                         show_main_window(app);
                     }
                     "quit" => {
-                        // Graceful shutdown
-                        if let Some(window) = app.get_webview_window("main") {
-                            let state: tauri::State<AudioState> = window.state();
-                            {
-                                let is_recording = state.is_recording.lock().unwrap_or_else(|e| e.into_inner());
-                                if *is_recording {
-                                    drop(is_recording);
-                                    let mut mic = state.mic_recorder.lock().unwrap_or_else(|e| e.into_inner());
-                                    if let Some(mut r) = mic.take() { r.stop(); }
-                                    let mut sys = state.system_recorder.lock().unwrap_or_else(|e| e.into_inner());
-                                    if let Some(mut r) = sys.take() { r.stop(); }
-                                    let mut rt = state.realtime_transcriber.lock().unwrap_or_else(|e| e.into_inner());
-                                    if let Some(mut h) = rt.take() { h.stop(); }
-                                    let mut mix = state.realtime_mixer.lock().unwrap_or_else(|e| e.into_inner());
-                                    if let Some(mut m) = mix.take() { m.stop(); }
-                                }
-                            }
-                            state.wait_for_finalization();
-                        }
+                        graceful_audio_shutdown(app);
                         app.exit(0);
                     }
                     _ => {}

@@ -8,7 +8,7 @@ use rubato::{SincFixedIn, SincInterpolationParameters, SincInterpolationType, Wi
 use std::fs::File;
 use std::num::{NonZeroU32, NonZeroU8};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
 };
 use std::thread;
@@ -22,6 +22,18 @@ const MIXER_SAMPLE_RATE: u32 = 48000;
 // Shared audio level for real-time visualization (0.0 - 1.0)
 lazy_static::lazy_static! {
     static ref CURRENT_AUDIO_LEVEL: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+}
+
+// --- Mic capture lifecycle debug counters ---
+// Diagnose leaked capture sessions (e.g. a zombie cpal stream surviving across a
+// dev rebuild that keeps recording). ACTIVE should be 0 when idle and never > 1;
+// STARTS minus the number of STOP logs reveals an imbalance.
+static ACTIVE_MIC_STREAMS: AtomicUsize = AtomicUsize::new(0);
+static MIC_START_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// Number of live mic capture streams right now (should be 0 idle, 1 recording).
+pub fn active_mic_streams() -> usize {
+    ACTIVE_MIC_STREAMS.load(Ordering::Relaxed)
 }
 
 /// Set the current audio level (0.0 - 1.0). Used by both the main mic-capture
@@ -85,9 +97,11 @@ impl MicAudioRecorder {
         let config = device.default_input_config()?;
         let sample_rate = config.sample_rate().0;
         let channels = config.channels();
-        
-        #[cfg(debug_assertions)]
-        eprintln!("Mic Config: Rate={}, Channels={}", sample_rate, channels);
+        // Snapshot config facts for the debug log before `config` is consumed by
+        // `config.into()` in the stream-build match below.
+        let device_id = device.name().unwrap_or_else(|_| "<unknown>".into());
+        let sample_format = config.sample_format();
+        let buffer_size = format!("{:?}", config.buffer_size());
 
         // Ring Buffer (1 second capacity is usually enough for processing thread to catch up)
         // 48k * 2ch * 4bytes = ~384KB.
@@ -137,6 +151,23 @@ impl MicAudioRecorder {
 
         stream.play()?;
 
+        // Stream is live — record it in the lifecycle counters and dump every
+        // parameter so a leaked/duplicate capture session is obvious in logs.
+        let start_n = MIC_START_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+        let active = ACTIVE_MIC_STREAMS.fetch_add(1, Ordering::Relaxed) + 1;
+        log::info!(
+            "[mic-debug] START #{start_n} | active_streams={active} (expect 1) | \
+             device='{device_id}' requested={device_name:?} | sample_rate={sample_rate} \
+             channels={channels} sample_format={sample_format:?} buffer_size={buffer_size} \
+             ring_buffer_samples={ring_buffer_size} skip_file={skip_file} out={}",
+            output_path.display()
+        );
+        if active > 1 {
+            log::warn!(
+                "[mic-debug] active_streams={active} > 1 — multiple mic capture sessions alive at once (leak)"
+            );
+        }
+
         // Processing Thread
         let should_stop = Arc::new(AtomicBool::new(false));
          let should_stop_clone = should_stop.clone();
@@ -164,16 +195,32 @@ impl MicAudioRecorder {
     }
 
     pub fn stop(&mut self) {
-        // Stop the stream FIRST to prevent more audio from being captured
-        drop(self.stream.take());
-        
+        // Stop the stream FIRST to prevent more audio from being captured.
+        // `take()` makes stop idempotent: only the first call held a live stream,
+        // so the counter decrements exactly once even though Drop also calls us.
+        let had_stream = self.stream.take().is_some();
+
         // Then signal encoder to stop and wait for it to finish
         self.should_stop.store(true, Ordering::Relaxed);
         if let Some(handle) = self.processing_thread.take() {
             let _ = handle.join();
         }
+
+        if had_stream {
+            let remaining = ACTIVE_MIC_STREAMS
+                .fetch_sub(1, Ordering::Relaxed)
+                .saturating_sub(1);
+            log::info!("[mic-debug] STOP + dispose | remaining active_streams={remaining} (expect 0)");
+        }
     }
 }
+
+impl Drop for MicAudioRecorder {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 
 pub fn start_mic_capture(output_path: std::path::PathBuf, device_name: Option<String>, skip_file: bool) -> Result<MicAudioRecorder> {
     MicAudioRecorder::new(output_path, device_name, skip_file)

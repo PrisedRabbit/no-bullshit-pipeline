@@ -15,6 +15,7 @@ import { ViewManager } from './ui/view-manager.js';
 import { loadSettings, switchSettingsTab, initSettingsListeners } from './settings/settings.js';
 import { initTranscriptionSettings } from './settings/transcription.js';
 import { updatePermissionStatus, initPermissions } from './settings/permissions.js';
+import { initModelVersion, refreshModelVersion } from './settings/model-version.js';
 
 // Recording
 import './recording/timer.js';
@@ -97,6 +98,10 @@ async function init() {
 
   // Background update check — silent on failure / no-newer-version.
   checkForUpdates();
+
+  // ASR model version check for the active engine (server-side throttled to
+  // daily; the banner only appears on a real, non-dismissed signal).
+  refreshModelVersion(false);
 
   await updatePermissionStatus();
 
@@ -220,6 +225,7 @@ async function bootstrapApp() {
   initPromptTemplates();
   initSlack();
   initIntegrationsSettings();
+  initModelVersion();
 
   await init().catch(e => console.error('Init failed:', e));
   initHealthCheck();

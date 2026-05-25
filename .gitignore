@@ -29,6 +29,13 @@ recordings/
 *.ogg
 *.wav
 
+# Local scratch / experiments (ASR bake-off samples, results, etc.)
+temp/
+
+# Local tool state / tickets (not part of the repo)
+.antigravitycli/
+.tickets/
+
 # Dev credentials (dev-mode Keychain bypass)
 .dev-credentials.json
 

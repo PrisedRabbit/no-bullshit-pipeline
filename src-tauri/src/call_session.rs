@@ -169,10 +169,24 @@ fn handle_started(app: &tauri::AppHandle, call_app: Option<String>, bundle_id: O
     // block the call-event listener. Result is committed back into
     // CallSessionState via the same session_id.
     let app_for_start = app.clone();
+    let app_for_recovery = app.clone();
     let session_id_for_start = session_id.clone();
     let call_app_for_start = call_app.clone();
     thread::spawn(move || {
-        run_start(app_for_start, session_id_for_start, call_app_for_start, bundle_id);
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            run_start(app_for_start, session_id_for_start.clone(), call_app_for_start, bundle_id);
+        }));
+        if res.is_err() {
+            log::error!("call_session: run_start thread panicked, resetting active session");
+            let state = app_for_recovery.state::<CallSessionState>();
+            if let Ok(mut active) = state.active.lock() {
+                if let Some(ref existing) = *active {
+                    if existing.session_id == session_id {
+                        *active = None;
+                    }
+                }
+            }
+        }
     });
 }
 

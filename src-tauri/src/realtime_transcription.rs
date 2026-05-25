@@ -227,10 +227,10 @@ impl AppleSpeechRealtimeTranscriber {
     fn stop_inner(&mut self) {
         self.stop_flag.store(true, Ordering::Relaxed);
         if let Some(h) = self.writer_task.take() {
-            let _ = tauri::async_runtime::block_on(h);
+            let _ = tokio::task::block_in_place(|| tauri::async_runtime::block_on(h));
         }
         if let Some(h) = self.reader_task.take() {
-            let _ = tauri::async_runtime::block_on(h);
+            let _ = tokio::task::block_in_place(|| tauri::async_runtime::block_on(h));
         }
     }
 }

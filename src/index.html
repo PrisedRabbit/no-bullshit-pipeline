@@ -59,6 +59,16 @@
       </div>
     </header>
 
+    <!-- Full-width system-style strip below the top bar (model updates). -->
+    <div id="model-update-banner" class="model-banner" style="display: none">
+      <span class="app-banner__icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg></span>
+      <span id="model-update-text">Model update available</span>
+      <span id="model-update-progress" style="display: none; opacity: 0.85"></span>
+      <span class="model-banner__spacer"></span>
+      <button id="model-update-action" class="app-banner__action">Update</button>
+      <button id="model-update-dismiss" class="app-banner__dismiss" title="Dismiss">×</button>
+    </div>
+
     <main class="app-layout">
       <!-- Recordings list -->
       <section class="recordings-view">
@@ -207,7 +217,8 @@
             <h1 class="settings-header-title">Settings</h1>
           </div>
           <div class="settings-tabs" id="settings-tabs">
-            <button class="settings-tab active" data-tab="audio">Audio</button>
+            <button class="settings-tab active" data-tab="asr">ASR</button>
+            <button class="settings-tab" data-tab="recording">Recording</button>
             <button class="settings-tab" data-tab="models">Models</button>
             <button class="settings-tab" data-tab="integrations">Integrations</button>
             <button class="settings-tab" data-tab="prompts">Prompts</button>
@@ -220,7 +231,7 @@
         <div class="detail-scroller">
           <div class="detail-container">
 
-            <div class="settings-grid settings-tab-content active" data-tab="audio">
+            <div class="settings-grid settings-tab-content" data-tab="recording">
               <!-- Storage Configuration -->
               <div class="settings-section">
                 <h3>Storage</h3>
@@ -285,37 +296,190 @@
                 </div>
               </div>
 
-              <!-- Transcription -->
+            </div><!-- end recording tab -->
+
+            <div class="settings-grid settings-tab-content active" data-tab="asr">
+
+              <!-- Engine: which on-device model transcribes -->
               <div class="settings-section">
-                <h3>Transcription</h3>
-                <div
-                  id="transcription-details"
-                  style="display: flex; flex-direction: column; gap: 12px;"
-                >
-                  <div class="settings-item">
-                    <div class="settings-info">
-                      <label>Provider</label>
-                    </div>
-                    <div class="settings-input-group" style="gap: 8px">
-                      <button id="set-api-key-btn" class="mini-action-btn" style="display: none; white-space: nowrap; font-size: 0.75rem; padding: 4px 10px;">Set API Key</button>
-                      <span class="provider-key-status key-missing" id="cloud-provider-status" role="status" aria-label="API key not configured" style="display: none; flex-shrink: 0"></span>
-                      <select id="settings-transcription-provider" class="settings-select">
-                        <option value="FluidAudio">FluidAudio (on-device, recommended)</option>
-                        <option value="AppleSpeech" data-needs-apple-speech="1">Apple Speech (on-device, macOS 26+)</option>
-                        <option value="OpenAI">OpenAI Whisper API (needs API key)</option>
-                        <option value="Google">Google Gemini (needs API key)</option>
-                      </select>
-                    </div>
+                <h3>Engine</h3>
+                <div class="settings-item">
+                  <div class="settings-info">
+                    <label>Provider</label>
                   </div>
-
-                  <!-- Cloud Provider Key Status (hidden, shown inline) -->
-                  <div id="provider-api-section" style="display: none"></div>
-
+                  <div class="settings-input-group" style="gap: 8px">
+                    <button id="set-api-key-btn" class="mini-action-btn" style="display: none; white-space: nowrap; font-size: 0.75rem; padding: 4px 10px;">Set API Key</button>
+                    <span class="provider-key-status key-missing" id="cloud-provider-status" role="status" aria-label="API key not configured" style="display: none; flex-shrink: 0"></span>
+                    <select id="settings-transcription-provider" class="settings-select">
+                      <option value="FluidAudio">Parakeet</option>
+                      <option value="Qwen3">Qwen3</option>
+                      <option value="AppleSpeech" data-needs-apple-speech="1">Apple Speech</option>
+                    </select>
+                  </div>
                 </div>
 
+                <div class="settings-item">
+                  <div class="settings-info">
+                    <label>Model version</label>
+                    <p id="model-version-status">—</p>
+                    <p id="model-version-facts" style="opacity: 0.6; margin-top: 2px;"></p>
+                  </div>
+                  <div class="settings-input-group" style="gap: 8px; justify-content: flex-end">
+                    <button id="model-version-link" class="mini-action-btn" style="display: none; white-space: nowrap; font-size: 0.75rem; padding: 4px 10px;">View on HuggingFace ↗</button>
+                    <button id="model-version-action-btn" class="mini-action-btn" style="display: none; white-space: nowrap; font-size: 0.75rem; padding: 4px 10px;"></button>
+                  </div>
+                </div>
               </div>
 
-            </div><!-- end audio tab -->
+              <!-- Custom vocabulary: phonetic Cyrillic→Latin term recovery (Parakeet) -->
+              <div class="settings-section">
+                <h3>Custom vocabulary</h3>
+                <div class="settings-item" data-engines="FluidAudio">
+                  <div class="settings-info">
+                    <label>Mixed-language recovery</label>
+                    <p>Repairs words from your list that the model misheard as another script, matched phonetically.</p>
+                  </div>
+                  <div class="settings-input-group" style="justify-content: flex-end">
+                    <select id="settings-translit-lang" class="settings-select" style="width: auto; min-width: 160px">
+                      <option value="off">Off</option>
+                      <option value="ru">Russian</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="settings-item" data-engines="FluidAudio" data-when-recovery>
+                  <div class="settings-info">
+                    <label>Match sensitivity</label>
+                    <p>Higher = stricter (fewer false replacements). Default 0.72.</p>
+                  </div>
+                  <div class="settings-input-group" style="justify-content: flex-end">
+                    <input
+                      type="number"
+                      id="settings-translit-threshold"
+                      class="settings-select"
+                      min="0.5"
+                      max="0.9"
+                      step="0.01"
+                      style="width: 90px"
+                    />
+                  </div>
+                </div>
+
+                <div class="settings-item" data-engines="FluidAudio" data-when-recovery>
+                  <div class="settings-info">
+                    <label>Minimum word length</label>
+                    <p>Words shorter than this are skipped. Lower it to catch short terms (MVP, code) — at the cost of more false matches. Default 4.</p>
+                  </div>
+                  <div class="settings-input-group" style="justify-content: flex-end">
+                    <input
+                      type="number"
+                      id="settings-translit-min-len"
+                      class="settings-select"
+                      min="2"
+                      max="8"
+                      step="1"
+                      style="width: 90px"
+                    />
+                  </div>
+                </div>
+
+                <div class="settings-item" data-engines="FluidAudio" data-when-recovery style="flex-direction: column; align-items: stretch; gap: 8px">
+                  <div class="settings-info">
+                    <label>My words</label>
+                    <p>Your English terms (one per line) — names, tools, jargon. Any phonetic mangling of these is fixed automatically; no need to list misspellings.</p>
+                  </div>
+                  <textarea
+                    id="settings-vocab"
+                    class="settings-select"
+                    rows="6"
+                    placeholder="pipeline&#10;Claude&#10;Seedance&#10;Kling"
+                    style="width: 100%; font-family: monospace; resize: vertical"
+                  ></textarea>
+                  <div style="display: flex; justify-content: flex-end">
+                    <button id="settings-vocab-save" class="mini-action-btn" style="white-space: nowrap; font-size: 0.75rem; padding: 4px 12px;">Save words</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Engine options: per-engine parameters (always shown) -->
+              <div class="settings-section">
+                <h3>Engine options</h3>
+                <div class="settings-item" data-engines="Qwen3">
+                  <div class="settings-info">
+                    <label>Qwen3 model size</label>
+                    <p>f32 = best quality; int8 = ~half the RAM, a bit faster. Applies when Qwen3 is selected.</p>
+                  </div>
+                  <div class="settings-input-group" style="justify-content: flex-end">
+                    <select id="settings-qwen3-variant" class="settings-select">
+                      <option value="f32">f32 (quality)</option>
+                      <option value="int8">int8 (lighter)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="settings-item" id="apple-locale-row" data-engines="AppleSpeech">
+                  <div class="settings-info">
+                    <label>Apple Speech language</label>
+                    <p>Apple's engine transcribes one language at a time. Applies when Apple Speech is selected.</p>
+                  </div>
+                  <div class="settings-input-group" style="justify-content: flex-end">
+                    <select id="settings-apple-locale" class="settings-select">
+                      <option value="en-US">English (US)</option>
+                      <option value="en-GB">English (UK)</option>
+                      <option value="en-AU">English (Australia)</option>
+                      <option value="en-CA">English (Canada)</option>
+                      <option value="en-IE">English (Ireland)</option>
+                      <option value="en-IN">English (India)</option>
+                      <option value="en-NZ">English (New Zealand)</option>
+                      <option value="en-SG">English (Singapore)</option>
+                      <option value="en-ZA">English (South Africa)</option>
+                      <option value="de-DE">German (Germany)</option>
+                      <option value="de-AT">German (Austria)</option>
+                      <option value="de-CH">German (Switzerland)</option>
+                      <option value="es-ES">Spanish (Spain)</option>
+                      <option value="es-MX">Spanish (Mexico)</option>
+                      <option value="es-CL">Spanish (Chile)</option>
+                      <option value="es-US">Spanish (US)</option>
+                      <option value="fr-FR">French (France)</option>
+                      <option value="fr-CA">French (Canada)</option>
+                      <option value="fr-BE">French (Belgium)</option>
+                      <option value="fr-CH">French (Switzerland)</option>
+                      <option value="it-IT">Italian (Italy)</option>
+                      <option value="it-CH">Italian (Switzerland)</option>
+                      <option value="pt-BR">Portuguese (Brazil)</option>
+                      <option value="pt-PT">Portuguese (Portugal)</option>
+                      <option value="ja-JP">Japanese</option>
+                      <option value="ko-KR">Korean</option>
+                      <option value="zh-CN">Chinese (Mainland)</option>
+                      <option value="zh-HK">Chinese (Hong Kong)</option>
+                      <option value="zh-TW">Chinese (Taiwan)</option>
+                      <option value="yue-CN">Cantonese</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Output -->
+              <div class="settings-section">
+                <h3>Output</h3>
+                <div class="settings-item" data-engines="FluidAudio,Qwen3">
+                  <div class="settings-info">
+                    <label>Speaker labels</label>
+                    <p>Tag who said what in recordings (diarization). On-device FluidAudio only; always off for Quick Dictate.</p>
+                  </div>
+                  <div class="settings-input-group" style="justify-content: flex-end">
+                    <label class="toggle-switch">
+                      <input type="checkbox" id="settings-diarize" checked />
+                      <span class="slider round"></span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Cloud Provider Key Status (hidden, shown inline) -->
+              <div id="provider-api-section" style="display: none"></div>
+
+            </div><!-- end asr tab -->
 
             <div class="settings-grid settings-tab-content" data-tab="prompts">
               <!-- Prompt Templates -->
@@ -472,14 +636,6 @@
                       <option value="">System default</option>
                     </select>
                     <p class="editor-hint">Pin a specific mic — useful when on Bluetooth headphones (picking the built-in mic keeps music in A2DP high-quality). Falls back to System default if the chosen device isn't available.</p>
-                  </div>
-                  <div class="editor-field" id="dict-editor-engine-field">
-                    <label>Transcriber</label>
-                    <select id="dict-editor-engine" class="settings-select">
-                      <option value="FluidAudio">FluidAudio (bundled, on-device)</option>
-                      <option value="AppleSpeech" data-needs-apple-speech="1">Apple Speech (on-device)</option>
-                      <option value="OpenAI">OpenAI Whisper API (needs API key)</option>
-                    </select>
                   </div>
                   <div class="editor-field">
                     <label>Pipeline</label>

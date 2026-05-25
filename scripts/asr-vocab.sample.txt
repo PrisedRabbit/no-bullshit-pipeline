@@ -1,0 +1,35 @@
+# Custom vocabulary for the Parakeet+vocab bake-off run.
+# Format: one term per line. Optional aliases:  term: alias1, alias2
+# Lines starting with '#' and blank lines are ignored.
+#
+# Goal: boost the English tech/business terms you drop into Russian speech so
+# the TDT decoder stops mangling them into Cyrillic. Edit freely — add YOUR
+# recurring terms (product names, tools, jargon). The English-oriented CTC
+# spotter works best on Latin-script terms.
+
+pipeline
+deploy
+commit
+review
+merge
+rollback
+backlog
+standup
+release
+staging
+endpoint
+webhook
+Slack
+Notion
+Linear
+Kubernetes
+Postgres
+Redis
+Tauri
+Rust
+sidecar
+Parakeet
+Whisper
+Fjor
+roadmap
+sprint

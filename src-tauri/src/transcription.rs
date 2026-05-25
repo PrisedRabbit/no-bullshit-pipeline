@@ -8,6 +8,16 @@ use crate::transcript_migration::{TranscriptMetadata, TranscriptSource};
 use tauri::Emitter;
 use tauri_plugin_shell::ShellExt;
 
+struct SidecarGuard(Option<tauri_plugin_shell::process::CommandChild>);
+
+impl Drop for SidecarGuard {
+    fn drop(&mut self) {
+        if let Some(child) = self.0.take() {
+            let _ = child.kill();
+        }
+    }
+}
+
 pub struct TranscriptionState {
     pub active_ids: Mutex<HashSet<String>>,
 }
@@ -52,6 +62,37 @@ struct TranscriptionProgress {
     recording_id: String,
     stage: String,
     percent: u32,
+}
+
+/// FluidAudio sidecar args selecting the active engine + code-switch recovery,
+/// shared by the recording and dictation paths so the two can't drift. Excludes
+/// the wav path and `--no-diarize` (those differ per caller).
+pub fn fluidaudio_engine_args(settings: &crate::config::AppSettings) -> Vec<String> {
+    let t = &settings.transcription;
+    if matches!(t.provider, TranscriptionProvider::Qwen3) {
+        return vec![
+            "--engine".into(),
+            "qwen3".into(),
+            "--variant".into(),
+            t.qwen3_variant.clone(),
+        ];
+    }
+    // Parakeet (FluidAudio): code-switch recovery if enabled + a word list exists.
+    if t.translit_lang != "off" {
+        let vp = crate::vocab::vocab_path();
+        if vp.exists() {
+            return vec![
+                "--translit-all".into(),
+                "--translit-threshold".into(),
+                format!("{}", t.translit_threshold),
+                "--translit-min-len".into(),
+                format!("{}", t.translit_min_len),
+                "--vocab".into(),
+                vp.to_string_lossy().to_string(),
+            ];
+        }
+    }
+    Vec::new()
 }
 
 #[tauri::command]
@@ -107,7 +148,7 @@ async fn transcribe_recording_inner(
     // Shared metadata fields
     let source = match provider {
         TranscriptionProvider::Unknown => TranscriptSource::Local,
-        TranscriptionProvider::FluidAudio => TranscriptSource::Fluidaudio,
+        TranscriptionProvider::FluidAudio | TranscriptionProvider::Qwen3 => TranscriptSource::Fluidaudio,
         TranscriptionProvider::OpenAI => TranscriptSource::Openai,
         TranscriptionProvider::Google => TranscriptSource::Google,
         TranscriptionProvider::Anthropic => TranscriptSource::Anthropic,
@@ -125,11 +166,14 @@ async fn transcribe_recording_inner(
             let wav_path = recording_dir.join("temp_transcription.wav");
             convert_ogg_to_wav(&audio_path, &wav_path)?;
 
-            let (mut rx, _child) = app_handle.shell().sidecar("apple-speech-sidecar")
+            let (mut rx, child) = app_handle.shell().sidecar("apple-speech-sidecar")
                 .map_err(|e| format!("Failed to create sidecar command: {}", e))?
                 .arg(wav_path.to_str().ok_or("Invalid WAV path")?)
+                .arg("--lang")
+                .arg(&settings.transcription.apple_locale)
                 .spawn()
                 .map_err(|e| format!("Failed to spawn Apple Speech sidecar: {}", e))?;
+            let _guard = SidecarGuard(Some(child));
 
             let mut stdout_buf = Vec::new();
             let mut stderr_buf = String::new();
@@ -201,15 +245,28 @@ async fn transcribe_recording_inner(
                 text: Some(out.text),
             }
         },
-        TranscriptionProvider::FluidAudio => {
+        TranscriptionProvider::FluidAudio | TranscriptionProvider::Qwen3 => {
             let wav_path = recording_dir.join("temp_transcription.wav");
             convert_ogg_to_wav(&audio_path, &wav_path)?;
 
-            let (mut rx, _child) = app_handle.shell().sidecar("fluidaudio-sidecar")
+            let mut fa_cmd = app_handle.shell().sidecar("fluidaudio-sidecar")
                 .map_err(|e| format!("Failed to create sidecar command: {}", e))?
-                .arg(wav_path.to_str().ok_or("Invalid WAV path")?)
+                .arg(wav_path.to_str().ok_or("Invalid WAV path")?);
+            // Speaker labels (diarization) are opt-out via settings. Recordings
+            // default to on; disabling skips the diarizer for a faster,
+            // single-speaker transcript. (Quick Dictate always passes --no-diarize.)
+            if !settings.transcription.diarize {
+                fa_cmd = fa_cmd.arg("--no-diarize");
+            }
+            // Engine selection + code-switch recovery — shared with the dictation
+            // path via fluidaudio_engine_args so the two never drift.
+            for a in fluidaudio_engine_args(&settings) {
+                fa_cmd = fa_cmd.arg(a);
+            }
+            let (mut rx, child) = fa_cmd
                 .spawn()
                 .map_err(|e| format!("Failed to spawn FluidAudio sidecar: {}", e))?;
+            let _guard = SidecarGuard(Some(child));
 
             let mut stdout_buf = Vec::new();
             let mut stderr_buf = String::new();
@@ -644,7 +701,7 @@ pub async fn export_transcript_md(
     Ok(())
 }
 
-fn convert_ogg_to_wav(ogg_path: &std::path::Path, wav_path: &std::path::Path) -> Result<(), String> {
+pub fn convert_ogg_to_wav(ogg_path: &std::path::Path, wav_path: &std::path::Path) -> Result<(), String> {
     use lewton::inside_ogg::OggStreamReader;
     use hound::{WavWriter, WavSpec};
     use rubato::{SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction, Resampler};
