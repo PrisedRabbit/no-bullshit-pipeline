@@ -59,6 +59,10 @@
       </div>
     </header>
 
+    <!-- Below the fixed app-bar: the update banner (normal flow) + main. The
+         banner takes space only when shown, so app-layout auto-reflows — no
+         manual margin offset, nothing for JS to desync. -->
+    <div class="app-body">
     <!-- Full-width system-style strip below the top bar (model updates). -->
     <div id="model-update-banner" class="model-banner" style="display: none">
       <span class="app-banner__icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg></span>
@@ -743,6 +747,7 @@
         </div>
       </section>
     </main>
+    </div><!-- end app-body -->
 
     <!-- Universal Confirmation Modal -->
     <div id="confirm-modal" class="modal-overlay" style="display: none">

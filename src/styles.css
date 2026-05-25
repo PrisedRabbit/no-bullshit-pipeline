@@ -580,11 +580,23 @@ body {
 
 
 /* ===== MAIN LAYOUT ===== */
+/* Everything below the fixed app-bar lives in this flex column: the update
+   banner (flow element, takes space only when shown) then the main app-layout
+   which flexes to fill the rest. Banner show/hide reflows content for free —
+   no margin offset, no `has-model-banner` class, nothing to desync. */
+.app-body {
+  margin-top: var(--app-bar-h);
+  height: calc(100vh - var(--app-bar-h));
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .app-layout {
+  flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: 1fr;
-  height: calc(100vh - var(--app-bar-h));
-  margin-top: var(--app-bar-h);
 }
 
 .detail-view {
@@ -2462,15 +2474,13 @@ body.settings-open .detail-view {
 }
 
 /* Full-width system-style strip under the top bar (model update / download).
-   Fixed just below the 52px app-bar; when shown, body.has-model-banner pushes
-   the content down so nothing is covered. Reuses .app-banner__action/__dismiss
+   A normal flow element inside `.app-body` (flex column): when shown it takes
+   `--model-banner-h` and the app-layout below flexes smaller automatically;
+   when `display:none` it takes no space. No fixed positioning, no margin
+   compensation — the layout reflows itself. Reuses .app-banner__action/__dismiss
    via the --banner-btn-* vars set here. */
 .model-banner {
-  position: fixed;
-  top: var(--app-bar-h);
-  left: 0;
-  right: 0;
-  z-index: 99;
+  flex-shrink: 0;
   height: var(--model-banner-h);
   display: flex;
   align-items: center;
@@ -2486,10 +2496,6 @@ body.settings-open .detail-view {
 }
 .model-banner__spacer {
   flex: 1;
-}
-body.has-model-banner .app-layout {
-  margin-top: calc(var(--app-bar-h) + var(--model-banner-h));
-  height: calc(100vh - var(--app-bar-h) - var(--model-banner-h));
 }
 
 body.light .app-banner--info {

@@ -78,10 +78,8 @@ function renderBanner(s) {
     !s.update_dismissed && (s.state === 'update_available' || s.state === 'not_downloaded');
   if (!show) {
     banner.style.display = 'none';
-    document.body.classList.remove('has-model-banner');
     return;
   }
-  document.body.classList.add('has-model-banner');
   el('model-update-text').textContent =
     s.state === 'update_available'
       ? `Update available for ${modelName(s)}`
@@ -143,7 +141,6 @@ async function startDownload() {
   if (banner) {
     banner.style.display = '';
     banner.style.background = 'linear-gradient(to right, #bae6fd 0 0%, #e0f2fe 0% 100%)';
-    document.body.classList.add('has-model-banner');
     el('model-update-text').textContent = modelName(lastState || {});
     el('model-update-action').style.display = 'none';
     el('model-update-dismiss').style.display = 'none';
@@ -188,7 +185,6 @@ export function initModelVersion() {
         await invoke('dismiss_asr_update').catch(() => {});
       }
       el('model-update-banner').style.display = 'none';
-      document.body.classList.remove('has-model-banner');
     };
   }
 
