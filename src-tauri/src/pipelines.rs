@@ -231,9 +231,22 @@ fn validate_step_config(step: &PipelineStep) -> Result<(), String> {
             }
         }
         ConnectorType::Save => {
-            if step.config.get("path").and_then(|v| v.as_str()).is_none() {
+            let has_path = step.config.get("path")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.trim().is_empty())
+                .is_some();
+            let has_folder_path = step.config.get("folder_path")
+                .or_else(|| step.config.get("folder"))
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.trim().is_empty())
+                .is_some();
+            let has_integration_id = step.config.get("integration_id")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.trim().is_empty())
+                .is_some();
+            if !has_path && !has_folder_path && !has_integration_id {
                 return Err(format!(
-                    "Step '{}': Save connector requires 'path' in config",
+                    "Step '{}': Save connector requires 'path', 'folder_path', or 'integration_id' in config",
                     step.name
                 ));
             }
