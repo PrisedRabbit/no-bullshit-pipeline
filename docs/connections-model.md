@@ -247,6 +247,135 @@ Each is locked here so we do not re-litigate during implementation.
 
 ---
 
+## Implementation plan — phased execution
+
+Two phases, ordered. Each substep has the file(s) touched + the reason it
+lands at that point + the cargo/eyes verification that proves it works.
+
+### Phase 1 — Rust core (no UI)
+
+End state: settings.json carries `connections: Vec<Connection>`, pipelines
+have the new step shape, the runner executes new-shape steps end-to-end with
+in-memory transport + template substitution. Cargo green, all existing
+working features still working.
+
+- **1A. `src-tauri/src/pipelines.rs` — schema change.** Done first so the
+  compiler then surfaces every call site that needs updating across the
+  codebase. Changes:
+  - Drop the old `ConnectorType` enum (the new `ConnectionType` from
+    `config.rs` replaces it).
+  - `PipelineStep` becomes `{ name, connection_type, connection_id,
+    template, description: Option<String> }`. Drop `connector`, `input`,
+    `config`.
+  - `validate_pipeline` / `validate_step_config` updated for the new shape.
+  - `load_pipelines` wraps the parse: on serde error → log + return empty
+    map. No migration of old shape (decision #7).
+  - **Verify:** `cargo check` — expect a flurry of errors in
+    `pipeline_engine.rs` + connectors, exactly the punch-list for 1B/1C.
+- **1B. `src-tauri/src/pipeline_engine.rs` — runner rewrite.** The biggest
+  change. Build the new runner alongside (or in place of) the old one:
+  - Hold `transcript: String`, `app: String`, `prev_processing_output:
+    String` across the step loop.
+  - For each step: load the referenced `Connection` from settings; substitute
+    `{transcript}` / `{app}` / `{processing_result}` in `step.template`;
+    construct legacy-shaped config for the existing connector
+    (merge `connection.config` + the rendered template into the JSON shape
+    the connector currently expects); call the connector.
+  - Per-step output file STILL gets written (UI status panel reads it) —
+    but it is a side-effect, not the transport between steps.
+  - Failure semantics: Processing fail → halt; Delivery fail → log +
+    continue with the same `prev_processing_output`.
+  - **Verify:** existing pipelines tests + manual run of a 2-step CLI-agent
+    + Save Local pipeline against a recording.
+- **1C. Connector adapters — minimal bridges in each connector file.**
+  Existing `execute(...)` signatures stay; only the way the engine
+  constructs the config JSON for them changes (done in 1B). Each connector
+  reviewed for any field that today comes from `step.config` but should
+  come from `connection.config` — drop the old expectation. Specifically:
+  - `connectors/cli_agent.rs` — refactor so the prompt is passed in
+    pre-rendered (no more in-connector substitution). Today
+    `prompt_templates::resolve` handles `{transcript}` inline; that moves
+    to the engine.
+  - `connectors/slack.rs`, `connectors/notion.rs`, `connectors/webhook.rs`,
+    `connectors/save.rs` — adapt input handling to accept the rendered
+    string instead of reading the previous step's output file.
+  - **Verify:** cargo green; live test still passes the 2-step pipeline.
+- **1D. New connectors — `connectors/telegram.rs` + `connectors/shell.rs`.**
+  - Telegram: `~/connectors/telegram.rs`. Config: `{ bot_token (via
+    Keychain), chat_id }`. POST to `https://api.telegram.org/bot{token}/
+    sendMessage`. Mirror `slack.rs` shape.
+  - Shell: `~/connectors/shell.rs`. Config: `{ command, cwd, args[],
+    timeout_secs }`. Use `tokio::process::Command`; pass rendered template
+    as stdin (per spec); capture stdout = output; stderr → log.
+  - Register both in `connectors/mod.rs`.
+  - **Verify:** unit smoke (stub Connections, run pipeline that calls each).
+- **1E. App resolver — `bundle_id → friendly name` in Rust.** Today the
+  friendly name (`Zoom`, `FaceTime`, `NBP`) is computed only in JS for the
+  recording row icon. Mirror that logic in Rust so the engine can substitute
+  `{app}` without round-tripping to the frontend. Likely new helper in
+  `src-tauri/src/app_icons.rs` (alongside the icon resolver) or a small
+  standalone module. Source-of-truth for the mapping lives in one place;
+  the JS resolver can later be replaced by a Tauri command calling this.
+- **1F. Tauri commands — Connections CRUD.** New file
+  `src-tauri/src/connections.rs` (or extend `integrations/mod.rs`):
+  - `list_connections() -> Vec<Connection>`
+  - `save_connection(c: Connection) -> Result<(), String>` (assign id if
+    empty; assert valid type; store secrets via Keychain helper keyed by
+    `{type}:{id}` if the type wants auth; persist non-secret fields in
+    `settings.json`).
+  - `delete_connection(id: String) -> Result<DeleteReport, String>` where
+    `DeleteReport` lists pipelines referencing this connection so the UI
+    can warn before force-delete.
+  - `test_connection(id: String)` — optional ping for delivery types
+    (Slack: `auth.test`; Telegram: `getMe`; Notion: `users.me`). Defer if
+    pressed for time.
+  - Register in `lib.rs` invoke handler.
+
+**Single commit boundary for Phase 1:** ship 1A–1F as ONE commit on the
+branch when all green. Reason: every piece depends on the others; partial
+commits leave the codebase non-functional.
+
+### Phase 2 — UI (own pass, with design-feedback breakpoints)
+
+Genuinely big. Per-type Connection forms each need micro design decisions
+(field labels, hints, validation copy). Expect to break for ~5-minute
+checkpoints with the user on each new type's form.
+
+- **2A. Connections tab.** New `src/js/connections/` module + new section in
+  `src/index.html` (replacing the `Models` and `Integrations` tabs). Two
+  visual subsections (Processing / Delivery) keyed off
+  `ConnectionType::role()`. Add/edit/delete UI + per-type form (CLI agent,
+  Shell, Slack, Notion, Telegram, Web URL, Save Local). Test connection
+  button per type (calls the Rust `test_connection` from 1F).
+- **2B. Step editor rewrite.** `src/js/pipeline/step-editor.js`. Replace
+  current inline connector config UI with:
+  - Type dropdown (filtered to Processing OR Delivery based on step
+    position).
+  - Connection dropdown (filtered by type; pre-select when only one exists;
+    show "Create a {type} Connection first" placeholder + Connections tab
+    link when zero).
+  - Template textarea with an "Available variables" hint (the 3
+    placeholders).
+- **2C. Cleanup.** Remove dead Models / Integrations tab DOM + JS modules
+  no longer referenced. Settings tab order: `ASR | Recording | Dictation |
+  Connections | Prompts | Pipelines | Theme`. Health audit checks updated.
+
+**Commit boundary for Phase 2:** one commit per substep (2A → 2B → 2C) so
+each is independently revertible, since UI changes are visual + easier to
+isolate.
+
+### After Phase 2 ships
+
+- Update `TODO.md`: mark connections / drop-Models / shell-connector /
+  delivery chaining / per-step destinations entries as done (or trim
+  outright).
+- Decide: re-enable any of the hidden enum variants (`Llm`, `Mcp`,
+  `Linear`) if a real workflow needs them — re-surfacing is a small
+  follow-up since the variants are already in the enum and the connector
+  code is intact.
+
+---
+
 ## What this doc deliberately does NOT cover
 
 - Concrete UI mockups (wait for design system pick — see TODO).

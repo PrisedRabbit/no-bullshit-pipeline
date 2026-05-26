@@ -199,6 +199,83 @@ impl Default for TranscriptionConfig {
     }
 }
 
+/// One configured external service or local capability that pipelines compose
+/// from. See `docs/connections-model.md` for the architectural model.
+///
+/// **Flat self-contained entry.** Each Connection holds its OWN type and its
+/// OWN non-secret target config. Two Notion workspaces with different API keys
+/// = two entries. Two Telegram bots = two entries.
+///
+/// Secrets (API tokens, OAuth tokens) are NOT stored here — they live in the
+/// existing Keychain helper (`integrations/mod.rs::save_token`) keyed by
+/// `{type}:{connection_id}`, so the entry references its credential by id
+/// without duplicating the secret in `settings.json`.
+///
+/// `config` is type-specific non-secret JSON; per-type shape is documented at
+/// the connector module level (e.g. `connectors/slack.rs`).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Connection {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub connection_type: ConnectionType,
+    #[serde(default)]
+    pub config: serde_json::Value,
+    pub created_at: String,
+}
+
+/// What a Connection is. Drives pipeline-step eligibility (only Connections
+/// of the step's type are pickable) and runtime dispatch (the runner matches
+/// on this to call the right connector).
+///
+/// Variants whose UI was dropped in v1 (`Llm`, `Mcp`, `Linear`) stay in the
+/// enum so serialization is forward-compatible — re-surfacing them later
+/// won't need a settings migration.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectionType {
+    // Processing — output feeds the next step.
+    CliAgent,
+    Shell,
+    // Delivery — terminal, sends output to an external system.
+    Slack,
+    Notion,
+    Telegram,
+    Webhook,
+    SaveLocal,
+    // Hidden in v1 UI; kept for forward-compatible serialization.
+    Llm,
+    Mcp,
+    Linear,
+}
+
+/// Processing steps feed their output to the next step and halt downstream on
+/// failure. Delivery steps are terminal and a failure does NOT break the
+/// chain (subsequent steps still run with the prior `{processing_result}`).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectionRole {
+    Processing,
+    Delivery,
+}
+
+impl ConnectionType {
+    pub fn role(&self) -> ConnectionRole {
+        match self {
+            ConnectionType::CliAgent
+            | ConnectionType::Shell
+            | ConnectionType::Llm
+            | ConnectionType::Mcp => ConnectionRole::Processing,
+            ConnectionType::Slack
+            | ConnectionType::Notion
+            | ConnectionType::Telegram
+            | ConnectionType::Webhook
+            | ConnectionType::SaveLocal
+            | ConnectionType::Linear => ConnectionRole::Delivery,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AppSettings {
     pub storage_path: String,
@@ -215,6 +292,12 @@ pub struct AppSettings {
     pub save_mix_only: bool,
     #[serde(default)]
     pub integrations: IntegrationsConfig,
+    /// Connections — flat list of self-contained external/local capability
+    /// entries pipelines compose from. See `docs/connections-model.md` and
+    /// the `Connection` struct doc. Insertion-ordered for stable UI; UI
+    /// groups by role/type. Secrets live in Keychain, not here.
+    #[serde(default)]
+    pub connections: Vec<Connection>,
     /// Default pipeline to auto-assign to new recordings (set in Settings > Audio)
     #[serde(default)]
     pub default_pipeline: Option<String>,
@@ -387,6 +470,7 @@ impl Default for AppSettings {
             show_recording_notification: true,
             save_mix_only: true,
             integrations: IntegrationsConfig::default(),
+            connections: Vec::new(),
             default_pipeline: None,
             last_used_pipeline: None,
             auto_record_meetings: true,
