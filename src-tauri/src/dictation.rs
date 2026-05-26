@@ -131,7 +131,7 @@ pub fn prewarm_models(app: &AppHandle) {
         // yields empty) — we only want the cold-start compile paid up front, once.
         let silence = vec![0.0f32; (TARGET_RATE as usize) * 3 / 10];
         let t0 = std::time::Instant::now();
-        match transcribe(&app, silence).await {
+        match transcribe(&app, &silence).await {
             Ok(_) => log::info!("dictation: prewarmed {:?} in {:?}", provider, t0.elapsed()),
             Err(e) => log::warn!("dictation: prewarm failed (non-fatal): {}", e),
         }
@@ -536,7 +536,8 @@ pub async fn stop_inner(app: &AppHandle) -> Result<String, String> {
             emit_status(app, "idle", Some(&shortcut_id), Some("No speech detected".into()));
             return Ok(String::new());
         }
-        return process_and_deliver(app, &shortcut, trimmed).await;
+        // Streaming path has no buffered samples to save — pass None.
+        return process_and_deliver(app, &shortcut, trimmed, None).await;
     }
 
     // Batch fallback: legacy path that buffers all PCM in memory, then
@@ -607,7 +608,7 @@ pub async fn stop_inner(app: &AppHandle) -> Result<String, String> {
     };
 
     let t3 = std::time::Instant::now();
-    let transcript = match transcribe(app, mono_16k).await {
+    let transcript = match transcribe(app, &mono_16k).await {
         Ok(t) => t,
         Err(e) => return finish_with_error(app, &shortcut_id, "Transcription failed", e),
     };
@@ -622,7 +623,9 @@ pub async fn stop_inner(app: &AppHandle) -> Result<String, String> {
         return Ok(String::new());
     }
 
-    process_and_deliver(app, &shortcut, trimmed).await
+    // Audio path: hand the (16 kHz mono) samples to process_and_deliver so it
+    // can optionally save them as a full recording (Save dictations setting).
+    process_and_deliver(app, &shortcut, trimmed, Some(mono_16k)).await
 }
 
 /// Surface a fatal error to the HUD and return an Err. The HUD listens for
@@ -663,7 +666,8 @@ pub async fn run_clipboard_inner(app: &AppHandle, shortcut_id: &str) -> Result<S
         return Ok(String::new());
     }
 
-    process_and_deliver(app, &shortcut, trimmed).await
+    // Clipboard input has no audio to save.
+    process_and_deliver(app, &shortcut, trimmed, None).await
 }
 
 /// Shared tail of both Audio and Clipboard flows: run the LLM pipeline (if any)
@@ -673,8 +677,27 @@ async fn process_and_deliver(
     app: &AppHandle,
     shortcut: &DictationShortcut,
     input_text: String,
+    audio_samples_16k: Option<Vec<f32>>,
 ) -> Result<String, String> {
     let shortcut_id = shortcut.id.clone();
+
+    // Best-effort save as a full recording (transcript + audio) when the user
+    // opted in via Settings → Dictation → Storage → Save dictations, and we
+    // actually have audio (Audio-input shortcuts only). Failure here is
+    // logged but does NOT block the pipeline/paste flow — the dictation
+    // itself still works.
+    if let Some(ref samples) = audio_samples_16k {
+        if !samples.is_empty()
+            && matches!(shortcut.input_source, crate::config::DictationInputSource::Audio)
+        {
+            let settings_check = load_settings();
+            if settings_check.dictation.save_dictations {
+                if let Err(e) = save_dictation_as_recording(app, samples, &input_text).await {
+                    log::warn!("dictation: save_dictations failed (non-fatal): {}", e);
+                }
+            }
+        }
+    }
 
     let final_text = if let Some(ref pipeline_name) = shortcut.pipeline {
         emit_status(app, "processing", Some(&shortcut_id), None);
@@ -736,7 +759,108 @@ async fn process_and_deliver(
     Ok(final_trimmed)
 }
 
-async fn transcribe(app: &AppHandle, mono_16k: Vec<f32>) -> Result<String, String> {
+/// Optionally persist a dictation as a full recording (transcript + audio) so
+/// it shows up in the main recordings list. Only invoked when the user opted
+/// in via Settings → Dictation → Save dictations AND we have actual audio
+/// samples (Audio-input shortcuts). Best-effort: any failure is logged and
+/// returned, but the caller treats it as non-fatal (paste still happens).
+async fn save_dictation_as_recording(
+    app: &AppHandle,
+    samples_16k: &[f32],
+    transcript: &str,
+) -> Result<(), String> {
+    // Title mirrors the existing convention ("{App} · HH:MM" for calls,
+    // "NBP · HH:MM" for manual) so the kind is readable at a glance in the
+    // list. The explicit `source` field on the metadata is the canonical
+    // signal for any code-level filtering.
+    let title = format!("Dictation · {}", chrono::Local::now().format("%H:%M"));
+    let metadata = crate::storage::create_recording(title, vec![])?;
+    let recording_dir = crate::storage::get_recording_dir(&metadata.id);
+
+    // Audio: encode the 16 kHz mono buffer as audio_mix.ogg — same filename
+    // convention the player + finalize path use for meeting recordings.
+    let audio_path = recording_dir.join("audio_mix.ogg");
+    encode_mono_16k_to_ogg(&audio_path, samples_16k).map_err(|e| {
+        format!("encode dictation audio: {}", e)
+    })?;
+    let duration_sec = samples_16k.len() as f64 / TARGET_RATE as f64;
+
+    // Transcript: same frontmatter format as meeting recordings, written via
+    // the shared helper so reads (incl. legacy migration) keep working.
+    let settings = load_settings();
+    let tx_source = match settings.transcription.provider {
+        TranscriptionProvider::AppleSpeech => crate::transcript_migration::TranscriptSource::Apple,
+        _ => crate::transcript_migration::TranscriptSource::Fluidaudio,
+    };
+    let tx_meta = crate::transcript_migration::TranscriptMetadata {
+        source: tx_source,
+        model: format!("{:?}", settings.transcription.provider),
+        created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        duration_sec,
+        language: None,
+    };
+    let transcript_path = recording_dir.join("transcript.md");
+    crate::transcript_migration::write_transcript_with_metadata(
+        &transcript_path,
+        transcript,
+        &tx_meta,
+    )?;
+
+    // Patch metadata.json: register the audio file, set status to "ready",
+    // populate the list-preview, and stamp source="dictation" so the recording
+    // list can tell it apart from manual / call recordings without parsing
+    // the title format.
+    let mut latest = crate::storage::read_metadata(&metadata.id)?;
+    latest.audio.mix = Some(crate::storage::AudioInfo {
+        file: "audio_mix.ogg".to_string(),
+        duration_sec,
+        sample_rate: TARGET_RATE,
+        channels: 1,
+    });
+    latest.status = "ready".to_string();
+    latest.source = "dictation".to_string();
+    let preview: String = transcript.chars().take(200).collect();
+    latest.transcript_preview = if preview.is_empty() { None } else { Some(preview) };
+    crate::storage::write_metadata(&latest)?;
+
+    // Nudge the frontend to refresh the recordings list immediately — reuse
+    // the existing event so we don't add a second listener path.
+    let _ = app.emit("recording_complete", &metadata.id);
+    log::info!(
+        "dictation: saved as recording id={} ({:.2}s, {} chars)",
+        metadata.id,
+        duration_sec,
+        transcript.len()
+    );
+    Ok(())
+}
+
+/// Encode a 16 kHz mono f32 buffer as Vorbis OGG at `path`. Matches the
+/// quality/format profile of the meeting-recording encoder (QualityVbr 0.4),
+/// just mono+16k instead of stereo+48k.
+fn encode_mono_16k_to_ogg(path: &std::path::Path, samples: &[f32]) -> Result<(), String> {
+    use std::num::{NonZeroU32, NonZeroU8};
+    use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoderBuilder};
+    let file = std::fs::File::create(path).map_err(|e| format!("create: {}", e))?;
+    let mut enc = VorbisEncoderBuilder::new_with_serial(
+        NonZeroU32::new(TARGET_RATE).ok_or("bad rate")?,
+        NonZeroU8::new(1).ok_or("bad channels")?,
+        file,
+        0,
+    )
+    .bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr {
+        target_quality: 0.4,
+    })
+    .build()
+    .map_err(|e| format!("build: {}", e))?;
+    // vorbis_rs takes planar slices — single channel = one slice.
+    enc.encode_audio_block(&[samples])
+        .map_err(|e| format!("encode: {}", e))?;
+    enc.finish().map_err(|e| format!("finish: {}", e))?;
+    Ok(())
+}
+
+async fn transcribe(app: &AppHandle, mono_16k: &[f32]) -> Result<String, String> {
     // Dictation uses the SAME engine + settings as recordings (the global ASR
     // config from the ASR settings tab), not a per-shortcut engine — one path,
     // so code-switch recovery (translit/vocab/min-len) applies here too. Apple
@@ -744,10 +868,10 @@ async fn transcribe(app: &AppHandle, mono_16k: Vec<f32>) -> Result<String, Strin
     let settings = load_settings();
     match settings.transcription.provider {
         TranscriptionProvider::FluidAudio | TranscriptionProvider::Qwen3 => {
-            run_fluidaudio(app, &mono_16k, &settings).await
+            run_fluidaudio(app, mono_16k, &settings).await
         }
         TranscriptionProvider::AppleSpeech => {
-            run_apple_speech(app, &mono_16k, Some(&settings.transcription.apple_locale)).await
+            run_apple_speech(app, mono_16k, Some(&settings.transcription.apple_locale)).await
         }
         other => Err(format!("Unsupported ASR provider for dictation: {:?}", other)),
     }

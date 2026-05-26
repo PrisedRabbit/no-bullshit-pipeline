@@ -82,7 +82,7 @@ export function switchSettingsTab(tabName) {
 
   if (tabName === 'pipelines') emit('tab:pipelines');
   if (tabName === 'prompts') emit('tab:prompts');
-  if (tabName === 'shortcuts') emit('tab:shortcuts');
+  if (tabName === 'dictation') emit('tab:dictation');
 
   const scroller = document.querySelector('#settings-view .detail-scroller');
   if (scroller) scroller.scrollTop = 0;

@@ -227,6 +227,7 @@ fn run_start(
             if let Ok(mut meta) = crate::storage::read_metadata(&recording_id) {
                 meta.title = title;
                 meta.app_bundle_id = bundle_id.clone();
+                meta.source = "call".to_string();
                 if let Err(e) = crate::storage::write_metadata(&meta) {
                     log::warn!(
                         "call_session: failed to write title for {}: {}",

@@ -259,6 +259,12 @@ pub struct DictationConfig {
     /// User-defined shortcuts; each is an independent hotkey/engine/pipeline triple
     #[serde(default)]
     pub shortcuts: Vec<DictationShortcut>,
+    /// When true, Audio-input dictations are saved as full recordings (audio +
+    /// transcript) into the same folder as meeting recordings and appear in the
+    /// main list with title "Dictation · HH:MM". Off (default) = ephemeral
+    /// paste-and-forget (legacy).
+    #[serde(default)]
+    pub save_dictations: bool,
 }
 
 /// What feeds into the pipeline / paste step:

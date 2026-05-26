@@ -33,10 +33,20 @@ pub struct RecordingMetadata {
     /// to the title. None for manual recordings or unresolved daemons.
     #[serde(default)]
     pub app_bundle_id: Option<String>,
+    /// What produced this recording: "manual" (user clicked record),
+    /// "call" (auto-detected meeting), "dictation" (Quick Dictate save).
+    /// Future-proofs filtering / stats / UI badges without parsing the title
+    /// format. Defaults to "manual" for older metadata files (back-compat).
+    #[serde(default = "default_recording_source")]
+    pub source: String,
 }
 
 fn default_status() -> String {
     "ready".to_string()
+}
+
+fn default_recording_source() -> String {
+    "manual".to_string()
 }
 
 /// Project definition (saved filters)
@@ -162,16 +172,26 @@ pub fn create_recording(title: String, tags: Vec<String>) -> Result<RecordingMet
         pipelines: vec![],
         transcript_preview: None,
         app_bundle_id: None,
+        source: "manual".to_string(),
     };
 
     // Create the recording directory
     let recording_dir = get_recording_dir(&id);
     fs::create_dir_all(&recording_dir).map_err(|e| e.to_string())?;
-    
+
     // Write metadata.json
     write_metadata(&metadata)?;
-    
+
     Ok(metadata)
+}
+
+/// Promote a recording's `source` after creation (call_session sets "call",
+/// dictation save sets "dictation"). Read-mutate-write; silent if metadata
+/// is missing.
+pub fn update_recording_source(recording_id: &str, source: &str) -> Result<(), String> {
+    let mut meta = read_metadata(recording_id)?;
+    meta.source = source.to_string();
+    write_metadata(&meta)
 }
 
 /// Write metadata to disk using atomic temp-file + rename pattern

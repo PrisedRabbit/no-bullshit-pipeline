@@ -7,6 +7,7 @@ import { showToast } from '../ui/toast.js';
 import { on } from '../core/events.js';
 
 const enabledToggle = () => document.getElementById('settings-dictation-enabled');
+const saveDictationsToggle = () => document.getElementById('settings-save-dictations');
 const listEl = () => document.getElementById('dictation-shortcuts-list');
 const addBtn = () => document.getElementById('add-dictation-shortcut-btn');
 const editor = () => document.getElementById('dictation-shortcut-editor');
@@ -386,9 +387,18 @@ async function handleEnabledChange() {
   }
 }
 
+async function handleSaveDictationsChange() {
+  ensureDictationConfig();
+  state.appSettings.dictation.save_dictations = !!saveDictationsToggle().checked;
+  // Backend hot-pickup via save_settings — no re-register needed (this flag
+  // only affects the save path inside dictation::process_and_deliver).
+  await persistAndReload();
+}
+
 export async function applyDictationSettings() {
   ensureDictationConfig();
   if (enabledToggle()) enabledToggle().checked = !!state.appSettings.dictation.enabled;
+  if (saveDictationsToggle()) saveDictationsToggle().checked = !!state.appSettings.dictation.save_dictations;
   // Read cached registration status from the backend — the actual register
   // already happened during Rust startup, so we just want the result for the
   // badges. Don't call reload here (it would double-register the shortcuts).
@@ -506,6 +516,8 @@ function initHotkeyClear() {
 export function initShortcutsTab() {
   const en = enabledToggle();
   if (en) en.addEventListener('change', handleEnabledChange);
+  const sd = saveDictationsToggle();
+  if (sd) sd.addEventListener('change', handleSaveDictationsChange);
 
   const ab = addBtn();
   if (ab) ab.addEventListener('click', () => openEditor(null));
@@ -541,5 +553,5 @@ export function initShortcutsTab() {
   if (ed) ed.addEventListener('change', (e) => e.stopPropagation());
 
   // Refresh pipeline list when tab activated (in case user added one)
-  on('tab:shortcuts', () => { renderList(); });
+  on('tab:dictation', () => { renderList(); });
 }

@@ -195,6 +195,13 @@ function buildRowHtml(rec) {
     ? ''
     : `<button class="recording-item-delete" data-id="${safeId}" title="Delete recording"><span class="icon-trash"></span></button>`;
 
+  // Copy-transcript shown only when there's a transcript to copy (preview is
+  // the cheapest signal). Click fetches the full text via get_transcript so we
+  // copy what the user would see in the detail view, not just the snippet.
+  const copyBtnHtml = rec.transcript_preview
+    ? `<button class="recording-item-copy" data-id="${safeId}" title="Copy transcript"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>`
+    : '';
+
   return `<div class="recording-item ${isCurrentlyRecording ? 'recording-active' : ''}" data-id="${safeId}" onclick="showDetailView(this.dataset.id)">
         <div class="recording-item-header">
           <div class="recording-title">${healthIcon}${appIconHtml}${safeTitle}${isCurrentlyRecording ? ' <span style="color:var(--accent)">●</span>' : ''}</div>
@@ -204,6 +211,7 @@ function buildRowHtml(rec) {
         </div>
         ${previewHtml}
         ${pipelineTags ? `<div class="recording-pipeline-tags">${pipelineTags}</div>` : ''}
+        ${copyBtnHtml}
         ${deleteBtnHtml}
       </div>`;
 }
@@ -212,6 +220,28 @@ function htmlToElement(html) {
   const tmp = document.createElement('div');
   tmp.innerHTML = html.trim();
   return tmp.firstElementChild;
+}
+
+function wireRowCopy(rowEl) {
+  const btn = rowEl.querySelector('.recording-item-copy');
+  if (!btn) return;
+  btn.addEventListener('click', async (e) => {
+    e.stopPropagation(); // don't open the detail view on copy click
+    const recordingId = btn.dataset.id;
+    try {
+      const text = await invoke('get_transcript', { recordingId });
+      const trimmed = (text || '').trim();
+      if (!trimmed) {
+        showToast('No transcript to copy', 'info');
+        return;
+      }
+      await navigator.clipboard.writeText(trimmed);
+      showToast('Transcript copied', 'success');
+    } catch (err) {
+      console.error('copy transcript failed:', err);
+      showToast('Copy failed', 'error');
+    }
+  });
 }
 
 function wireRowDelete(rowEl) {
@@ -287,7 +317,7 @@ export function renderRecordingsList() {
       if (info.signature !== node.html) {
         const newEl = htmlToElement(node.html);
         info.element.replaceWith(newEl);
-        if (node.isRow) wireRowDelete(newEl);
+        if (node.isRow) { wireRowDelete(newEl); wireRowCopy(newEl); }
         info.element = newEl;
         info.signature = node.html;
       }
@@ -295,7 +325,7 @@ export function renderRecordingsList() {
       const newEl = htmlToElement(node.html);
       info = { element: newEl, signature: node.html };
       renderedNodes.set(node.key, info);
-      if (node.isRow) wireRowDelete(newEl);
+      if (node.isRow) { wireRowDelete(newEl); wireRowCopy(newEl); }
     }
 
     const expectedAtPos = prevNode ? prevNode.nextSibling : recordingsListEl.firstChild;

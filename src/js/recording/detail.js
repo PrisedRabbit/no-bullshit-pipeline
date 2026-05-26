@@ -344,6 +344,28 @@ async function renderPipelineCards(id, isProcessing) {
 const backBtn = document.getElementById('back-btn');
 if (backBtn) backBtn.addEventListener('click', hideDetailView);
 
+// Wire copy-transcript button in detail header. Copies what's actually shown
+// in #transcript-content (innerText keeps line breaks / speaker labels) so
+// the user gets the same view they see — not raw vs processed surprises.
+const copyTranscriptBtn = document.getElementById('copy-transcript-btn-header');
+if (copyTranscriptBtn) {
+  copyTranscriptBtn.addEventListener('click', async () => {
+    const el = document.getElementById('transcript-content');
+    const text = (el?.innerText || el?.textContent || '').trim();
+    if (!text) {
+      showToast('No transcript to copy', 'info');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('Transcript copied', 'success');
+    } catch (e) {
+      console.error('copy transcript failed:', e);
+      showToast('Copy failed', 'error');
+    }
+  });
+}
+
 // Wire delete button in detail header
 const deleteBtnHeader = document.getElementById('delete-btn-header');
 if (deleteBtnHeader) {

@@ -4367,6 +4367,12 @@ body.light .provider-models-section {
 .recording-item:hover .recording-item-delete { opacity: 0.5; }
 .recording-item-delete:hover { opacity: 1 !important; background: rgba(239, 68, 68, 0.1); }
 
+/* Copy-transcript: same hover-fade as delete, but neutral color and offset to
+   the left so both action buttons line up without overlap. */
+.recording-item-copy { background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 15px; border-radius: 8px; opacity: 0; transition: opacity 0.15s, background 0.15s, color 0.15s; position: absolute; right: 3.25rem; top: 50%; transform: translateY(-50%); display: flex; align-items: center; }
+.recording-item:hover .recording-item-copy { opacity: 0.5; }
+.recording-item-copy:hover { opacity: 1 !important; background: var(--accent-soft); color: var(--accent); }
+
 /* ===== TOAST NOTIFICATIONS ===== */
 #toast-container {
   position: fixed;

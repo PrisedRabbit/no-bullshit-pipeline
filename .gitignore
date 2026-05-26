@@ -32,9 +32,10 @@ recordings/
 # Local scratch / experiments (ASR bake-off samples, results, etc.)
 temp/
 
-# Local tool state / tickets (not part of the repo)
+# Local tool state / tickets / notes (not part of the repo)
 .antigravitycli/
 .tickets/
+/TODO.md
 
 # Dev credentials (dev-mode Keychain bypass)
 .dev-credentials.json

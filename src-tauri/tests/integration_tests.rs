@@ -162,6 +162,7 @@ fn test_recording_metadata_serialization() {
         pipelines: vec![],
         transcript_preview: None,
         app_bundle_id: None,
+        source: "manual".to_string(),
     };
 
     // Serialize to JSON
