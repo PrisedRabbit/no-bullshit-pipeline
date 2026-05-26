@@ -299,6 +299,10 @@ pub fn run() {
 
             // Build system tray menu
             build_tray(app)?;
+            // Watchdog: NSStatusItem can be orphaned by SystemUIServer between
+            // our explicit recovery hooks (sleep/wake when no activation-policy
+            // change fires). 30s heartbeat re-creates the tray if rect()==None.
+            schedule_tray_heartbeat(app.app_handle());
 
             // Quick Dictate floating HUD: small always-on-top overlay window
             // shown during dictation. Repositioned to the cursor's monitor
@@ -488,6 +492,8 @@ pub fn run() {
                 {
                     let app = window.app_handle();
                     let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                    // Policy transition can orphan the NSStatusItem — probe + recover.
+                    ensure_tray_alive(app);
                 }
             }
         })
@@ -1074,7 +1080,11 @@ pub fn reposition_call_popup(app: &tauri::AppHandle) {
 /// Show the main window and restore dock presence
 fn show_main_window(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
-    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+    {
+        let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+        // Policy transition can orphan the NSStatusItem — probe + recover.
+        ensure_tray_alive(app);
+    }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
@@ -1176,6 +1186,57 @@ pub(crate) fn refresh_tray_menu(app: &tauri::AppHandle) {
 
 /// Stable id we use to look the tray up at runtime for menu refresh.
 const TRAY_ID: &str = "nbp-main";
+
+/// Force-recreate the tray's NSStatusItem if macOS has orphaned it.
+///
+/// `tray-icon` 0.23.1 creates the status item once via `NSStatusBar` and stores
+/// a `Retained<NSStatusItem>`. SystemUIServer (the menu-bar process) owns the
+/// item server-side; on its restart — sleep/wake, display reconfig, OS
+/// housekeeping — the item is destroyed there while our Rust-side `Retained`
+/// keeps a stale `Some`. The crate's own `set_visible(true)` recovery only
+/// fires when the field is `None`, so it never triggers in this orphaned
+/// state. `rect()` returns `Ok(None)` when the underlying NSWindow is nil —
+/// that's the cheap probe. Force a `false`→`true` cycle to clear the stale
+/// pointer and let the crate recreate the status item from `self.attrs`.
+///
+/// Aggressive activation-policy toggling (we flip Regular↔Accessory on every
+/// window close/show) makes this happen often enough to notice.
+#[cfg(target_os = "macos")]
+fn ensure_tray_alive(app: &tauri::AppHandle) {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        log::warn!("[tray-recovery] tray '{}' not registered yet — skip", TRAY_ID);
+        return;
+    };
+    let orphaned = match tray.rect() {
+        Ok(Some(_)) => false,
+        Ok(None) => true,
+        Err(e) => {
+            log::warn!("[tray-recovery] rect() error: {} — assuming orphaned", e);
+            true
+        }
+    };
+    if orphaned {
+        log::warn!("[tray-recovery] NSStatusItem orphaned — force-recreating");
+        let _ = tray.set_visible(false);
+        let _ = tray.set_visible(true);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn ensure_tray_alive(_app: &tauri::AppHandle) {}
+
+/// Periodic safety net: catches orphaning that happens between
+/// activation-policy events (e.g. sleep/wake while window stays closed). 30s
+/// cadence is invisible to the user; the check itself is microseconds.
+fn schedule_tray_heartbeat(app: &tauri::AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            ensure_tray_alive(&app);
+        }
+    });
+}
 
 fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::Manager;
