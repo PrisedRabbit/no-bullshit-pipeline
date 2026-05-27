@@ -1,6 +1,6 @@
 export const ViewManager = {
   closeAll() {
-    document.body.classList.remove('detail-open', 'settings-open', 'prompts-open', 'pipelines-open');
+    document.body.classList.remove('detail-open', 'settings-open', 'pipelines-open');
   },
 
   showRecordings() {
@@ -18,12 +18,6 @@ export const ViewManager = {
     this.closeAll();
     document.body.classList.add('settings-open');
     this.updateSidebar('settings');
-  },
-
-  showPrompts() {
-    this.closeAll();
-    document.body.classList.add('prompts-open');
-    this.updateSidebar('prompts');
   },
 
   showPipelines() {

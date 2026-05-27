@@ -79,7 +79,6 @@ export function switchSettingsTab(tabName) {
   document.querySelectorAll('.settings-tab-content').forEach(c => c.classList.toggle('active', c.dataset.tab === tabName));
 
   if (tabName === 'pipelines') emit('tab:pipelines');
-  if (tabName === 'prompts') emit('tab:prompts');
   if (tabName === 'dictation') emit('tab:dictation');
 
   const scroller = document.querySelector('#settings-view .detail-scroller');
@@ -94,7 +93,6 @@ export function initSettingsListeners() {
     item.addEventListener('click', () => {
       const view = item.dataset.view;
       if (view === 'recordings') ViewManager.showRecordings();
-      else if (view === 'prompts') ViewManager.showPrompts();
       else if (view === 'pipelines') ViewManager.showPipelines();
       else if (view === 'settings') ViewManager.showSettings();
     });

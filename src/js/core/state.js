@@ -10,7 +10,6 @@ export let isRecordingBusy = false;
 export let currentAssignedPipelines = new Set();
 export const pendingAutoExec = new Map();
 export let pipelineRunningSteps = {};
-export let allPromptTemplates = [];
 /// IDs that currently have a transcription job in flight. Updated by the
 /// transcription_progress listener in main.js. Read by list rendering to
 /// show "Transcribing…" on the affected row.
@@ -24,4 +23,3 @@ export function setIsRecording(v) { isRecording = v; }
 export function setIsRecordingBusy(v) { isRecordingBusy = v; }
 export function setCurrentAssignedPipelines(v) { currentAssignedPipelines = v; }
 export function setPipelineRunningSteps(v) { pipelineRunningSteps = v; }
-export function setAllPromptTemplates(v) { allPromptTemplates = v; }

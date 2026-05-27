@@ -34,9 +34,6 @@ import { renderPipelineFlowHTML } from './pipeline/flow-renderer.js';
 import { renderPipelineChips, startRecordingWithPipeline } from './pipeline/chips.js';
 import { allPipelineDefs } from './pipeline/state.js';
 
-// Prompts
-import { loadPromptTemplates, initPromptTemplates } from './prompts/templates.js';
-
 // Connections (unified flat-list — replaces the legacy Models + Integrations tabs).
 import { initConnectionsTab } from './connections/index.js';
 
@@ -48,7 +45,6 @@ window.showDetailView = showDetailView;
 window.escapeHtml = escapeHtml;
 window.__nbpLoadPipelineDefs = loadPipelineDefs;
 window.__nbpRenderPipelineFlowHTML = renderPipelineFlowHTML;
-window.__nbpLoadPromptTemplates = loadPromptTemplates;
 window.__nbpSwitchSettingsTab = switchSettingsTab;
 
 // Wire record button
@@ -57,7 +53,6 @@ if (recordToggleBtn) recordToggleBtn.addEventListener('click', toggleRecording);
 
 // Wire cross-module events
 on('tab:pipelines', () => loadPipelineDefs());
-on('tab:prompts', () => loadPromptTemplates());
 on('recording:showDetail', (id) => showDetailView(id));
 on('recording:hideDetail', () => hideDetailView());
 on('recordings:reload', async () => { await loadRecordings(); renderRecordingsList(); });
@@ -81,7 +76,6 @@ async function init() {
   await loadPipelineDefs();
   renderRecordingsList();
   await loadTemplates();
-  await loadPromptTemplates();
 
   try {
     const version = await invoke('get_app_version');
@@ -215,7 +209,6 @@ async function bootstrapApp() {
   initTranscriptionSettings();
   initPermissions();
   // controls.js and detail.js wire their own event listeners on import
-  initPromptTemplates();
   initConnectionsTab();
   initModelVersion();
 

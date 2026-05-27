@@ -1,3 +1,12 @@
+// Prompt templates — the UI tab + CRUD Tauri commands were removed.
+// In the new Connection model the user writes inline prompts in
+// step.template (CLI agent / Shell already give you a full editor).
+// `get_prompt_template_internal` + `substitute_variables` are still
+// referenced by hidden connectors (llm.rs) and a vestigial cli_agent
+// fallback path; keep the module compiled but quiet the unused-import
+// warnings since nothing user-facing reads it anymore.
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};

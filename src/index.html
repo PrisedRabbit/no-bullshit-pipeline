@@ -231,7 +231,6 @@
             <button class="settings-tab" data-tab="recording">Recording</button>
             <button class="settings-tab" data-tab="dictation">Dictation</button>
             <button class="settings-tab" data-tab="connections">Connections</button>
-            <button class="settings-tab" data-tab="prompts">Prompts</button>
             <button class="settings-tab" data-tab="pipelines">Pipelines</button>
             <button class="settings-tab" data-tab="theme">Theme</button>
           </div>
@@ -489,41 +488,6 @@
               <div id="provider-api-section" style="display: none"></div>
 
             </div><!-- end asr tab -->
-
-            <div class="settings-grid settings-tab-content" data-tab="prompts">
-              <!-- Prompt Templates -->
-              <div class="settings-section">
-                <div class="settings-item" style="flex-direction: column; align-items: stretch;">
-                  <div id="prompt-templates-list" class="prompt-templates-list">
-                    <!-- Rendered via JS -->
-                  </div>
-                  <!-- Template Editor (inline inside list) -->
-                  <div id="prompt-template-editor" class="inline-editor" style="display: none;">
-                    <div class="inline-editor-header">
-                      <h4 id="prompt-editor-title">New Prompt Template</h4>
-                      <button id="close-prompt-editor" class="mini-action-btn" title="Close">&times;</button>
-                    </div>
-                    <div class="inline-editor-body">
-                      <div class="editor-field">
-                        <label>Name</label>
-                        <input id="prompt-editor-name" type="text" class="settings-input-text" placeholder="e.g. meeting-notes" />
-                      </div>
-                      <div class="editor-field">
-                        <label>Prompt Text</label>
-                        <textarea id="prompt-editor-text" class="settings-textarea" rows="6" placeholder="Enter your prompt. Use {transcript} for the transcript content."></textarea>
-                      </div>
-                      <div class="editor-actions">
-                        <button id="save-prompt-template-btn" class="modal-btn primary">Save</button>
-                        <button id="delete-prompt-template-btn" class="modal-btn danger" style="display: none;">Delete</button>
-                      </div>
-                    </div>
-                  </div>
-                  <button id="add-prompt-template-btn" class="mini-action-btn compact-add-btn">
-                    + New Template
-                  </button>
-                </div>
-              </div>
-            </div><!-- end prompts tab -->
 
             <div class="settings-grid settings-tab-content" data-tab="pipelines">
               <!-- Pipeline Definitions List -->

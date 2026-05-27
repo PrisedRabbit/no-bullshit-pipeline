@@ -409,11 +409,6 @@ pub fn run() {
             pipelines::get_pipeline,
             pipelines::save_pipeline,
             pipelines::delete_pipeline,
-            // Prompt templates
-            prompt_templates::list_prompt_templates,
-            prompt_templates::get_prompt_template,
-            prompt_templates::save_prompt_template,
-            prompt_templates::delete_prompt_template,
             // Pipeline execution
             pipeline_engine::execute_pipeline,
             pipeline_engine::get_pipeline_status,
