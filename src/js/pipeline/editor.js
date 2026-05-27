@@ -204,8 +204,15 @@ if (savePipelineDefBtn) {
     if (!name) { showToast('Pipeline name is required', 'error'); return; }
 
     for (let i = 0; i < pipelineState.pipelineEditorSteps.length; i++) {
-      if (!pipelineState.pipelineEditorSteps[i].name.trim()) {
+      const s = pipelineState.pipelineEditorSteps[i];
+      if (!s.name?.trim()) {
         showToast(`Step ${i + 1} needs a name`, 'error');
+        return;
+      }
+      if (!s.connection_id?.trim()) {
+        // Surface this client-side rather than letting the Rust validator
+        // bounce it back — keeps the editor focused on the broken step.
+        showToast(`Step ${i + 1} ("${s.name}") needs a Connection picked.`, 'error');
         return;
       }
     }
