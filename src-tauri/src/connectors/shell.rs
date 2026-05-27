@@ -1,19 +1,29 @@
-// Shell processing connector — runs a configured local command, feeds the
-// rendered template to its stdin, captures stdout as the step output.
+// Shell processing connector — runs a user-authored shell script.
 //
-// Connection.config shape (no secrets — Shell has no Keychain entry):
-//   {
-//     "command": "/usr/local/bin/jq",          // executable, absolute path encouraged
-//     "args":    [".items[] | .name"],          // optional argv (after the command)
-//     "cwd":     "~/work/notes",                // optional working dir (~ expanded)
-//     "timeout_secs": 60,                       // optional, default 120
-//     "env":     { "FOO": "bar" }               // optional env var overrides
-//   }
+// **Model (script-mode).** The Connection is just an *environment*:
+//   { "cwd": "/abs/path",                 // REQUIRED — explicit, no default
+//     "shell": "/bin/bash",               // optional, default /bin/bash
+//     "env":  { "FOO": "bar" },           // optional, merged on top of NBP_* vars
+//     "timeout_secs": 120 }               // optional, default 120
 //
-// `stdin` is the engine's already-rendered template. `stdout` becomes the
-// step's body — picked up by the runner for `{processing_result}` chaining.
-// `stderr` is captured into the artifact's failure path only (not propagated
-// as data), so a 0-exit script logging to stderr stays clean.
+// The pipeline STEP carries the actual shell script (multi-line ok). The
+// engine hands the unrendered script + the raw `{transcript}` / `{app}` /
+// `{processing_result}` values to this connector. We invoke
+// `<shell> -c <script>` in `cwd` with the raw values exported as env vars:
+//
+//   NBP_TRANSCRIPT         — full recording transcript
+//   NBP_APP                — friendly app name (Zoom / FaceTime / NBP / …)
+//   NBP_PROCESSING_RESULT  — previous Processing step's output (empty on step 1)
+//
+// Env-var passing — not `{transcript}` placeholder substitution into the
+// script string — keeps the user safe from shell injection (transcript text
+// containing quotes / `$()` / backticks would otherwise execute).
+//
+// `stdout` becomes the step's body (chains into next step's
+// `{processing_result}`). `stderr` is captured into the failure artifact
+// only — a 0-exit script logging to stderr stays clean. Non-zero exit /
+// timeout / spawn failure = step failure, halts downstream per the engine's
+// Processing failure semantics.
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -21,20 +31,31 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use tokio::io::AsyncWriteExt;
 use tokio::process::Command as AsyncCommand;
 
 const DEFAULT_TIMEOUT_SECS: u64 = 120;
+const DEFAULT_SHELL: &str = "/bin/bash";
+
+/// Names of env vars the engine sets on every Shell step. Kept here so the
+/// JS layer's hint text + this connector's runtime stay in sync via a
+/// single source.
+pub const ENV_VAR_TRANSCRIPT: &str = "NBP_TRANSCRIPT";
+pub const ENV_VAR_APP: &str = "NBP_APP";
+pub const ENV_VAR_PROCESSING_RESULT: &str = "NBP_PROCESSING_RESULT";
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ShellConnectorConfig {
-    pub command: String,
-    #[serde(default)]
-    pub args: Vec<String>,
+    /// Required. Working directory for the script. Expanded for `~`.
+    /// We refuse to default it — silent `cd $HOME` was surprising the user.
+    pub cwd: String,
+    /// Optional shell binary, default `/bin/bash`. Must accept `-c <script>`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cwd: Option<String>,
+    pub shell: Option<String>,
+    /// Optional timeout. Kills the subprocess if exceeded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout_secs: Option<u64>,
+    /// Optional extra env vars. Merged on top of the NBP_* set so the user
+    /// CAN override them (rarely needed; mostly for adding their own keys).
     #[serde(default)]
     pub env: HashMap<String, String>,
 }
@@ -57,40 +78,54 @@ struct ShellRunOutcome {
     exit_code: Option<i32>,
 }
 
-async fn run_shell(cfg: &ShellConnectorConfig, stdin_payload: &str) -> Result<ShellRunOutcome, String> {
-    if cfg.command.trim().is_empty() {
-        return Err("Shell connector: 'command' is empty".to_string());
+async fn run_shell(
+    cfg: &ShellConnectorConfig,
+    script: &str,
+    env_extras: &HashMap<String, String>,
+) -> Result<ShellRunOutcome, String> {
+    if script.trim().is_empty() {
+        return Err("Shell step has empty script".to_string());
+    }
+    if cfg.cwd.trim().is_empty() {
+        return Err(
+            "Shell connection has no 'cwd' set — Working dir is required (no implicit default)."
+                .to_string(),
+        );
+    }
+    let cwd = expand_tilde(&cfg.cwd);
+    if !cwd.is_dir() {
+        return Err(format!(
+            "Shell connection cwd does not exist or is not a directory: {}",
+            cwd.display()
+        ));
     }
 
-    let mut cmd = AsyncCommand::new(&cfg.command);
-    cmd.args(&cfg.args);
-    if let Some(cwd) = cfg.cwd.as_deref().filter(|s| !s.trim().is_empty()) {
-        cmd.current_dir(expand_tilde(cwd));
+    let shell = cfg
+        .shell
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(DEFAULT_SHELL);
+
+    let mut cmd = AsyncCommand::new(shell);
+    cmd.arg("-c").arg(script);
+    cmd.current_dir(&cwd);
+    // Order matters: engine-provided NBP_* first, user overrides last — same
+    // shape as cargo's env-precedence model. Lets the user shadow if they
+    // really want to (e.g. inject a different transcript for testing).
+    for (k, v) in env_extras {
+        cmd.env(k, v);
     }
     for (k, v) in &cfg.env {
         cmd.env(k, v);
     }
-    cmd.stdin(std::process::Stdio::piped());
+    cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
     cmd.kill_on_drop(true);
 
     let mut child = cmd
         .spawn()
-        .map_err(|e| format!("Failed to spawn '{}': {} (is it on PATH or absolute?)", cfg.command, e))?;
-
-    // Write stdin in a task so it doesn't deadlock with the child waiting on its
-    // pipe — important for large rendered templates.
-    if let Some(mut stdin) = child.stdin.take() {
-        let payload = stdin_payload.as_bytes().to_vec();
-        tokio::spawn(async move {
-            // Closing the pipe signals EOF to the child; ignore write errors
-            // (child may exit before consuming everything — that's a script bug,
-            // not ours).
-            let _ = stdin.write_all(&payload).await;
-            let _ = stdin.shutdown().await;
-        });
-    }
+        .map_err(|e| format!("Failed to spawn '{}': {}", shell, e))?;
 
     let stdout_handle = child.stdout.take();
     let stderr_handle = child.stderr.take();
@@ -103,8 +138,7 @@ async fn run_shell(cfg: &ShellConnectorConfig, stdin_payload: &str) -> Result<Sh
             let _ = child.kill().await;
             let _ = child.wait().await;
             return Err(format!(
-                "Shell command '{}' timed out after {}s",
-                cfg.command,
+                "Shell script timed out after {}s",
                 timeout.as_secs()
             ));
         }
@@ -134,12 +168,17 @@ where
 
 /// Execute Shell connector for a pipeline step.
 ///
-/// Returns Err on non-zero exit / timeout / spawn failure — engine treats that
-/// as a Processing-step failure and halts downstream (per spec failure
-/// semantics). Successful stdout is written into the step's `<step>.md`
-/// artifact, which the engine reads back for `{processing_result}` chaining.
+/// Diverges from the generic connector signature: takes the RAW script +
+/// the RAW per-run values for the engine's `{transcript}` / `{app}` /
+/// `{processing_result}` placeholders. The engine special-cases this in
+/// `pipeline_engine::dispatch_step` so other connectors keep their
+/// rendered-template contract.
+#[allow(clippy::too_many_arguments)]
 pub async fn execute(
-    input_path: &Path,
+    script: &str,
+    transcript: &str,
+    app: &str,
+    processing_result: &str,
     config: &serde_json::Value,
     output_dir: &Path,
     step_name: &str,
@@ -149,16 +188,23 @@ pub async fn execute(
     let cfg: ShellConnectorConfig = serde_json::from_value(config.clone())
         .map_err(|e| format!("Invalid Shell connector config: {}", e))?;
 
-    let stdin_payload = fs::read_to_string(input_path)
-        .map_err(|e| format!("Failed to read Shell step input: {}", e))?;
+    let mut env_extras: HashMap<String, String> = HashMap::new();
+    env_extras.insert(ENV_VAR_TRANSCRIPT.to_string(), transcript.to_string());
+    env_extras.insert(ENV_VAR_APP.to_string(), app.to_string());
+    env_extras.insert(
+        ENV_VAR_PROCESSING_RESULT.to_string(),
+        processing_result.to_string(),
+    );
 
     let created_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-    let outcome = run_shell(&cfg, &stdin_payload).await;
+    let outcome = run_shell(&cfg, script, &env_extras).await;
     let completed_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
 
     fs::create_dir_all(output_dir)
         .map_err(|e| format!("Failed to create output dir: {}", e))?;
     let output_path = output_dir.join(format!("{}.md", step_name));
+
+    let shell_label = cfg.shell.clone().unwrap_or_else(|| DEFAULT_SHELL.to_string());
 
     match outcome {
         Ok(run) if run.exit_code == Some(0) => {
@@ -171,7 +217,8 @@ input: {}
 status: done
 created_at: {}
 completed_at: {}
-command: {}
+shell: {}
+cwd: {}
 exit_code: 0
 error: null
 ---
@@ -179,11 +226,12 @@ error: null
 {}
 "#,
                 step_name,
-                step_description.unwrap_or("Run shell").replace('"', "\\\""),
+                step_description.unwrap_or("Run shell script").replace('"', "\\\""),
                 step_input,
                 created_at,
                 completed_at,
-                cfg.command,
+                shell_label,
+                cfg.cwd,
                 run.stdout.trim_end(),
             );
             fs::write(&output_path, frontmatter)
@@ -191,20 +239,19 @@ error: null
             Ok(output_path)
         }
         Ok(run) => {
-            // Non-zero exit. Surface stderr as the primary diagnostic; fall back
-            // to "exit code N" when stderr is empty.
             let detail = if !run.stderr.trim().is_empty() {
                 run.stderr.trim().to_string()
             } else {
                 format!("exit code: {:?}", run.exit_code)
             };
-            let err_msg = format!("Shell '{}' failed: {}", cfg.command, detail);
+            let err_msg = format!("Shell script failed: {}", detail);
             write_failure_artifact(
                 &output_path,
                 step_name,
                 step_input,
                 step_description,
-                &cfg.command,
+                &shell_label,
+                &cfg.cwd,
                 &created_at,
                 &completed_at,
                 &err_msg,
@@ -213,20 +260,21 @@ error: null
             );
             Err(err_msg)
         }
-        Err(spawn_err) => {
+        Err(err) => {
             write_failure_artifact(
                 &output_path,
                 step_name,
                 step_input,
                 step_description,
-                &cfg.command,
+                &shell_label,
+                &cfg.cwd,
                 &created_at,
                 &completed_at,
-                &spawn_err,
+                &err,
                 None,
                 None,
             );
-            Err(spawn_err)
+            Err(err)
         }
     }
 }
@@ -237,7 +285,8 @@ fn write_failure_artifact(
     step_name: &str,
     step_input: &str,
     step_description: Option<&str>,
-    command: &str,
+    shell: &str,
+    cwd: &str,
     created_at: &str,
     completed_at: &str,
     err: &str,
@@ -258,7 +307,8 @@ input: {}
 status: failed
 created_at: {}
 completed_at: {}
-command: {}
+shell: {}
+cwd: {}
 exit_code: {}
 error: "{}"
 ---
@@ -267,12 +317,15 @@ error: "{}"
 {}{}
 "#,
         step_name,
-        step_description.unwrap_or("Run shell").replace('"', "\\\""),
+        step_description.unwrap_or("Run shell script").replace('"', "\\\""),
         step_input,
         created_at,
         completed_at,
-        command,
-        exit_code.map(|c| c.to_string()).unwrap_or_else(|| "null".to_string()),
+        shell,
+        cwd,
+        exit_code
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "null".to_string()),
         err_escaped,
         err,
         stderr_block,
@@ -285,50 +338,108 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn env_with_defaults() -> HashMap<String, String> {
+        let mut m = HashMap::new();
+        m.insert(ENV_VAR_TRANSCRIPT.to_string(), "hello world".to_string());
+        m.insert(ENV_VAR_APP.to_string(), "TestApp".to_string());
+        m.insert(ENV_VAR_PROCESSING_RESULT.to_string(), "".to_string());
+        m
+    }
+
     #[tokio::test]
-    async fn echo_stdin_roundtrips_through_cat() {
+    async fn env_vars_visible_to_script() {
         let cfg = ShellConnectorConfig {
-            command: "cat".to_string(),
-            args: vec![],
-            cwd: None,
+            cwd: std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()),
+            shell: None,
             timeout_secs: Some(5),
             env: HashMap::new(),
         };
-        let out = run_shell(&cfg, "hello pipeline\n").await.unwrap();
+        let env = env_with_defaults();
+        let out = run_shell(&cfg, r#"echo "got: $NBP_TRANSCRIPT from $NBP_APP""#, &env)
+            .await
+            .unwrap();
         assert_eq!(out.exit_code, Some(0));
-        assert_eq!(out.stdout, "hello pipeline\n");
-        assert!(out.stderr.is_empty());
+        assert_eq!(out.stdout.trim(), "got: hello world from TestApp");
     }
 
     #[tokio::test]
-    async fn nonzero_exit_propagates_as_error_via_execute() {
+    async fn empty_cwd_fails_loudly() {
+        let cfg = ShellConnectorConfig {
+            cwd: String::new(),
+            shell: None,
+            timeout_secs: Some(5),
+            env: HashMap::new(),
+        };
+        let res = run_shell(&cfg, "echo ok", &env_with_defaults()).await;
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("cwd"));
+    }
+
+    #[tokio::test]
+    async fn nonexistent_cwd_fails_loudly() {
+        let cfg = ShellConnectorConfig {
+            cwd: "/no/such/dir/at/all".to_string(),
+            shell: None,
+            timeout_secs: Some(5),
+            env: HashMap::new(),
+        };
+        let res = run_shell(&cfg, "echo ok", &env_with_defaults()).await;
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("does not exist"));
+    }
+
+    #[tokio::test]
+    async fn nonzero_exit_propagates_with_stderr() {
         let tmp = TempDir::new().unwrap();
-        let input = tmp.path().join("in.txt");
-        fs::write(&input, "ignored").unwrap();
         let cfg = serde_json::json!({
-            "command": "sh",
-            "args": ["-c", "echo failing >&2; exit 7"],
+            "cwd": tmp.path(),
             "timeout_secs": 5
         });
-        let res = execute(&input, &cfg, tmp.path(), "shell-step", "transcript", None).await;
-        assert!(res.is_err(), "expected non-zero exit to be an error");
+        let res = execute(
+            r#"echo "boom" >&2; exit 7"#,
+            "transcript",
+            "App",
+            "prev",
+            &cfg,
+            tmp.path(),
+            "shell-step",
+            "rendered-template",
+            None,
+        )
+        .await;
+        assert!(res.is_err());
         let md = fs::read_to_string(tmp.path().join("shell-step.md")).unwrap();
         assert!(md.contains("status: failed"));
         assert!(md.contains("exit_code: 7"));
-        assert!(md.contains("failing"));
+        assert!(md.contains("boom"));
     }
 
     #[tokio::test]
-    async fn timeout_kills_long_running_command() {
+    async fn timeout_kills_long_running_script() {
         let cfg = ShellConnectorConfig {
-            command: "sh".to_string(),
-            args: vec!["-c".into(), "sleep 5".into()],
-            cwd: None,
+            cwd: std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()),
+            shell: None,
             timeout_secs: Some(1),
             env: HashMap::new(),
         };
-        let res = run_shell(&cfg, "").await;
+        let res = run_shell(&cfg, "sleep 5", &env_with_defaults()).await;
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("timed out"));
+    }
+
+    #[tokio::test]
+    async fn user_env_overrides_nbp_default() {
+        let mut user_env = HashMap::new();
+        user_env.insert(ENV_VAR_APP.to_string(), "Overridden".to_string());
+        let cfg = ShellConnectorConfig {
+            cwd: std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()),
+            shell: None,
+            timeout_secs: Some(5),
+            env: user_env,
+        };
+        let out = run_shell(&cfg, "echo $NBP_APP", &env_with_defaults())
+            .await
+            .unwrap();
+        assert_eq!(out.stdout.trim(), "Overridden");
     }
 }

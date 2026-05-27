@@ -61,9 +61,13 @@ const TYPE_SCHEMA = {
   },
   shell: {
     fields: [
-      { key: 'command',       label: 'Command',        type: 'text', required: true, hint: 'Absolute path or PATH binary. Example: /usr/local/bin/jq' },
-      { key: 'args',          label: 'Args (one per line)', type: 'textarea', hint: 'Each line becomes one argv entry. Leave blank for none.' },
-      { key: 'cwd',           label: 'Working dir',    type: 'text', hint: 'Optional. `~` is expanded. Defaults to your home.' },
+      // Script-mode: the Connection is just an *environment* (cwd / shell /
+      // env / timeout). The actual script lives at the pipeline-step level
+      // (step.template). No `command` / `args` here — the user writes
+      // arbitrary shell at step time.
+      { key: 'cwd',           label: 'Working dir',    type: 'text', required: true, hint: 'Required. Where the script runs. `~` expanded. Example: ~/work/notes' },
+      { key: 'shell',         label: 'Shell',          type: 'text', hint: 'Binary that accepts -c <script>. Default /bin/bash. Use /bin/zsh, /usr/bin/env fish, etc. if you prefer.' },
+      { key: 'env',           label: 'Env vars (KEY=value per line)', type: 'textarea', hint: 'Optional. Merged on top of NBP_TRANSCRIPT / NBP_APP / NBP_PROCESSING_RESULT (so you CAN override them — rare).' },
       { key: 'timeout_secs',  label: 'Timeout (sec)',  type: 'number', hint: 'Default 120. Kills the subprocess if exceeded.' },
     ],
   },
@@ -278,9 +282,12 @@ async function openFormFor(typeKey, existing) {
     await refreshCliAvailability();
   }
   const initial = existing ? { name: existing.name, ...(existing.config || {}) } : {};
-  // Normalise array stored as args -> textarea-friendly newlines on edit.
-  if (typeKey === 'shell' && Array.isArray(initial.args)) {
-    initial.args = initial.args.join('\n');
+  // Shell env: stored as { KEY: value }, rendered as KEY=value lines for the
+  // textarea. Round-tripped in submitForm.
+  if (typeKey === 'shell' && initial.env && typeof initial.env === 'object' && !Array.isArray(initial.env)) {
+    initial.env = Object.entries(initial.env)
+      .map(([k, v]) => `${k}=${v}`)
+      .join('\n');
   }
   const formHTML = `
     <div class="modal-overlay" id="connection-form-modal" style="display:flex;">
@@ -449,8 +456,18 @@ async function submitForm(typeKey, existing) {
         return;
       }
       config[f.key] = n;
-    } else if (typeKey === 'shell' && f.key === 'args') {
-      config.args = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    } else if (typeKey === 'shell' && f.key === 'env') {
+      // KEY=value per line → { KEY: value } object. Skip blank lines + lines
+      // missing `=`. Trim KEY but NOT value (whitespace can matter).
+      const env = {};
+      for (const line of raw.split(/\r?\n/)) {
+        if (!line.trim() || !line.includes('=')) continue;
+        const eq = line.indexOf('=');
+        const key = line.slice(0, eq).trim();
+        const val = line.slice(eq + 1);
+        if (key) env[key] = val;
+      }
+      if (Object.keys(env).length > 0) config.env = env;
     } else {
       config[f.key] = raw;
     }

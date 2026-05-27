@@ -207,6 +207,12 @@ async fn dispatch_step(
     step: &PipelineStep,
     connection: &Connection,
     rendered_input: &str,
+    // Raw values backing the placeholders. Most connectors only see the
+    // pre-rendered `rendered_input`, but Shell is script-mode — it gets the
+    // RAW values via env vars (so `{transcript}` text can't shell-inject).
+    transcript: &str,
+    app: &str,
+    processing_result: &str,
     output_dir: &Path,
     pipeline_name: &str,
     recording_id: &str,
@@ -253,8 +259,17 @@ async fn dispatch_step(
             .await?
         }
         ConnectionType::Shell => {
+            // Shell is script-mode: step.template IS the shell script body,
+            // not a stdin payload. Hand raw values to the connector — it
+            // sets NBP_TRANSCRIPT / NBP_APP / NBP_PROCESSING_RESULT env
+            // vars itself. No placeholder substitution here: shell-escaping
+            // user-supplied transcript text is a footgun we avoid by passing
+            // through env instead of inline expansion.
             connectors::shell::execute(
-                &input_path,
+                &step.template,
+                transcript,
+                app,
+                processing_result,
                 &connection.config,
                 output_dir,
                 &step.name,
@@ -568,12 +583,16 @@ pub async fn execute_pipeline_internal(
             }
         };
 
-        // Render template + dispatch.
+        // Render template + dispatch. Raw values threaded too so connectors
+        // that bypass the rendered string (Shell) get the real backing data.
         let rendered = render_template(&step.template, &transcript, &app_name, &prev_processing_output);
         let step_result = dispatch_step(
             step,
             conn,
             &rendered,
+            &transcript,
+            &app_name,
+            &prev_processing_output,
             &output_dir,
             pipeline_name,
             recording_id,
