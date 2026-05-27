@@ -60,6 +60,7 @@ mod audio_process_detector;
 pub mod app_icons;
 mod dictation;
 mod dictation_streaming;
+mod wake_observer;
 mod updater;
 mod vocab;
 mod asr_models;
@@ -347,6 +348,12 @@ pub fn run() {
             // Instead, prewarm the batch sidecar models so the user's first
             // dictation doesn't pay the CoreML compile + cold-disk penalty.
             dictation::prewarm_models(app.handle());
+
+            // Re-prewarm after the laptop wakes from sleep. macOS evicts
+            // CoreML's per-process specialization cache during sleep, which
+            // is the dominant cause of the post-wake dictation cliff
+            // (see wake_observer.rs for the full reasoning).
+            wake_observer::install(app.handle().clone());
 
             Ok(())
         })
