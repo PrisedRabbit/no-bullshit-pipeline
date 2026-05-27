@@ -19,7 +19,6 @@ fn keychain_prefix(t: &ConnectionType) -> Option<&'static str> {
         ConnectionType::Notion => Some("notion"),
         ConnectionType::Telegram => Some("telegram"),
         ConnectionType::Webhook => Some("webhook"),
-        ConnectionType::Llm => Some("llm"),
         // Shell / SaveLocal / CliAgent — no secret to store.
         ConnectionType::Shell | ConnectionType::SaveLocal | ConnectionType::CliAgent => None,
     }
@@ -247,7 +246,6 @@ pub async fn test_connection(id: String) -> Result<String, String> {
         ConnectionType::Shell
         | ConnectionType::SaveLocal
         | ConnectionType::CliAgent
-        | ConnectionType::Webhook
-        | ConnectionType::Llm => Ok("No remote test for this type — config is local.".to_string()),
+        | ConnectionType::Webhook => Ok("No remote test for this type — config is local.".to_string()),
     }
 }

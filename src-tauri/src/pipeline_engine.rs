@@ -340,13 +340,6 @@ async fn dispatch_step(
             )
             .await?
         }
-        ConnectionType::Llm => {
-            return Err(format!(
-                "Connection type Llm (direct LLM API) is hidden in this UI version. \
-                 Step '{}' references a Connection of that type — swap it for a CLI agent.",
-                step.name
-            ));
-        }
     };
 
     // Read the artifact body back so it can feed the next step's

@@ -1,7 +1,6 @@
 use crate::integrations::IntegrationsConfig;
 use crate::storage::get_data_dir;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs::{self, File};
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
@@ -12,10 +11,11 @@ pub enum TranscriptionProvider {
     #[default]
     FluidAudio,
     Qwen3,
-    OpenAI,
-    Google,
-    Anthropic,
     AppleSpeech,
+    /// Serde catch-all so settings.json files that still reference dead cloud
+    /// providers (OpenAI / Google / Anthropic — killed in asr-bakeoff per
+    /// memory `asr-code-switching`) deserialize without losing every other
+    /// field. Consumers treat this as FluidAudio.
     #[serde(other)]
     Unknown,
 }
@@ -63,79 +63,12 @@ pub enum RealtimeTranscriptionProvider {
     Unknown,
 }
 
-/// API keys for cloud AI services
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-pub struct ApiKeys {
-    #[serde(default)]
-    pub openai: Option<String>,
-    #[serde(default)]
-    pub google: Option<String>,
-    #[serde(default)]
-    pub anthropic: Option<String>,
-}
-
-/// Cached model metadata (preserved across sessions)
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-pub struct CachedModel {
-    pub id: String,
-    pub name: String,
-    pub capabilities: Vec<String>,
-    pub deprecated: bool,
-}
-
-/// Per-provider configuration (API key + capabilities + available models)
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-pub struct ProviderConfig {
-    /// API key for this provider (None for local providers)
-    #[serde(default)]
-    pub api_key: Option<String>,
-    /// Capability badges: e.g. ["Transcription", "Processing", "Embedding"]
-    #[serde(default)]
-    pub capabilities: Vec<String>,
-    /// Known model IDs for this provider (legacy, kept for migration)
-    #[serde(default)]
-    pub models: Vec<String>,
-    /// Cached model metadata with full capabilities
-    #[serde(default)]
-    pub cached_models: Vec<CachedModel>,
-    /// Unix timestamp when models were last successfully fetched from provider API
-    #[serde(default)]
-    pub models_fetched_at: Option<i64>,
-    /// Optional custom base URL for provider APIs (currently used by Ollama)
-    #[serde(default)]
-    pub base_url: Option<String>,
-}
-
-impl ProviderConfig {
-    pub fn new(caps: &[&str], models: &[&str]) -> Self {
-        Self {
-            api_key: None,
-            capabilities: caps.iter().map(|s| s.to_string()).collect(),
-            models: models.iter().map(|s| s.to_string()).collect(),
-            cached_models: vec![],
-            models_fetched_at: None,
-            base_url: None,
-        }
-    }
-
-    pub fn with_capabilities(caps: &[&str]) -> Self {
-        Self::new(caps, &[])
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TranscriptionConfig {
     pub enabled: bool,
     /// Provider selection (still used by backend execution paths)
     #[serde(default)]
     pub provider: TranscriptionProvider,
-    /// Role-scoped API keys — persisted so the frontend UI can read them; migrated into
-    /// providers map on load and on save to keep provider-first storage in sync.
-    #[serde(default)]
-    pub api_keys: ApiKeys,
-    // Very old single-key legacy field — read-only for migration, never written
-    #[serde(skip_serializing, default)]
-    pub api_key: Option<String>,
     /// Realtime-vs-batch is no longer a user toggle — driven by the chosen
     /// provider. Kept for backwards-compat deserialization of older configs
     /// so they don't fail to load, but the field is ignored at runtime.
@@ -185,8 +118,6 @@ impl Default for TranscriptionConfig {
         Self {
             enabled: true,
             provider: TranscriptionProvider::FluidAudio,
-            api_keys: ApiKeys::default(),
-            api_key: None,
             realtime_enabled: false,
             realtime_provider: RealtimeTranscriptionProvider::default(),
             diarize: true,
@@ -228,10 +159,9 @@ pub struct Connection {
 /// of the step's type are pickable) and runtime dispatch (the runner matches
 /// on this to call the right connector).
 ///
-/// `Llm` (direct LLM API) stays in the enum — code in `connectors/llm.rs` is
-/// preserved for forward-compat per `docs/connections-model.md`. MCP and
-/// Linear were cut entirely (decided post-spec): less surface area, easier
-/// to re-add later than to maintain dead branches.
+/// Direct-LLM-API, MCP, and Linear variants were cut entirely along with the
+/// Models tab and cloud_ai module — less surface area, easier to re-add
+/// later than to maintain dead branches.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum ConnectionType {
@@ -244,8 +174,6 @@ pub enum ConnectionType {
     Telegram,
     Webhook,
     SaveLocal,
-    // Hidden in v1 UI; kept for forward-compatible serialization.
-    Llm,
 }
 
 /// Processing steps feed their output to the next step and halt downstream on
@@ -262,8 +190,7 @@ impl ConnectionType {
     pub fn role(&self) -> ConnectionRole {
         match self {
             ConnectionType::CliAgent
-            | ConnectionType::Shell
-            | ConnectionType::Llm => ConnectionRole::Processing,
+            | ConnectionType::Shell => ConnectionRole::Processing,
             ConnectionType::Slack
             | ConnectionType::Notion
             | ConnectionType::Telegram
@@ -315,15 +242,6 @@ pub struct AppSettings {
     /// CLI agent settings for text processing
     #[serde(default)]
     pub cli_agent: CliAgentConfig,
-    /// Unix timestamp of last automatic model freshness check
-    #[serde(default)]
-    pub last_model_freshness_check: Option<i64>,
-    /// Cached model freshness results from last auto-check (model_id → update_available)
-    #[serde(default)]
-    pub cached_freshness_results: HashMap<String, bool>,
-    /// Provider-first model config: keyed by provider ID ("openai", "google", "anthropic", "local")
-    #[serde(default = "default_providers")]
-    pub providers: HashMap<String, ProviderConfig>,
     /// Quick Dictate (hotkey push-to-talk dictation) settings
     #[serde(default)]
     pub dictation: DictationConfig,
@@ -422,40 +340,6 @@ fn default_apple_locale() -> String {
     "en-US".to_string()
 }
 
-fn default_providers() -> HashMap<String, ProviderConfig> {
-    let mut map = HashMap::new();
-    map.insert(
-        "openai".to_string(),
-        ProviderConfig::new(
-            &["Transcription", "Processing"],
-            &["whisper-1", "gpt-4o", "gpt-4o-mini"],
-        ),
-    );
-    map.insert(
-        "google".to_string(),
-        ProviderConfig::new(
-            &["Transcription", "Processing"],
-            &["gemini-1.5-pro", "gemini-1.5-flash"],
-        ),
-    );
-    map.insert(
-        "anthropic".to_string(),
-        ProviderConfig::new(
-            &["Processing"],
-            &["claude-3-5-sonnet-20241022", "claude-3-haiku-20240307"],
-        ),
-    );
-    map.insert(
-        "local".to_string(),
-        ProviderConfig::new(&["Processing"], &[]),
-    );
-    map.insert(
-        "ollama".to_string(),
-        ProviderConfig::new(&["Processing"], &[]),
-    );
-    map
-}
-
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -474,9 +358,6 @@ impl Default for AppSettings {
             walkthrough_completed: false,
             local_llm: LocalLlmConfig::default(),
             cli_agent: CliAgentConfig::default(),
-            last_model_freshness_check: None,
-            cached_freshness_results: HashMap::new(),
-            providers: default_providers(),
             dictation: DictationConfig::default(),
         }
     }
@@ -531,88 +412,13 @@ pub fn load_settings() -> AppSettings {
     }
 
     match File::open(&path) {
-        Ok(file) => {
-            let mut settings: AppSettings = serde_json::from_reader(file).unwrap_or_default();
-
-            // Migration v1: move legacy api_key to api_keys.openai
-            if let Some(legacy_key) = settings.transcription.api_key.take() {
-                if settings.transcription.api_keys.openai.is_none() {
-                    settings.transcription.api_keys.openai = Some(legacy_key);
-                }
-            }
-
-            // Ensure all default providers exist (for existing settings files missing new entries)
-            // Run this BEFORE migration so any newly-inserted entries have correct capabilities.
-            for (id, default_cfg) in default_providers() {
-                let entry = settings.providers.entry(id).or_insert(default_cfg.clone());
-                // If entry exists but has empty capabilities or models (inserted by an older
-                // migration before models were added), restore the defaults.
-                if entry.capabilities.is_empty() {
-                    entry.capabilities = default_cfg.capabilities;
-                }
-                if entry.models.is_empty() {
-                    entry.models = default_cfg.models;
-                }
-            }
-
-            // Migration v2: sync transcription.api_keys into providers map
-            // If a provider entry has no api_key set but transcription.api_keys has one, migrate it.
-            // This ensures the new providers field stays populated after upgrade.
-            for (provider_id, legacy_key) in [
-                ("openai", settings.transcription.api_keys.openai.clone()),
-                ("google", settings.transcription.api_keys.google.clone()),
-                (
-                    "anthropic",
-                    settings.transcription.api_keys.anthropic.clone(),
-                ),
-            ] {
-                if let Some(key) = legacy_key {
-                    if let Some(entry) = settings.providers.get_mut(provider_id) {
-                        if entry.api_key.is_none() {
-                            entry.api_key = Some(key);
-                        }
-                    }
-                }
-            }
-
-            // Sync providers → api_keys so the frontend UI reads accurate key state.
-            // providers is the authoritative source; api_keys is kept in sync for the UI.
-            if let Some(cfg) = settings.providers.get("openai") {
-                settings.transcription.api_keys.openai = cfg.api_key.clone();
-            }
-            if let Some(cfg) = settings.providers.get("google") {
-                settings.transcription.api_keys.google = cfg.api_key.clone();
-            }
-            if let Some(cfg) = settings.providers.get("anthropic") {
-                settings.transcription.api_keys.anthropic = cfg.api_key.clone();
-            }
-
-            settings
-        }
+        Ok(file) => serde_json::from_reader(file).unwrap_or_default(),
         Err(_) => AppSettings::default(),
     }
 }
 
 /// Save settings to disk (internal — no Tauri state required)
 pub fn save_settings_to_disk(settings: &mut AppSettings) -> Result<(), String> {
-    // Pre-save migration: sync transcription.api_keys into providers map.
-    for (provider_id, legacy_key) in [
-        ("openai", settings.transcription.api_keys.openai.clone()),
-        ("google", settings.transcription.api_keys.google.clone()),
-        (
-            "anthropic",
-            settings.transcription.api_keys.anthropic.clone(),
-        ),
-    ] {
-        if let Some(key) = legacy_key {
-            settings
-                .providers
-                .entry(provider_id.to_string())
-                .or_insert_with(ProviderConfig::default)
-                .api_key = if key.is_empty() { None } else { Some(key) };
-        }
-    }
-
     let config_dir = get_config_dir();
     if !config_dir.exists() {
         fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
@@ -671,37 +477,6 @@ pub async fn save_settings(
     Ok(())
 }
 
-/// Resolve the API key for a provider.
-/// Checks `providers` map first, then falls back to `transcription.api_keys` for backward compat.
-/// Auto-detect the best processing provider by checking which has an API key configured.
-/// Priority: openai > anthropic > google > local > ollama
-pub fn detect_processing_provider(settings: &AppSettings) -> String {
-    for id in &["openai", "anthropic", "google"] {
-        if get_api_key_for_provider(settings, id).is_some() {
-            return id.to_string();
-        }
-    }
-    if settings.local_llm.enabled && settings.local_llm.model_id.is_some() {
-        return "local".to_string();
-    }
-    "openai".to_string()
-}
-
-pub fn get_api_key_for_provider(settings: &AppSettings, provider: &str) -> Option<String> {
-    // Check new providers map first
-    if let Some(cfg) = settings.providers.get(provider) {
-        if cfg.api_key.is_some() {
-            return cfg.api_key.clone();
-        }
-    }
-    // Fall back to legacy transcription.api_keys
-    match provider {
-        "openai" => settings.transcription.api_keys.openai.clone(),
-        "google" => settings.transcription.api_keys.google.clone(),
-        "anthropic" => settings.transcription.api_keys.anthropic.clone(),
-        _ => None,
-    }
-}
 
 /// Get templates directory path
 pub fn get_templates_dir() -> PathBuf {

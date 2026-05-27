@@ -3,7 +3,6 @@ use std::collections::HashSet;
 use std::sync::Mutex;
 use crate::config::{TranscriptionProvider, load_settings};
 use crate::storage::{get_data_dir, read_metadata};
-use crate::cloud_ai;
 use crate::transcript_migration::{TranscriptMetadata, TranscriptSource};
 use tauri::Emitter;
 use tauri_plugin_shell::ShellExt;
@@ -145,13 +144,14 @@ async fn transcribe_recording_inner(
 
     let provider = settings.transcription.provider.clone();
 
-    // Shared metadata fields
+    // Shared metadata fields. Cloud STT providers were killed in the
+    // asr-bakeoff branch — only on-device engines remain. `Unknown` is a
+    // serde catch-all for stale config strings (see config.rs); we map it
+    // to FluidAudio so old settings.json files still work.
     let source = match provider {
-        TranscriptionProvider::Unknown => TranscriptSource::Local,
-        TranscriptionProvider::FluidAudio | TranscriptionProvider::Qwen3 => TranscriptSource::Fluidaudio,
-        TranscriptionProvider::OpenAI => TranscriptSource::Openai,
-        TranscriptionProvider::Google => TranscriptSource::Google,
-        TranscriptionProvider::Anthropic => TranscriptSource::Anthropic,
+        TranscriptionProvider::FluidAudio
+        | TranscriptionProvider::Qwen3
+        | TranscriptionProvider::Unknown => TranscriptSource::Fluidaudio,
         TranscriptionProvider::AppleSpeech => TranscriptSource::Apple,
     };
 
@@ -245,7 +245,9 @@ async fn transcribe_recording_inner(
                 text: Some(out.text),
             }
         },
-        TranscriptionProvider::FluidAudio | TranscriptionProvider::Qwen3 => {
+        TranscriptionProvider::FluidAudio
+        | TranscriptionProvider::Qwen3
+        | TranscriptionProvider::Unknown => {
             let wav_path = recording_dir.join("temp_transcription.wav");
             convert_ogg_to_wav(&audio_path, &wav_path)?;
 
@@ -342,40 +344,6 @@ async fn transcribe_recording_inner(
                 text: Some(fa_output.text),
             }
         },
-        TranscriptionProvider::OpenAI => {
-            let api_key = crate::config::get_api_key_for_provider(&settings, "openai")
-                .ok_or("OpenAI API key not configured")?;
-
-            let _ = app_handle.emit("transcription_progress", TranscriptionProgress {
-                recording_id: recording_id.clone(),
-                stage: "Transcribing".to_string(),
-                percent: 0,
-            });
-
-            let transcript = cloud_ai::transcribe_with_whisper(&api_key, &audio_path).await?;
-            let duration_sec = read_metadata(&recording_id)
-                .ok()
-                .and_then(|m| m.audio.mix.as_ref().map(|a| a.duration_sec))
-                .unwrap_or(0.0);
-
-            TranscriptJson {
-                source,
-                model: "whisper-1".to_string(),
-                created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-                duration_sec,
-                language: Some("auto".to_string()),
-                text: Some(transcript),
-            }
-        },
-        TranscriptionProvider::Google => {
-            return Err("Google provider requires a transcript first. Use Local Whisper or OpenAI for transcription, then use Google for summarization.".to_string());
-        },
-        TranscriptionProvider::Anthropic => {
-            return Err("Anthropic provider doesn't support audio transcription. Use Local Whisper or OpenAI for transcription, then use Anthropic for structured extraction.".to_string());
-        },
-        TranscriptionProvider::Unknown => {
-            return Err("Unknown transcription provider. Please select a valid provider in settings.".to_string());
-        },
     };
 
     // Save raw JSON as source of truth
@@ -471,168 +439,6 @@ fn render_transcript_text(recording_id: &str) -> Option<String> {
     }
 
     None
-}
-
-/// Read transcript body for internal consumers (summarize, templates, etc.)
-fn read_transcript_body(recording_id: &str) -> Result<String, String> {
-    render_transcript_text(recording_id)
-        .ok_or_else(|| "No transcript found. Please transcribe the recording first.".to_string())
-}
-
-/// Summarize a recording's transcript using the configured AI provider
-#[tauri::command]
-pub async fn summarize_recording(
-    recording_id: String,
-    provider: Option<String>,
-) -> Result<String, String> {
-    let settings = load_settings();
-    let recording_dir = get_data_dir().join(&recording_id);
-
-    let transcript = read_transcript_body(&recording_id)?;
-
-    // Determine which processing provider to use
-    let use_provider = provider.unwrap_or_else(|| crate::config::detect_processing_provider(&settings));
-
-    let summary = match use_provider.as_str() {
-        "openai" => {
-            let api_key = crate::config::get_api_key_for_provider(&settings, "openai")
-                .ok_or("OpenAI API key not configured")?;
-            cloud_ai::summarize_with_gpt4o(&api_key, &transcript, None).await?
-        },
-        "google" => {
-            let api_key = crate::config::get_api_key_for_provider(&settings, "google")
-                .ok_or("Google API key not configured")?;
-            cloud_ai::summarize_with_gemini(&api_key, &transcript).await?
-        },
-        "anthropic" => {
-            let api_key = crate::config::get_api_key_for_provider(&settings, "anthropic")
-                .ok_or("Anthropic API key not configured")?;
-            cloud_ai::process_with_claude(&api_key,
-                "Create a comprehensive summary of this transcript. Include main topics, key points, decisions, and action items.\n\nTranscript:\n{transcript}",
-                &transcript,
-                ""
-            ).await?
-        },
-        "cli_agent" => {
-            let cli_config = settings.cli_agent.clone();
-            crate::connectors::cli_agent::process_with_cli(
-                &cli_config.cli,
-                "Create a comprehensive summary of this transcript. Include main topics, key points, decisions, and action items.",
-                &transcript,
-                cli_config.model.as_deref(),
-                cli_config.timeout_secs,
-            ).await?
-        },
-        "local" => {
-            let model_id = settings.local_llm.model_id.clone().ok_or(
-                "Local LLM summary path requires `local_llm.model_id` in settings.json — set explicitly or remove the auto-summary trigger.",
-            )?;
-            tokio::task::spawn_blocking(move || {
-                crate::local_llm::summarize_with_local(&model_id, &transcript)
-            })
-            .await
-            .map_err(|e| format!("Local LLM task failed: {}", e))??
-        },
-        "ollama" => {
-            cloud_ai::process_with_openai_compat(
-                "http://localhost:11434",
-                None,
-                "llama3.2",
-                &format!("Create a comprehensive summary of this transcript. Include main topics, key points, decisions, and action items.\n\n{}", &transcript),
-                "",
-            ).await?
-        },
-        other => {
-            return Err(format!("Unknown processing provider: '{}'. Configure in Settings.", other));
-        },
-    };
-
-    // Save summary
-    std::fs::write(recording_dir.join("summary.md"), &summary)
-        .map_err(|e| format!("Failed to save summary: {}", e))?;
-
-    Ok(summary)
-}
-
-/// Process a transcript with a specific template
-#[tauri::command]
-pub async fn process_with_template(
-    recording_id: String,
-    template_name: String,
-    provider: Option<String>,
-) -> Result<String, String> {
-    let settings = load_settings();
-    let recording_dir = get_data_dir().join(&recording_id);
-
-    let transcript = read_transcript_body(&recording_id)?;
-
-    // Load template
-    let template = crate::templates::get_template_internal(&template_name)?;
-
-    // Determine which processing provider to use
-    let use_provider = provider.unwrap_or_else(|| crate::config::detect_processing_provider(&settings));
-
-    let result = match use_provider.as_str() {
-        "openai" => {
-            let api_key = crate::config::get_api_key_for_provider(&settings, "openai")
-                .ok_or("OpenAI API key not configured")?;
-            cloud_ai::process_with_gpt4o(&api_key, &template.prompt, &transcript, "").await?
-        },
-        "google" => {
-            let api_key = crate::config::get_api_key_for_provider(&settings, "google")
-                .ok_or("Google API key not configured")?;
-            cloud_ai::process_with_gemini(&api_key, &template.prompt, &transcript, "").await?
-        },
-        "anthropic" => {
-            let api_key = crate::config::get_api_key_for_provider(&settings, "anthropic")
-                .ok_or("Anthropic API key not configured")?;
-            cloud_ai::process_with_claude(&api_key, &template.prompt, &transcript, "").await?
-        },
-        "cli_agent" => {
-            let cli_config = settings.cli_agent.clone();
-            crate::connectors::cli_agent::process_with_cli(
-                &cli_config.cli,
-                &template.prompt,
-                &transcript,
-                cli_config.model.as_deref(),
-                cli_config.timeout_secs,
-            ).await?
-        },
-        "local" => {
-            let model_id = settings.local_llm.model_id.clone().ok_or(
-                "Local LLM template path requires `local_llm.model_id` in settings.json — set explicitly or move the template into a pipeline step.",
-            )?;
-            let prompt = template.prompt.clone();
-            let transcript_clone = transcript.clone();
-            tokio::task::spawn_blocking(move || {
-                crate::local_llm::process_with_local(&model_id, &prompt, &transcript_clone)
-            })
-            .await
-            .map_err(|e| format!("Local LLM task failed: {}", e))??
-        },
-        "ollama" => {
-            cloud_ai::process_with_openai_compat(
-                "http://localhost:11434",
-                None,
-                "llama3.2",
-                &format!("{}\n\n{}", &template.prompt, &transcript),
-                "",
-            ).await?
-        },
-        other => {
-            return Err(format!("Unknown processing provider: '{}'. Configure in Settings.", other));
-        },
-    };
-
-    // Save result based on output format
-    let filename = match template.output_format.as_str() {
-        "json" => format!("{}.json", template_name),
-        _ => format!("{}.md", template_name),
-    };
-    std::fs::write(recording_dir.join(&filename), &result)
-        .map_err(|e| format!("Failed to save result: {}", e))?;
-
-    Ok(result)
 }
 
 #[tauri::command]

@@ -1,5 +1,4 @@
 pub mod cli_agent;
-pub mod llm;
 pub mod notion;
 pub mod save;
 pub mod shell;

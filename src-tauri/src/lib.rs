@@ -17,8 +17,6 @@
 //!
 //! ### AI & Transcription
 //! - [`transcription`] - FluidAudio (batch via sidecar) and cloud transcription (OpenAI / Google / Anthropic)
-//! - [`cloud_ai`] - Cloud AI providers (OpenAI, Google, Anthropic)
-//! - [`templates`] - Legacy output templates for structured extraction
 //!
 //! ### Pipeline System
 //! - [`pipelines`] - Pipeline definition model and validation
@@ -40,8 +38,6 @@ mod mic_audio;
 mod permissions;
 pub mod config;
 pub mod transcription;
-mod cloud_ai;
-mod templates;
 pub mod playback;
 mod waveform;
 mod devices;
@@ -229,21 +225,8 @@ pub fn run() {
             // Run transcript migration on startup
             transcript_migration::run_migration_if_needed();
 
-            // Auto-check model freshness if >24h since last check
-            let settings = config::load_settings();
-            let now = chrono::Utc::now().timestamp();
-            let needs_check = match settings.last_model_freshness_check {
-                Some(last) => now - last > 86400,
-                None => true,
-            };
-            if needs_check {
-                let handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    local_llm::auto_check_model_freshness(handle).await;
-                });
-            }
-
             // Request notification permission if auto-record is enabled
+            let settings = config::load_settings();
             if settings.auto_record_meetings {
                 use tauri_plugin_notification::NotificationExt;
                 use tauri::plugin::PermissionState;
@@ -390,10 +373,6 @@ pub fn run() {
             transcription::is_transcribing,
             transcription::get_transcript,
             transcription::export_transcript_md,
-            transcription::summarize_recording,
-            transcription::process_with_template,
-            templates::list_templates,
-            templates::get_template,
             playback::play_audio,
             playback::pause_audio,
             playback::resume_audio,
@@ -429,12 +408,6 @@ pub fn run() {
             local_llm::cancel_llm_download,
             local_llm::delete_llm_model,
             local_llm::unload_llm_model,
-            local_llm::check_model_freshness,
-            local_llm::check_all_llm_freshness,
-            local_llm::cancel_llm_freshness,
-            local_llm::get_cached_freshness_results,
-            // Provider models
-            cloud_ai::models::fetch_provider_models,
             // Real-time transcription
             audio::start_realtime_transcription,
             audio::stop_realtime_transcription,
