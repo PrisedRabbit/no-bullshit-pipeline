@@ -415,33 +415,7 @@ pub fn run() {
             pipeline_engine::assign_pipeline,
             pipeline_engine::remove_pipeline_run,
             connectors::cli_agent::check_cli_availability,
-            // Integrations
-            integrations::list_slack_integrations,
-            integrations::add_slack_integration,
-            integrations::remove_slack_integration,
-            integrations::test_slack_integration,
-            integrations::list_slack_channels,
-            integrations::list_slack_members,
-            // Notion integrations
-            integrations::notion::add_notion_integration,
-            integrations::notion::list_notion_databases,
-            integrations::notion::sync_notion_schema,
-            integrations::notion::update_notion_people_mappings,
-            integrations::notion::test_notion_integration,
-            integrations::notion::remove_notion_integration,
-            integrations::notion::list_notion_profiles,
-            // Save path integrations
-            integrations::save_path::add_save_path_integration,
-            integrations::save_path::list_save_path_integrations,
-            integrations::save_path::update_save_path_integration,
-            integrations::save_path::remove_save_path_integration,
-            // Webhook integrations
-            integrations::webhook::add_webhook_integration,
-            integrations::webhook::list_webhook_profiles,
-            integrations::webhook::remove_webhook_integration,
-            integrations::webhook::test_webhook_integration,
             // Connections — unified flat-list CRUD (see docs/connections-model.md).
-            // Phase 2 deletes the per-type integration commands above in favour of these.
             connections::list_connections,
             connections::save_connection,
             connections::delete_connection,

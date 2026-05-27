@@ -13,7 +13,7 @@ import { invoke } from '../core/tauri.js';
 import { escapeHtml } from '../core/utils.js';
 import { showToast } from '../ui/toast.js';
 import { showConfirm } from '../ui/confirm-modal.js';
-import { CLI_SVG, SLACK_SVG, NOTION_SVG, SAVE_SVG, WEBHOOK_SVG } from '../pipeline/constants.js';
+import { CLI_SVG, SLACK_SVG, SAVE_SVG, WEBHOOK_SVG } from '../pipeline/constants.js';
 
 // Type metadata: order, role, label, icon SVG, tagline. Drives sectioning +
 // the "+ Add" tile order. Hidden Llm type intentionally absent — code stays
@@ -24,7 +24,12 @@ const TYPES = [
   { key: 'shell',     role: 'processing', label: 'Shell script',  icon: shellIcon(),                  tagline: 'Pipe to a local command via stdin → stdout' },
   // Delivery
   { key: 'slack',     role: 'delivery',   label: 'Slack',         icon: SLACK_SVG,                    tagline: 'Post to a channel or DM' },
-  { key: 'notion',    role: 'delivery',   label: 'Notion',        icon: NOTION_SVG,                   tagline: 'Append to a page or database' },
+  // Notion intentionally hidden in v1 — the connector still depends on a
+  // legacy `~/.nbp/integrations/notion-{id}.json` profile (database schema)
+  // that the new Connection form doesn't produce. ConnectionType::Notion
+  // stays in the Rust enum so a settings.json that references it survives
+  // round-trip serde, but adding new ones from this UI is blocked until the
+  // connector is rewritten to read database_id from connection.config.
   { key: 'telegram',  role: 'delivery',   label: 'Telegram',      icon: telegramIcon(),               tagline: 'Send to a chat via Bot API' },
   { key: 'webhook',   role: 'delivery',   label: 'Webhook',       icon: WEBHOOK_SVG,                  tagline: 'POST to any HTTP endpoint' },
   { key: 'save_local',role: 'delivery',   label: 'Save Local',    icon: SAVE_SVG,                     tagline: 'Write to a local file' },

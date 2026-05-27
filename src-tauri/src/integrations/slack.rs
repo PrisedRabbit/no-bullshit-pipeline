@@ -1,3 +1,10 @@
+// Legacy per-type Slack integration commands — the new Connections model
+// (see `docs/connections-model.md`) replaces these with `save_connection` /
+// `test_connection`. The Keychain helper `get_slack_token` is still called
+// from the Slack connector, so the module stays. Module-level allow keeps
+// the build quiet for the rest of the dead surface.
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

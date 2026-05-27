@@ -1,4 +1,10 @@
-// Notion integration module — types, profile I/O, and Tauri commands
+// Notion integration module — types, profile I/O, and (formerly) Tauri commands.
+// Per-type integration commands are gone — Connections model replaces them.
+// `load_notion_profile` + `get_notion_token` are still called by the Notion
+// connector (its execute path still depends on a synced profile — see the
+// note in connectors/notion.rs about the Notion type being temporarily
+// hidden from the new UI pending a connector rewrite).
+#![allow(dead_code)]
 
 use notion_client::endpoints::Client;
 use notion_client::endpoints::search::title::request::{

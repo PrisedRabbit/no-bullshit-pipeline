@@ -1,7 +1,8 @@
-// Save path integration module — types, profile I/O, and Tauri commands
-//
-// Save path profiles are stored as `~/.nbp/integrations/save-path-{id}.json`.
-// This follows the exact same file I/O pattern as notion.rs.
+// Save-path integration module — legacy profile I/O. The new SaveLocal
+// Connection holds `folder_path` directly in its config, so this profile
+// lookup is unreachable from the live engine path. Kept compiled for
+// forward-compat (and because save.rs still has the fallback branch).
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use std::fs;

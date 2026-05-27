@@ -1,7 +1,9 @@
-// Webhook integration module — types, profile I/O, and Tauri commands
-//
-// Webhook profiles are stored as `~/.nbp/integrations/webhook-{id}.json`.
-// This follows the exact same file I/O pattern as save_path.rs.
+// Webhook integration module — legacy profile I/O. The new Webhook
+// Connection stores `url` / `method` / `body_format` directly in config;
+// this profile lookup is unreachable from the live engine path. Kept
+// compiled for forward-compat (webhook.rs connector still has the
+// integration_id fallback branch).
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
