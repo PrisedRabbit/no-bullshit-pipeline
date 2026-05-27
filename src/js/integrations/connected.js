@@ -6,7 +6,7 @@ import { slackIntegrations } from '../core/state.js';
 import { showToast } from '../ui/toast.js';
 import { showConfirm } from '../ui/confirm-modal.js';
 import * as intState from './state.js';
-import { INT_NOTION_SVG, INT_LINEAR_SVG, INT_SLACK_SVG, INT_FOLDER_SVG, INT_LINK_SVG } from './icons.js';
+import { INT_NOTION_SVG, INT_SLACK_SVG, INT_FOLDER_SVG, INT_LINK_SVG } from './icons.js';
 import { loadAllIntegrations } from './load.js';
 
 const connectedListEl = () => document.getElementById('connected-integrations-list');
@@ -46,39 +46,6 @@ export function renderConnectedIntegrations() {
         <div class="integration-card-actions">
           <button class="mini-action-btn test-notion-btn" data-id="${escapeHtml(profile.id)}">Test</button>
           <button class="mini-action-btn danger remove-notion-btn" data-id="${escapeHtml(profile.id)}">Remove</button>
-        </div>
-      </div>
-    `);
-  }
-
-  // Linear cards
-  for (const profile of intState.linearProfiles) {
-    const safeName = escapeHtml(profile.name);
-    const safeTeam = escapeHtml(profile.team_name || 'No team selected');
-    const syncedAt = profile.synced_at ? new Date(profile.synced_at).toLocaleDateString() : 'Never synced';
-    const daysSinceSync = profile.synced_at
-      ? Math.floor((Date.now() - new Date(profile.synced_at).getTime()) / (1000 * 60 * 60 * 24))
-      : null;
-    const isStale = !profile.synced_at || daysSinceSync > 7;
-    let cardDetail;
-    if (!profile.synced_at) {
-      cardDetail = `${safeTeam} \u00b7 <span style="color: #e6a700; font-weight: 500;">Never synced \u2014 sync schema in wizard</span>`;
-    } else if (isStale) {
-      cardDetail = `${safeTeam} \u00b7 Synced ${syncedAt} \u00b7 <span style="color: #e6a700; font-weight: 500;">Schema may be outdated \u2014 re-sync recommended</span>`;
-    } else {
-      cardDetail = `${safeTeam} \u00b7 Synced ${syncedAt}`;
-    }
-    cards.push(`
-      <div class="integration-card" data-type="linear" data-id="${escapeHtml(profile.id)}">
-        <div class="integration-card-icon linear">${INT_LINEAR_SVG}</div>
-        <div class="integration-card-info">
-          <div class="integration-card-name">${safeName}</div>
-          <div class="integration-card-detail">${cardDetail}</div>
-        </div>
-        <div class="integration-card-actions">
-          <button class="mini-action-btn test-linear-btn" data-id="${escapeHtml(profile.id)}">Test</button>
-          <button class="mini-action-btn resync-linear-btn" data-id="${escapeHtml(profile.id)}">Re-sync</button>
-          <button class="mini-action-btn danger remove-linear-btn" data-id="${escapeHtml(profile.id)}">Remove</button>
         </div>
       </div>
     `);
@@ -144,7 +111,6 @@ export function renderConnectedIntegrations() {
   }
 
   wireNotionHandlers(el);
-  wireLinearHandlers(el);
   wireSlackHandlers(el);
   wireSavePathHandlers(el);
   wireWebhookHandlers(el);
@@ -170,45 +136,6 @@ function wireNotionHandlers(el) {
       if (!ok) return;
       try { await invoke('remove_notion_integration', { integrationId: btn.dataset.id }); await loadAllIntegrations(); }
       catch (err) { showToast('Failed to remove: ' + err, 'error'); }
-    });
-  });
-}
-
-function wireLinearHandlers(el) {
-  el.querySelectorAll('.test-linear-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      btn.disabled = true; btn.textContent = 'Testing...';
-      try {
-        const result = await invoke('test_linear_integration', { integrationId: btn.dataset.id });
-        showToast('Linear: ' + result, 'success');
-      } catch (err) { showToast('Linear test failed: ' + err, 'error'); }
-      finally { btn.disabled = false; btn.textContent = 'Test'; }
-    });
-  });
-  el.querySelectorAll('.remove-linear-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const profile = intState.linearProfiles.find(p => p.id === btn.dataset.id);
-      const ok = await showConfirm('Remove Integration?', `Remove Linear integration "${profile ? profile.name : btn.dataset.id}"?`);
-      if (!ok) return;
-      try { await invoke('remove_linear_integration', { integrationId: btn.dataset.id }); await loadAllIntegrations(); }
-      catch (err) { showToast('Failed to remove: ' + err, 'error'); }
-    });
-  });
-  el.querySelectorAll('.resync-linear-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const id = btn.dataset.id;
-      const profile = intState.linearProfiles.find(p => p.id === id);
-      if (!profile || !profile.team_id) { showToast('No team synced. Open the wizard to set up.', 'error'); return; }
-      btn.disabled = true; btn.textContent = 'Syncing...';
-      try {
-        const updated = await invoke('sync_linear_schema', { integrationId: id, teamId: profile.team_id, teamName: profile.team_name });
-        const idx = intState.linearProfiles.findIndex(p => p.id === id);
-        if (idx >= 0) intState.linearProfiles[idx] = updated;
-        renderConnectedIntegrations();
-      } catch (err) { showToast('Re-sync failed: ' + err, 'error'); btn.disabled = false; btn.textContent = 'Re-sync'; }
     });
   });
 }

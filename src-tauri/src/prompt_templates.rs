@@ -268,25 +268,28 @@ pub fn delete_prompt_template(name: String, force: Option<bool>) -> Result<(), S
         return Err(format!("Template '{}' not found", name));
     }
 
-    // Check if any pipelines reference this template
+    // Check if any Connection references this template. In the new model
+    // (`docs/connections-model.md`) a step picks a Connection by id; the
+    // Connection's config can hold a `prompt_template` name (e.g. for a CLI
+    // agent's default system prompt). Pipelines themselves no longer carry
+    // template names — they live on the Connections.
     if !force.unwrap_or(false) {
-        let pipelines = crate::pipelines::load_pipelines().unwrap_or_default();
-        let mut referencing: Vec<String> = Vec::new();
-
-        for (pipeline_name, pipeline) in &pipelines {
-            for step in &pipeline.steps {
-                if let Some(template_name) = step.config.get("prompt_template").and_then(|v| v.as_str())
-                    && template_name == name
-                {
-                    referencing.push(pipeline_name.clone());
-                    break;
-                }
-            }
-        }
+        let settings = crate::config::load_settings();
+        let referencing: Vec<String> = settings
+            .connections
+            .iter()
+            .filter(|c| {
+                c.config
+                    .get("prompt_template")
+                    .and_then(|v| v.as_str())
+                    == Some(name.as_str())
+            })
+            .map(|c| c.name.clone())
+            .collect();
 
         if !referencing.is_empty() {
             return Err(format!(
-                "Template '{}' is used by pipelines: {}. Use force=true to delete anyway.",
+                "Template '{}' is used by Connections: {}. Use force=true to delete anyway.",
                 name,
                 referencing.join(", ")
             ));

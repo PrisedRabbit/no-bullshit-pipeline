@@ -1,3 +1,9 @@
+// Direct LLM API connector — preserved for forward-compat per
+// `docs/connections-model.md` (decision: hidden in v1 UI, code stays).
+// All items are intentionally unused right now; module-level allow keeps
+// the build clean without `#[allow(dead_code)]` on every fn.
+#![allow(dead_code)]
+
 use chrono::Utc;
 use std::fs;
 use std::path::{Path, PathBuf};

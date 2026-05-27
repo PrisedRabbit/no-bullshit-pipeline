@@ -1,28 +1,24 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use chrono::Utc;
 use tokio::sync::Mutex as TokioMutex;
-use crate::pipelines::{ConnectorType, load_pipelines, validate_pipeline, PipelineState, PipelineStatus, StepStatus, PipelineProgressPayload};
-use crate::storage::get_data_dir;
-use crate::transcription::{TranscriptJson, render_transcript_from_json};
+
+use crate::config::{load_settings, AppSettings, Connection, ConnectionRole, ConnectionType};
 use crate::connectors;
+use crate::pipelines::{
+    load_pipelines, validate_pipeline, PipelineProgressPayload, PipelineState, PipelineStatus,
+    PipelineStep, StepStatus,
+};
+use crate::storage::get_data_dir;
+use crate::transcription::{render_transcript_from_json, TranscriptJson};
 
 lazy_static::lazy_static! {
     /// Per-(recording, pipeline) execution lock.
     /// Ensures runs of the same pipeline on the same recording execute sequentially.
     static ref PIPELINE_EXEC_LOCKS: std::sync::Mutex<HashMap<String, Arc<TokioMutex<()>>>> =
         std::sync::Mutex::new(HashMap::new());
-}
-struct TempFileGuard {
-    path: PathBuf,
-}
-
-impl Drop for TempFileGuard {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-    }
 }
 
 struct LockMapGuard {
@@ -40,8 +36,13 @@ impl Drop for LockMapGuard {
         }
     }
 }
+
 /// Known topic heading labels (case-insensitive match for Latin)
 const TOPIC_LABELS: &[&str] = &["topic", "тема", "tema"];
+
+/// Default app friendly name used for `{app}` substitution when the recording
+/// has none on disk (manual / dictation / pre-refactor metadata).
+const DEFAULT_APP_NAME: &str = "NBP";
 
 /// Extract a short title from pipeline step output.
 /// Looks for topic section heading, inline topic label, or first content heading.
@@ -123,455 +124,305 @@ fn get_pipeline_output_dir(recording_id: &str, pipeline_name: &str, run_index: u
         .join(dir_name)
 }
 
-/// Resolve the input path for a step.
-/// For transcript input: renders JSON to a cached .txt file (with .md fallback).
-/// For step outputs: returns the step's .md file path.
-fn resolve_input_path(
-    recording_id: &str,
-    pipeline_name: &str,
-    input: &str,
-    run_index: usize,
-) -> PathBuf {
-    if input == "transcript" {
-        let recording_dir = get_data_dir().join(recording_id);
-        let json_path = recording_dir.join("transcript.json");
-
-        if json_path.exists() {
-            // DESIGN NOTE: Save connector behavior change (v0.3 -> v0.4)
-            //
-            // Connectors now receive transcript_rendered.txt (plain text) instead of
-            // transcript.md (markdown with YAML frontmatter).
-            //
-            // RATIONALE:
-            // - transcript.json is the source of truth (metadata + text)
-            // - transcript_rendered.txt is an ephemeral cache for connector consumption
-            // - Connectors process content, not metadata
-            // - Metadata stays in transcript.json where it belongs
-            // - Separation of concerns: storage (JSON) vs processing (plain text)
-            //
-            // This is INTENTIONAL design, not a bug. The rendered text file:
-            // 1. Contains only the transcript body (plain text)
-            // 2. Has no YAML frontmatter (metadata lives in .json)
-            // 3. Is generated on-demand for each pipeline execution
-            // 4. Is cleaned up after pipeline completes (see execute_pipeline_internal)
-            //
-            // Previous behavior (v0.3): transcript.md with frontmatter passed directly.
-            // Current behavior (v0.4): transcript.json rendered to .txt, frontmatter-free.
-            let rendered_path = recording_dir.join("transcript_rendered.txt");
-            if let Ok(content) = fs::read_to_string(&json_path) {
-                if let Ok(tj) = serde_json::from_str::<TranscriptJson>(&content) {
-                    let text = render_transcript_from_json(&tj);
-                    let _ = fs::write(&rendered_path, &text);
-                    return rendered_path;
-                }
-            }
-        }
-
-        // Fallback: legacy transcript.md
-        recording_dir.join("transcript.md")
-    } else {
-        get_pipeline_output_dir(recording_id, pipeline_name, run_index).join(format!("{}.md", input))
-    }
-}
-
-/// Writable property types that the LLM should populate.
-/// Read-only/computed types are excluded from the format spec.
-const WRITABLE_TYPES: &[&str] = &[
-    "title", "rich_text", "select", "multi_select", "people",
-    "date", "number", "checkbox", "url", "email", "phone_number", "status",
-];
-
-/// Maximum number of select/multi_select options to include per field.
-/// Prevents token budget overflow for databases with many options.
-const MAX_OPTIONS_IN_SPEC: usize = 12;
-
-/// Build an augmented prompt for an LLM step that feeds into a Notion delivery step.
-/// Loads the prompt template, substitutes the transcript, then appends a format spec
-/// derived from the Notion integration profile.
+/// Read the recording's transcript into memory.
 ///
-/// Returns `Err` if the profile is missing, corrupt, or has no synced properties —
-/// this is a HARD FAIL that prevents the expensive LLM API call.
-fn build_augmented_prompt(
-    step_config: &serde_json::Value,
-    input_path: &std::path::Path,
-    notion_integration_id: &str,
-) -> Result<String, String> {
-    // Load base prompt from template name or inline prompt
-    let base_prompt = if let Some(template_name) = step_config
-        .get("prompt_template")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.trim().is_empty())
-    {
-        let template = crate::prompt_templates::get_prompt_template_internal(template_name)?;
-        let raw_input = std::fs::read_to_string(input_path)
-            .map_err(|e| format!("Failed to read input file for augmentation: {}", e))?;
-        let input_content = crate::connectors::strip_frontmatter(&raw_input);
-        crate::prompt_templates::substitute_variables(&template.prompt, input_content)
-    } else if let Some(inline_prompt) = step_config
-        .get("prompt_inline")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.trim().is_empty())
-    {
-        let raw_input = std::fs::read_to_string(input_path)
-            .map_err(|e| format!("Failed to read input file for augmentation: {}", e))?;
-        let input_content = crate::connectors::strip_frontmatter(&raw_input);
-        crate::prompt_templates::substitute_variables(inline_prompt, input_content)
-    } else {
-        return Err("LLM step missing prompt_template or prompt_inline in config".to_string());
-    };
-
-    // Load Notion integration profile — hard fail if missing
-    let profile = crate::integrations::notion::load_notion_profile(notion_integration_id)
-        .map_err(|_| format!(
-            "Cannot augment prompt: Notion integration '{}' profile not found. \
-             Sync schema in Settings > Integrations before running this pipeline.",
-            notion_integration_id
-        ))?;
-
-    // Verify profile has synced properties (not just an empty initial profile)
-    if profile.properties.is_empty() || profile.database_id.is_empty() {
-        return Err(format!(
-            "Cannot augment prompt: Notion integration '{}' has no schema synced. \
-             Open Settings > Integrations > {} > Sync Schema before running this pipeline.",
-            notion_integration_id,
-            profile.name
-        ));
+/// Prefers `transcript.json` (source of truth) rendered to plain text; falls
+/// back to legacy `transcript.md` for old recordings. Returns Err when neither
+/// exists — caller treats that as "transcribe first".
+fn load_transcript_text(recording_id: &str) -> Result<String, String> {
+    let dir = get_data_dir().join(recording_id);
+    let json_path = dir.join("transcript.json");
+    if json_path.exists() {
+        let raw = fs::read_to_string(&json_path)
+            .map_err(|e| format!("Failed to read transcript.json: {}", e))?;
+        let tj: TranscriptJson = serde_json::from_str(&raw)
+            .map_err(|e| format!("Failed to parse transcript.json: {}", e))?;
+        return Ok(render_transcript_from_json(&tj));
     }
-
-    // Build format spec from profile
-    let format_spec = build_notion_format_spec(&profile);
-
-    // Append format spec to base prompt
-    Ok(format!("{}\n\n{}", base_prompt, format_spec))
+    let md_path = dir.join("transcript.md");
+    if md_path.exists() {
+        let raw = fs::read_to_string(&md_path)
+            .map_err(|e| format!("Failed to read transcript.md: {}", e))?;
+        // Strip frontmatter so the placeholder substitutes only the body
+        return Ok(connectors::strip_frontmatter(&raw).to_string());
+    }
+    Err("No transcript found. Transcribe the recording first.".to_string())
 }
 
-/// Build a compact JSON format specification from a Notion integration profile.
-/// The spec instructs the LLM to output a JSON array matching the database schema.
-/// Token budget: typically 100-300 tokens for 5-15 property databases.
-fn build_notion_format_spec(
-    profile: &crate::integrations::notion::NotionIntegrationProfile,
-) -> String {
-    let mut lines: Vec<String> = Vec::new();
+/// Resolve the friendly app name for the `{app}` placeholder.
+///
+/// Single source of truth: the call detector writes it into
+/// `metadata.app_friendly_name` at recording start; everything else (manual,
+/// dictation, pre-refactor metadata) gets the default. We deliberately do NOT
+/// resolve bundle_id → friendly_name at run time — the mapping is incomplete
+/// and the value is already known at capture time.
+fn resolve_app_name(recording_id: &str) -> String {
+    crate::storage::read_metadata(recording_id)
+        .ok()
+        .and_then(|m| m.app_friendly_name.clone())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_APP_NAME.to_string())
+}
 
-    lines.push("Output a JSON array where each element is an object with these fields:".to_string());
-    lines.push(format!("Database: {}", profile.database_name));
-    lines.push(String::new());
+/// Substitute the three template placeholders. Missing keys silently render
+/// as the empty string — see `docs/connections-model.md` I/O contract.
+fn render_template(template: &str, transcript: &str, app: &str, processing_result: &str) -> String {
+    template
+        .replace("{transcript}", transcript)
+        .replace("{app}", app)
+        .replace("{processing_result}", processing_result)
+}
 
-    for prop in &profile.properties {
-        if !WRITABLE_TYPES.contains(&prop.property_type.as_str()) {
-            continue;
+/// Build a `HashMap<id, &Connection>` for O(1) lookup during step dispatch.
+fn index_connections(settings: &AppSettings) -> HashMap<String, &Connection> {
+    settings
+        .connections
+        .iter()
+        .map(|c| (c.id.clone(), c))
+        .collect()
+}
+
+/// Result of a single dispatched step.
+///
+/// `body` is what the engine threads into the next Processing step's
+/// `{processing_result}` placeholder. We re-read it from the artifact rather
+/// than changing connector signatures to return strings — minimum diff for
+/// the legacy connectors (Slack/Notion/Webhook/Save) which keep writing
+/// their own `.md` artifact with frontmatter.
+struct StepOutcome {
+    body: String,
+}
+
+/// Dispatch one step to the appropriate connector.
+///
+/// New-model contract: the engine renders `step.template` into a plain string,
+/// merges the Connection's stored config with the injected fields each
+/// connector expects (e.g. `prompt` for cli_agent, `integration_id` mapped from
+/// the connection id for Slack/Notion), writes the rendered input to a
+/// transient sibling file, and hands all of that to the existing connector
+/// `execute` function. Each connector still writes its own `output_dir/<step>.md`
+/// artifact; we read it back to extract the body for chaining.
+#[allow(clippy::too_many_arguments)]
+async fn dispatch_step(
+    step: &PipelineStep,
+    connection: &Connection,
+    rendered_input: &str,
+    output_dir: &Path,
+    pipeline_name: &str,
+    recording_id: &str,
+) -> Result<StepOutcome, String> {
+    fs::create_dir_all(output_dir)
+        .map_err(|e| format!("Failed to create output dir: {}", e))?;
+
+    // Transient input file the legacy connectors can read.
+    // Hidden (`.<step>.input.txt`) so it doesn't pollute the artifact listing
+    // exposed by get_step_outputs (which only iterates `<step>.md`).
+    let input_path = output_dir.join(format!(".{}.input.txt", step.name));
+    fs::write(&input_path, rendered_input)
+        .map_err(|e| format!("Failed to write step input file: {}", e))?;
+
+    // Use the step name itself as the `input` field in artifact frontmatter —
+    // it's metadata-only now, no longer wired to data flow. The previous step's
+    // name would be ambiguous when the user omits `{processing_result}`.
+    let step_input_label = if rendered_input.is_empty() { "empty" } else { "rendered-template" };
+
+    let artifact_path = match step.connection_type {
+        ConnectionType::CliAgent => {
+            // Engine has already substituted `{transcript}` etc. into rendered_input.
+            // Feed it as the entire prompt by injecting `prompt` into the config the
+            // connector reads, and pass an empty sibling file so the connector's
+            // own `{transcript}` re-substitution is a no-op (rendered already has no placeholders).
+            let mut cfg = connection.config.clone();
+            ensure_object(&mut cfg);
+            cfg.as_object_mut()
+                .expect("ensured above")
+                .insert("prompt".to_string(), serde_json::Value::String(rendered_input.to_string()));
+            // Overwrite any stored prompt_template — the user's template lives at
+            // step level now, the connection only carries CLI/model/timeout.
+            cfg.as_object_mut()
+                .and_then(|o| o.remove("prompt_template"));
+
+            connectors::cli_agent::execute(
+                &input_path,
+                &cfg,
+                output_dir,
+                &step.name,
+                step_input_label,
+                step.description.as_deref(),
+            )
+            .await?
         }
-
-        let field_spec = match prop.property_type.as_str() {
-            "title" => format!("- \"{}\" (string, REQUIRED): page title", prop.name),
-            "rich_text" => format!("- \"{}\" (string): long text", prop.name),
-            "number" => format!("- \"{}\" (number): numeric value", prop.name),
-            "checkbox" => format!("- \"{}\" (boolean): true or false", prop.name),
-            "url" => format!("- \"{}\" (string): URL", prop.name),
-            "email" => format!("- \"{}\" (string): email address", prop.name),
-            "phone_number" => format!("- \"{}\" (string): phone number", prop.name),
-            "date" => format!("- \"{}\" (string): ISO 8601 date, e.g. \"2026-02-18\"", prop.name),
-            "people" => {
-                let aliases: Vec<&str> = profile.people_mappings.iter()
-                    .map(|m| m.alias.as_str())
-                    .collect();
-                if aliases.is_empty() {
-                    format!("- \"{}\" (array of strings): person aliases", prop.name)
-                } else {
-                    format!(
-                        "- \"{}\" (array of strings): known aliases are: {}",
-                        prop.name,
-                        aliases.join(", ")
-                    )
-                }
-            }
-            "select" | "status" => {
-                if prop.select_options.is_empty() {
-                    format!("- \"{}\" (string): one of the defined options", prop.name)
-                } else {
-                    let (shown, overflow) = if prop.select_options.len() > MAX_OPTIONS_IN_SPEC {
-                        (&prop.select_options[..MAX_OPTIONS_IN_SPEC],
-                         prop.select_options.len() - MAX_OPTIONS_IN_SPEC)
-                    } else {
-                        (&prop.select_options[..], 0)
-                    };
-                    let options_str: Vec<&str> = shown.iter().map(|s| s.as_str()).collect();
-                    if overflow > 0 {
-                        format!(
-                            "- \"{}\" (string): one of: {} (+ {} more)",
-                            prop.name,
-                            options_str.join(", "),
-                            overflow
-                        )
-                    } else {
-                        format!(
-                            "- \"{}\" (string): one of: {}",
-                            prop.name,
-                            options_str.join(", ")
-                        )
-                    }
-                }
-            }
-            "multi_select" => {
-                if prop.select_options.is_empty() {
-                    format!("- \"{}\" (array of strings): multiple values from defined options", prop.name)
-                } else {
-                    let (shown, overflow) = if prop.select_options.len() > MAX_OPTIONS_IN_SPEC {
-                        (&prop.select_options[..MAX_OPTIONS_IN_SPEC],
-                         prop.select_options.len() - MAX_OPTIONS_IN_SPEC)
-                    } else {
-                        (&prop.select_options[..], 0)
-                    };
-                    let options_str: Vec<&str> = shown.iter().map(|s| s.as_str()).collect();
-                    if overflow > 0 {
-                        format!(
-                            "- \"{}\" (array of strings): values from: {} (+ {} more)",
-                            prop.name,
-                            options_str.join(", "),
-                            overflow
-                        )
-                    } else {
-                        format!(
-                            "- \"{}\" (array of strings): values from: {}",
-                            prop.name,
-                            options_str.join(", ")
-                        )
-                    }
-                }
-            }
-            _ => continue,
-        };
-        lines.push(field_spec);
-    }
-
-    lines.push(String::new());
-    lines.push("Omit any field you cannot determine from the transcript. Use null for unknown optional fields.".to_string());
-    lines.push("People fields: use the person's name or alias as a string.".to_string());
-    lines.push("Return ONLY the JSON array. No prose, no markdown, no code fences.".to_string());
-
-    lines.join("\n")
-}
-
-/// Build a compact JSON format specification from a Linear integration profile.
-/// The spec instructs the LLM to output a single JSON object (not an array —
-/// Linear creates one issue per delivery step, unlike Notion which creates multiple pages).
-/// Token budget: typically 50-150 tokens for a typical team schema.
-fn build_linear_format_spec(
-    profile: &crate::integrations::linear::LinearIntegrationProfile,
-) -> String {
-    let mut lines: Vec<String> = Vec::new();
-
-    lines.push("Output a JSON object with these fields:".to_string());
-    lines.push(format!("Team: {}", profile.team_name));
-    lines.push(String::new());
-
-    // title (always required)
-    lines.push("- \"title\" (string, REQUIRED): issue title".to_string());
-
-    // description
-    lines.push("- \"description\" (string): issue description in markdown".to_string());
-
-    // priority — from profile.priorities
-    {
-        let priority_labels: Vec<&str> = profile.priorities.iter()
-            .map(|p| p.label.as_str())
-            .collect();
-        if priority_labels.is_empty() {
-            lines.push("- \"priority\" (string): priority level".to_string());
-        } else {
-            lines.push(format!(
-                "- \"priority\" (string): one of: {}",
-                priority_labels.join(", ")
+        ConnectionType::Shell => {
+            // Placeholder: shell connector lands in Phase 1D. For now fail clearly
+            // so we don't pretend Shell works.
+            return Err(format!(
+                "Shell connector not yet implemented (Phase 1D). Step '{}' cannot run.",
+                step.name
             ));
         }
-    }
-
-    // status — from profile.workflow_states
-    {
-        let all_states: Vec<&str> = profile.workflow_states.iter()
-            .map(|s| s.name.as_str())
-            .collect();
-        if all_states.is_empty() {
-            lines.push("- \"status\" (string): workflow state name".to_string());
-        } else {
-            let (shown, overflow) = if all_states.len() > MAX_OPTIONS_IN_SPEC {
-                (&all_states[..MAX_OPTIONS_IN_SPEC], all_states.len() - MAX_OPTIONS_IN_SPEC)
-            } else {
-                (&all_states[..], 0)
-            };
-            if overflow > 0 {
-                lines.push(format!(
-                    "- \"status\" (string): one of: {} (+ {} more)",
-                    shown.join(", "),
-                    overflow
-                ));
-            } else {
-                lines.push(format!(
-                    "- \"status\" (string): one of: {}",
-                    shown.join(", ")
-                ));
-            }
+        ConnectionType::Slack => {
+            let cfg = with_integration_id(&connection.config, &connection.id);
+            connectors::slack::execute(
+                &input_path,
+                &cfg,
+                output_dir,
+                &step.name,
+                step_input_label,
+                step.description.as_deref(),
+            )
+            .await?
         }
-    }
-
-    // labels — from profile.labels
-    {
-        let all_labels: Vec<&str> = profile.labels.iter()
-            .map(|l| l.name.as_str())
-            .collect();
-        if all_labels.is_empty() {
-            lines.push("- \"labels\" (array of strings): label names".to_string());
-        } else {
-            let (shown, overflow) = if all_labels.len() > MAX_OPTIONS_IN_SPEC {
-                (&all_labels[..MAX_OPTIONS_IN_SPEC], all_labels.len() - MAX_OPTIONS_IN_SPEC)
-            } else {
-                (&all_labels[..], 0)
-            };
-            if overflow > 0 {
-                lines.push(format!(
-                    "- \"labels\" (array of strings): values from: {} (+ {} more)",
-                    shown.join(", "),
-                    overflow
-                ));
-            } else {
-                lines.push(format!(
-                    "- \"labels\" (array of strings): values from: {}",
-                    shown.join(", ")
-                ));
-            }
+        ConnectionType::Notion => {
+            let cfg = with_integration_id(&connection.config, &connection.id);
+            connectors::notion::execute_structured(
+                &input_path,
+                &cfg,
+                output_dir,
+                &step.name,
+                step_input_label,
+                step.description.as_deref(),
+            )
+            .await
+            .map_err(|e| e.to_string())?
         }
-    }
-
-    // assignee — from profile.members (prefer display_name, fallback to name)
-    {
-        let all_members: Vec<String> = profile.members.iter()
-            .map(|m| {
-                if !m.display_name.is_empty() {
-                    m.display_name.clone()
-                } else {
-                    m.name.clone()
-                }
-            })
-            .collect();
-        let member_refs: Vec<&str> = all_members.iter().map(|s| s.as_str()).collect();
-        if member_refs.is_empty() {
-            lines.push("- \"assignee\" (string): team member name".to_string());
-        } else {
-            let (shown, overflow) = if member_refs.len() > MAX_OPTIONS_IN_SPEC {
-                (&member_refs[..MAX_OPTIONS_IN_SPEC], member_refs.len() - MAX_OPTIONS_IN_SPEC)
-            } else {
-                (&member_refs[..], 0)
-            };
-            if overflow > 0 {
-                lines.push(format!(
-                    "- \"assignee\" (string): one of: {} (+ {} more)",
-                    shown.join(", "),
-                    overflow
-                ));
-            } else {
-                lines.push(format!(
-                    "- \"assignee\" (string): one of: {}",
-                    shown.join(", ")
-                ));
-            }
+        ConnectionType::Telegram => {
+            return Err(format!(
+                "Telegram connector not yet implemented (Phase 1D). Step '{}' cannot run.",
+                step.name
+            ));
         }
-    }
-
-    lines.push(String::new());
-    lines.push("Omit any field you cannot determine from the transcript. Use null for unknown optional fields.".to_string());
-    lines.push("Return ONLY the JSON object. No prose, no markdown, no code fences.".to_string());
-
-    lines.join("\n")
-}
-
-/// Build an augmented prompt for an LLM step that feeds into a Linear delivery step.
-/// Loads the prompt template, substitutes the transcript, then appends a format spec
-/// derived from the Linear integration profile.
-///
-/// Returns `Err` if the profile is missing, corrupt, or has no synced schema —
-/// this is a HARD FAIL that prevents the expensive LLM API call.
-fn build_linear_augmented_prompt(
-    step_config: &serde_json::Value,
-    input_path: &std::path::Path,
-    linear_integration_id: &str,
-) -> Result<String, String> {
-    // Load base prompt from template name or inline prompt
-    let base_prompt = if let Some(template_name) = step_config
-        .get("prompt_template")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.trim().is_empty())
-    {
-        let template = crate::prompt_templates::get_prompt_template_internal(template_name)?;
-        let raw_input = std::fs::read_to_string(input_path)
-            .map_err(|e| format!("Failed to read input file for augmentation: {}", e))?;
-        let input_content = crate::connectors::strip_frontmatter(&raw_input);
-        crate::prompt_templates::substitute_variables(&template.prompt, input_content)
-    } else if let Some(inline_prompt) = step_config
-        .get("prompt_inline")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.trim().is_empty())
-    {
-        let raw_input = std::fs::read_to_string(input_path)
-            .map_err(|e| format!("Failed to read input file for augmentation: {}", e))?;
-        let input_content = crate::connectors::strip_frontmatter(&raw_input);
-        crate::prompt_templates::substitute_variables(inline_prompt, input_content)
-    } else {
-        return Err("LLM step missing prompt_template or prompt_inline in config".to_string());
+        ConnectionType::Webhook => {
+            connectors::webhook::execute(
+                &input_path,
+                &connection.config,
+                output_dir,
+                &step.name,
+                step_input_label,
+                step.description.as_deref(),
+            )
+            .await?
+        }
+        ConnectionType::SaveLocal => {
+            let cfg = with_integration_id(&connection.config, &connection.id);
+            connectors::save::execute(
+                &input_path,
+                &cfg,
+                output_dir,
+                &step.name,
+                step_input_label,
+                step.description.as_deref(),
+                pipeline_name,
+                recording_id,
+            )
+            .await?
+        }
+        ConnectionType::Llm => {
+            return Err(format!(
+                "Connection type Llm (direct LLM API) is hidden in this UI version. \
+                 Step '{}' references a Connection of that type — swap it for a CLI agent.",
+                step.name
+            ));
+        }
     };
 
-    // Load Linear integration profile — hard fail if missing
-    let profile = crate::integrations::linear::load_linear_profile(linear_integration_id)
-        .map_err(|_| format!(
-            "Cannot augment prompt: Linear integration '{}' profile not found. \
-             Sync schema in Settings > Integrations before running this pipeline.",
-            linear_integration_id
-        ))?;
+    // Read the artifact body back so it can feed the next step's
+    // `{processing_result}`. Strip the frontmatter the connector wrote.
+    let body = fs::read_to_string(&artifact_path)
+        .map(|raw| connectors::strip_frontmatter(&raw).trim().to_string())
+        .unwrap_or_default();
 
-    // Verify profile has synced schema (not just an empty initial profile)
-    if profile.workflow_states.is_empty() && profile.team_id.is_empty() {
-        return Err(format!(
-            "Cannot augment prompt: Linear integration '{}' has no schema synced. \
-             Open Settings > Integrations > {} > Sync Schema before running this pipeline.",
-            linear_integration_id,
-            profile.name
-        ));
-    }
+    // Clean up the transient input file — only kept for the connector's read.
+    let _ = fs::remove_file(&input_path);
 
-    // Build format spec from profile
-    let format_spec = build_linear_format_spec(&profile);
-
-    // Append format spec to base prompt
-    Ok(format!("{}\n\n{}", base_prompt, format_spec))
+    Ok(StepOutcome { body })
 }
 
-/// Validate that an augmented prompt fits within the model's context window.
-///
-/// Called after `build_augmented_prompt` and before the LLM API call to prevent
-/// wasted API costs when the Notion schema has produced an oversized prompt.
-///
-/// Returns `Err` with an actionable message if the prompt exceeds the provider's
-/// context limit. Returns `Ok(())` if the prompt fits within budget.
-fn validate_augmented_prompt_budget(
-    augmented_prompt: &str,
-    step_config: &serde_json::Value,
-) -> Result<(), String> {
-    let provider = step_config
-        .get("provider")
-        .and_then(|v| v.as_str())
-        .unwrap_or("openai");
-    let estimated = connectors::llm::estimate_tokens(augmented_prompt);
-    let limit = connectors::llm::context_limit_for_provider(provider);
-    if estimated > limit {
-        return Err(format!(
-            "Augmented prompt ({estimated} est. tokens) exceeds {provider} context limit \
-             ({limit} tokens). Your Notion schema may be too large for this model. \
-             Try a provider with a larger context window or reduce the number of database properties."
-        ));
+/// Ensure the JSON value is an object so we can insert into it.
+fn ensure_object(v: &mut serde_json::Value) {
+    if !v.is_object() {
+        *v = serde_json::Value::Object(serde_json::Map::new());
     }
-    Ok(())
 }
 
-/// Execute a pipeline for a recording
+/// Bridge for legacy connectors that expect `integration_id` in their step
+/// config — pass the Connection's id under that key so their Keychain lookup
+/// (`{type}:{integration_id}`) resolves to the token saved under the new
+/// `{type}:{connection_id}` scheme (same shape, decision #5 in the spec).
+fn with_integration_id(connection_config: &serde_json::Value, connection_id: &str) -> serde_json::Value {
+    let mut cfg = connection_config.clone();
+    ensure_object(&mut cfg);
+    if let Some(obj) = cfg.as_object_mut() {
+        obj.insert(
+            "integration_id".to_string(),
+            serde_json::Value::String(connection_id.to_string()),
+        );
+    }
+    cfg
+}
+
+/// Write a `<step>.md` artifact for a skipped step so `get_step_outputs`
+/// reports the right status without needing the connector to have run.
+fn write_skipped_artifact(
+    output_dir: &Path,
+    step: &PipelineStep,
+    reason: &str,
+) {
+    let _ = fs::create_dir_all(output_dir);
+    let output_path = output_dir.join(format!("{}.md", step.name));
+    if output_path.exists() {
+        return;
+    }
+    let now = Utc::now().to_rfc3339();
+    let reason_escaped = reason.replace('"', "\\\"");
+    let connector_label = format!("{:?}", step.connection_type).to_lowercase();
+    let content = format!(
+        "---\nname: {}\ndescription: \"{}\"\nconnector: {}\nconnection_id: {}\nstatus: skipped\ncreated_at: {}\ncompleted_at: {}\nerror: \"{}\"\n---\n\n## Skipped\n{}\n",
+        step.name,
+        step.description.as_deref().unwrap_or("").replace('"', "\\\""),
+        connector_label,
+        step.connection_id,
+        now, now,
+        reason_escaped,
+        reason,
+    );
+    let _ = fs::write(&output_path, content);
+}
+
+/// Write a failure artifact when the engine itself (not the connector) decides
+/// a step can't run — e.g. missing Connection, type mismatch, hidden type.
+fn write_engine_failure_artifact(
+    output_dir: &Path,
+    step: &PipelineStep,
+    error: &str,
+) {
+    let _ = fs::create_dir_all(output_dir);
+    let output_path = output_dir.join(format!("{}.md", step.name));
+    let now = Utc::now().to_rfc3339();
+    let err_escaped = error.replace('"', "\\\"").replace('\n', " ");
+    let connector_label = format!("{:?}", step.connection_type).to_lowercase();
+    let content = format!(
+        "---\nname: {}\ndescription: \"{}\"\nconnector: {}\nconnection_id: {}\nstatus: failed\ncreated_at: {}\ncompleted_at: {}\nerror: \"{}\"\n---\n\n## Error\n{}\n",
+        step.name,
+        step.description.as_deref().unwrap_or("").replace('"', "\\\""),
+        connector_label,
+        step.connection_id,
+        now, now,
+        err_escaped,
+        error,
+    );
+    let _ = fs::write(&output_path, content);
+}
+
+/// Execute a pipeline for a recording.
+///
+/// New-model flow (see `docs/connections-model.md`):
+///   1. Load transcript text + app friendly name into memory.
+///   2. For each step: resolve its referenced Connection from settings, render
+///      `{transcript}` / `{app}` / `{processing_result}` into `step.template`,
+///      dispatch to the matching connector, read the artifact body back as the
+///      next step's `{processing_result}`.
+///   3. Processing-step failure halts downstream; Delivery failure logs and
+///      continues with the previous `{processing_result}` unchanged.
 pub async fn execute_pipeline_internal(
     recording_id: &str,
     pipeline_name: &str,
@@ -586,10 +437,6 @@ pub async fn execute_pipeline_internal(
     };
     let _map_guard = LockMapGuard { key };
     let _exec_guard = lock.lock().await;
-
-    // Temporary rendered transcript file guard to ensure cleanup on early exit/panic
-    let rendered_path = get_data_dir().join(recording_id).join("transcript_rendered.txt");
-    let _temp_guard = TempFileGuard { path: rendered_path };
 
     // Load pipeline definition — if deleted since assignment, mark as Partial and bail
     let pipelines = load_pipelines()?;
@@ -611,23 +458,21 @@ pub async fn execute_pipeline_internal(
 
     validate_pipeline(&pipeline)?;
 
-    // PIPE-01: Zero-step pipeline = label only; skip execution, return Done immediately
+    // Zero-step pipeline = label only; skip execution, return Done immediately.
     if pipeline.steps.is_empty() {
         update_pipeline_state(recording_id, pipeline_name, PipelineStatus::Done, None, None)?;
         return Ok(PipelineStatus::Done);
     }
 
-    // Verify transcript exists (.json primary, .md fallback)
-    let recording_dir = get_data_dir().join(recording_id);
-    let has_transcript = recording_dir.join("transcript.json").exists()
-        || recording_dir.join("transcript.md").exists();
-    if !has_transcript {
-        return Err("No transcript found. Transcribe the recording first.".to_string());
-    }
+    // Load transcript into memory — fail fast if absent.
+    let transcript = load_transcript_text(recording_id)?;
+    let app_name = resolve_app_name(recording_id);
+
+    // Load Connections once; index by id for O(1) per-step lookup.
+    let settings = load_settings();
+    let connections = index_connections(&settings);
 
     // Resolve run_index from the active (waiting/running) pipeline state.
-    // Use .last() to get the most recently assigned entry — if a previous run is still
-    // Running when a new run starts, .next() would incorrectly pick the old one.
     let run_index = {
         let states = read_pipeline_states(recording_id);
         states.iter()
@@ -637,68 +482,20 @@ pub async fn execute_pipeline_internal(
             .unwrap_or(0)
     };
 
-    // Update pipeline state to running
     update_pipeline_state(recording_id, pipeline_name, PipelineStatus::Running, None, None)?;
 
     let output_dir = get_pipeline_output_dir(recording_id, pipeline_name, run_index);
     let total_steps = pipeline.steps.len();
 
-    // Track which steps have failed or been skipped (by step name).
-    // Used to determine whether subsequent steps should be skipped based on their input.
+    // Threaded state across the step loop.
+    let mut prev_processing_output = String::new();
     let mut failed_or_skipped: HashSet<String> = HashSet::new();
-    // Track whether any step failed so we can set Partial status at the end.
     let mut has_failure = false;
-    // Track the first error message for backward-compatible pipeline state error field.
     let mut first_error: Option<String> = None;
 
-    // Execute steps sequentially
     for (i, step) in pipeline.steps.iter().enumerate() {
-        // Check if this step should be skipped because its input came from a failed/skipped step.
-        // "transcript" input is always available — never skip based on it.
-        let should_skip = step.input != "transcript" && failed_or_skipped.contains(&step.input);
-
-        if should_skip {
-            // Write a skipped step .md file so get_step_outputs returns correct status
-            let _ = fs::create_dir_all(&output_dir);
-            let output_path = output_dir.join(format!("{}.md", step.name));
-            let now = chrono::Utc::now().to_rfc3339();
-            let skip_note = format!("Skipped because step '{}' failed", step.input);
-            let skip_note_escaped = skip_note.replace('"', "\\\"");
-            let connector_name = format!("{:?}", step.connector).to_lowercase();
-            let file_content = format!(
-                "---\nname: {}\ndescription: \"{}\"\nconnector: {}\ninput: {}\nstatus: skipped\ncreated_at: {}\ncompleted_at: {}\nerror: \"{}\"\n---\n\n## Skipped\n{}\n",
-                step.name,
-                step.description.as_deref().unwrap_or(""),
-                connector_name,
-                step.input,
-                now, now,
-                skip_note_escaped,
-                skip_note,
-            );
-            let _ = fs::write(&output_path, &file_content);
-
-            // Emit skipped progress event
-            if let Some(app) = app_handle {
-                use tauri::Emitter;
-                let _ = app.emit(
-                    "pipeline-progress",
-                    PipelineProgressPayload {
-                        recording_id: recording_id.to_string(),
-                        pipeline_name: pipeline_name.to_string(),
-                        step_name: step.name.clone(),
-                        step_index: i,
-                        total_steps,
-                        status: "skipped".to_string(),
-                    },
-                );
-            }
-
-            // This step is skipped, so its output is also unavailable for downstream steps
-            failed_or_skipped.insert(step.name.clone());
-            continue;
-        }
-
-        // Update current step
+        // Emit running event before any work so the UI flips the row state.
+        emit_progress(app_handle, recording_id, pipeline_name, step, i, total_steps, "running");
         update_pipeline_state(
             recording_id,
             pipeline_name,
@@ -707,510 +504,116 @@ pub async fn execute_pipeline_internal(
             None,
         )?;
 
-        // Emit progress event
-        if let Some(app) = app_handle {
-            use tauri::Emitter;
-            let _ = app.emit(
-                "pipeline-progress",
-                PipelineProgressPayload {
-                    recording_id: recording_id.to_string(),
-                    pipeline_name: pipeline_name.to_string(),
-                    step_name: step.name.clone(),
-                    step_index: i,
-                    total_steps,
-                    status: "running".to_string(),
-                },
-            );
-        }
-
-        let input_path = resolve_input_path(recording_id, pipeline_name, &step.input, run_index);
-
-        if !input_path.exists() {
-            let error = format!(
-                "Input file not found for step '{}': {}",
-                step.name,
-                input_path.display()
-            );
-            // Missing input is treated as a step failure
-            if first_error.is_none() {
-                first_error = Some(error.clone());
-            }
-            has_failure = true;
-            failed_or_skipped.insert(step.name.clone());
-
-            // Emit failed event
-            if let Some(app) = app_handle {
-                use tauri::Emitter;
-                let _ = app.emit(
-                    "pipeline-progress",
-                    PipelineProgressPayload {
-                        recording_id: recording_id.to_string(),
-                        pipeline_name: pipeline_name.to_string(),
-                        step_name: step.name.clone(),
-                        step_index: i,
-                        total_steps,
-                        status: "failed".to_string(),
-                    },
+        // Look up the referenced Connection. Missing / type-mismatched →
+        // engine failure with an artifact, then halt-or-continue based on role.
+        let conn = match connections.get(&step.connection_id) {
+            Some(c) if c.connection_type == step.connection_type => *c,
+            Some(c) => {
+                let err = format!(
+                    "Step '{}': Connection '{}' has type {:?} but step expects {:?}",
+                    step.name, c.id, c.connection_type, step.connection_type
                 );
-            }
-
-            // Processing step failure (or input-missing) — skip all remaining steps
-            if !step.connector.is_delivery() {
-                // Mark all remaining steps as skipped (they depend transitively on this step)
-                for remaining in pipeline.steps.iter().skip(i + 1) {
-                    failed_or_skipped.insert(remaining.name.clone());
-                }
-                break;
-            }
-            // Delivery step with missing input — also treat as blocking since we can't
-            // determine independence. Mark remaining and break.
-            for remaining in pipeline.steps.iter().skip(i + 1) {
-                failed_or_skipped.insert(remaining.name.clone());
-            }
-            break;
-        }
-
-        let step_result = match step.connector {
-            ConnectorType::Llm => {
-                // N+1 look-ahead: augment prompt if next step is Notion or Linear.
-                // Only augments the LLM step directly before a delivery step (v1 scope).
-                // Non-contiguous chains like [LLM, Save, Notion] are not augmented.
-                let augmented = if let Some(next_step) = pipeline.steps.get(i + 1) {
-                    if next_step.connector == ConnectorType::Notion {
-                        let integration_id = next_step.config
-                            .get("integration_id")
-                            .and_then(|v| v.as_str())
-                            .ok_or_else(|| format!(
-                                "Step '{}': Notion step missing integration_id in config \
-                                 (required for prompt augmentation)",
-                                next_step.name
-                            ))?;
-                        Some(build_augmented_prompt(&step.config, &input_path, integration_id)?)
-                    } else if next_step.connector == ConnectorType::Linear {
-                        let integration_id = next_step.config
-                            .get("integration_id")
-                            .and_then(|v| v.as_str())
-                            .ok_or_else(|| format!(
-                                "Step '{}': Linear step missing integration_id in config \
-                                 (required for prompt augmentation)",
-                                next_step.name
-                            ))?;
-                        Some(build_linear_augmented_prompt(&step.config, &input_path, integration_id)?)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-
-                // Save augmented prompt as sidecar file so it can be shown in the UI
-                if let Some(ref aug_text) = augmented {
-                    let aug_path = output_dir.join(format!("{}.augmented-prompt.txt", step.name));
-                    let _ = fs::create_dir_all(&output_dir);
-                    let _ = fs::write(&aug_path, aug_text);
-                }
-
-                // Budget check: reject over-limit augmented prompts before making the API call
-                if let Some(ref aug_text) = augmented {
-                    validate_augmented_prompt_budget(aug_text, &step.config)?;
-                }
-
-                connectors::llm::execute(
-                    &input_path,
-                    &step.config,
-                    &output_dir,
-                    &step.name,
-                    &step.input,
-                    step.description.as_deref(),
-                    augmented.as_deref(),
-                )
-                .await
-            }
-            ConnectorType::Save => {
-                connectors::save::execute(
-                    &input_path,
-                    &step.config,
-                    &output_dir,
-                    &step.name,
-                    &step.input,
-                    step.description.as_deref(),
-                    pipeline_name,
+                write_engine_failure_artifact(&output_dir, step, &err);
+                handle_step_failure(
+                    &err,
+                    step,
+                    i,
+                    &pipeline.steps,
+                    &mut first_error,
+                    &mut has_failure,
+                    &mut failed_or_skipped,
+                    app_handle,
                     recording_id,
-                )
-                .await
-            }
-            ConnectorType::Webhook => {
-                connectors::webhook::execute(
-                    &input_path,
-                    &step.config,
-                    &output_dir,
-                    &step.name,
-                    &step.input,
-                    step.description.as_deref(),
-                )
-                .await
-            }
-            ConnectorType::Slack => {
-                connectors::slack::execute(
-                    &input_path,
-                    &step.config,
-                    &output_dir,
-                    &step.name,
-                    &step.input,
-                    step.description.as_deref(),
-                )
-                .await
-            }
-            ConnectorType::Notion => {
-                // Use execute_structured to detect JSON parse failures for retry.
-                // JSON parse failures trigger exactly one corrective-prompt retry
-                // using the same LLM provider/model. Other errors skip retry.
-                use connectors::notion::NotionErrorKind;
-
-                let notion_result = connectors::notion::execute_structured(
-                    &input_path,
-                    &step.config,
-                    &output_dir,
-                    &step.name,
-                    &step.input,
-                    step.description.as_deref(),
-                )
-                .await;
-
-                match notion_result {
-                    Ok(path) => Ok(path),
-                    Err(ref notion_err) if matches!(notion_err.kind, NotionErrorKind::JsonParse { .. }) => {
-                        // Extract raw_output from the JSON parse error
-                        let raw_output = match &notion_err.kind {
-                            NotionErrorKind::JsonParse { raw_output, .. } => raw_output.clone(),
-                            _ => unreachable!(),
-                        };
-
-                        eprintln!(
-                            "[pipeline] Notion JSON parse failure on step '{}', retrying with corrective prompt",
-                            step.name
-                        );
-
-                        // Find the LLM step that fed into this Notion step so we can
-                        // read its config for provider/model and its output for context.
-                        //
-                        // The N+1 look-ahead guarantees the immediately-preceding step
-                        // is the LLM step that produced the JSON (when the pipeline
-                        // is structured as LLM -> Notion).
-                        // We look backward from the current Notion step index.
-                        let llm_step_for_retry = if i > 0 {
-                            pipeline.steps.get(i - 1).filter(|s| s.connector == ConnectorType::Llm)
-                        } else {
-                            None
-                        };
-
-                        let retry_result = if let Some(llm_step) = llm_step_for_retry {
-                            // Get the augmented prompt for context (rebuild it for the retry call)
-                            let notion_integration_id = step.config
-                                .get("integration_id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("");
-                            let original_prompt = build_augmented_prompt(
-                                &llm_step.config,
-                                &resolve_input_path(recording_id, pipeline_name, &llm_step.input, run_index),
-                                notion_integration_id,
-                            ).unwrap_or_default();
-
-                            connectors::llm::execute_retry(
-                                &raw_output,
-                                &original_prompt,
-                                &llm_step.config,
-                                &output_dir,
-                                &llm_step.name,
-                                &llm_step.input,
-                                llm_step.description.as_deref(),
-                            )
-                            .await
-                        } else {
-                            // No preceding LLM step found — cannot retry
-                            Err(format!(
-                                "Notion JSON parse failure on step '{}': no preceding LLM step found for retry",
-                                step.name
-                            ))
-                        };
-
-                        match retry_result {
-                            Ok(retry_output_path) => {
-                                // Retry LLM call succeeded — attempt Notion step again with retry output
-                                connectors::notion::execute_with_raw_preservation(
-                                    &retry_output_path,
-                                    &step.config,
-                                    &output_dir,
-                                    &step.name,
-                                    &step.input,
-                                    step.description.as_deref(),
-                                    Some(&raw_output),
-                                )
-                                .await
-                            }
-                            Err(retry_llm_error) => {
-                                // Retry LLM call failed — write failure output with raw output preserved
-                                let error_message = format!(
-                                    "Notion step '{}' failed with JSON parse error, and retry LLM call also failed: {}",
-                                    step.name, retry_llm_error
-                                );
-
-                                let _ = fs::create_dir_all(&output_dir);
-                                let output_path = output_dir.join(format!("{}.md", step.name));
-                                let integration_id = step.config
-                                    .get("integration_id")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("unknown");
-                                let now = chrono::Utc::now().to_rfc3339();
-                                let error_escaped = error_message.replace('"', "\\\"").replace('\n', " ");
-                                let file_content = format!(
-                                    "---\nname: {}\ndescription: \"{}\"\nconnector: notion\ninput: {}\nstatus: failed\ncreated_at: {}\ncompleted_at: {}\nintegration_id: {}\npages_created: 0\nerror: \"{}\"\n---\n\n## Error\n{}\n\n## Raw AI Output\n{}\n",
-                                    step.name,
-                                    step.description.as_deref().unwrap_or("Create Notion pages"),
-                                    step.input,
-                                    now, now,
-                                    integration_id,
-                                    error_escaped,
-                                    error_message,
-                                    raw_output,
-                                );
-                                let _ = fs::write(&output_path, &file_content);
-
-                                Err(error_message)
-                            }
-                        }
-                    }
-                    Err(other_err) => {
-                        // Non-JSON error (API failure, config error, etc.) — no retry
-                        Err(other_err.to_string())
-                    }
+                    pipeline_name,
+                    total_steps,
+                );
+                if step.connection_type.role() == ConnectionRole::Processing {
+                    break;
                 }
+                continue;
             }
-            ConnectorType::Linear => {
-                // Use execute_structured to detect JSON parse failures for retry.
-                // JSON parse failures trigger exactly one corrective-prompt retry
-                // using the same LLM provider/model. Other errors skip retry.
-                use connectors::linear::LinearErrorKind;
-
-                let linear_result = connectors::linear::execute_structured(
-                    &input_path,
-                    &step.config,
-                    &output_dir,
-                    &step.name,
-                    &step.input,
-                    step.description.as_deref(),
-                )
-                .await;
-
-                match linear_result {
-                    Ok(path) => Ok(path),
-                    Err(ref linear_err) if matches!(linear_err.kind, LinearErrorKind::JsonParse { .. }) => {
-                        let raw_output = match &linear_err.kind {
-                            LinearErrorKind::JsonParse { raw_output, .. } => raw_output.clone(),
-                            _ => unreachable!(),
-                        };
-
-                        eprintln!(
-                            "[pipeline] Linear JSON parse failure on step '{}', retrying with corrective prompt",
-                            step.name
-                        );
-
-                        let llm_step_for_retry = if i > 0 {
-                            pipeline.steps.get(i - 1).filter(|s| s.connector == ConnectorType::Llm)
-                        } else {
-                            None
-                        };
-
-                        let retry_result = if let Some(llm_step) = llm_step_for_retry {
-                            // Rebuild augmented prompt for retry — uses same schema guidance as original call
-                            let linear_integration_id = step.config
-                                .get("integration_id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("");
-                            let original_prompt = build_linear_augmented_prompt(
-                                &llm_step.config,
-                                &resolve_input_path(recording_id, pipeline_name, &llm_step.input, run_index),
-                                linear_integration_id,
-                            ).unwrap_or_default();
-
-                            connectors::llm::execute_retry(
-                                &raw_output,
-                                &original_prompt,
-                                &llm_step.config,
-                                &output_dir,
-                                &llm_step.name,
-                                &llm_step.input,
-                                llm_step.description.as_deref(),
-                            )
-                            .await
-                        } else {
-                            Err(format!(
-                                "Linear JSON parse failure on step '{}': no preceding LLM step found for retry",
-                                step.name
-                            ))
-                        };
-
-                        match retry_result {
-                            Ok(retry_output_path) => {
-                                connectors::linear::execute_with_raw_preservation(
-                                    &retry_output_path,
-                                    &step.config,
-                                    &output_dir,
-                                    &step.name,
-                                    &step.input,
-                                    step.description.as_deref(),
-                                    Some(&raw_output),
-                                )
-                                .await
-                            }
-                            Err(retry_llm_error) => {
-                                let error_message = format!(
-                                    "Linear step '{}' failed with JSON parse error, and retry LLM call also failed: {}",
-                                    step.name, retry_llm_error
-                                );
-
-                                let _ = fs::create_dir_all(&output_dir);
-                                let output_path = output_dir.join(format!("{}.md", step.name));
-                                let integration_id = step.config
-                                    .get("integration_id")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("unknown");
-                                let now = chrono::Utc::now().to_rfc3339();
-                                let error_escaped = error_message.replace('"', "\\\"").replace('\n', " ");
-                                let file_content = format!(
-                                    "---\nname: {}\ndescription: \"{}\"\nconnector: linear\ninput: {}\nstatus: failed\ncreated_at: {}\ncompleted_at: {}\nintegration_id: {}\nissues_created: 0\nerror: \"{}\"\n---\n\n## Error\n{}\n\n## Raw AI Output\n{}\n",
-                                    step.name,
-                                    step.description.as_deref().unwrap_or("Create Linear issue"),
-                                    step.input,
-                                    now, now,
-                                    integration_id,
-                                    error_escaped,
-                                    error_message,
-                                    raw_output,
-                                );
-                                let _ = fs::write(&output_path, &file_content);
-
-                                Err(error_message)
-                            }
-                        }
-                    }
-                    Err(other_err) => {
-                        Err(other_err.to_string())
-                    }
+            None => {
+                let err = format!(
+                    "Step '{}': Connection '{}' not found. \
+                     Open Settings > Connections to recreate it or remove this step.",
+                    step.name, step.connection_id
+                );
+                write_engine_failure_artifact(&output_dir, step, &err);
+                handle_step_failure(
+                    &err,
+                    step,
+                    i,
+                    &pipeline.steps,
+                    &mut first_error,
+                    &mut has_failure,
+                    &mut failed_or_skipped,
+                    app_handle,
+                    recording_id,
+                    pipeline_name,
+                    total_steps,
+                );
+                if step.connection_type.role() == ConnectionRole::Processing {
+                    break;
                 }
-            }
-            ConnectorType::Mcp => {
-                connectors::mcp::execute(
-                    &input_path,
-                    &step.config,
-                    &output_dir,
-                    &step.name,
-                    &step.input,
-                    step.description.as_deref(),
-                )
-                .await
-            }
-            ConnectorType::CliAgent => {
-                connectors::cli_agent::execute(
-                    &input_path,
-                    &step.config,
-                    &output_dir,
-                    &step.name,
-                    &step.input,
-                    step.description.as_deref(),
-                )
-                .await
+                continue;
             }
         };
 
+        // Render template + dispatch.
+        let rendered = render_template(&step.template, &transcript, &app_name, &prev_processing_output);
+        let step_result = dispatch_step(
+            step,
+            conn,
+            &rendered,
+            &output_dir,
+            pipeline_name,
+            recording_id,
+        )
+        .await;
+
         match step_result {
-            Ok(_) => {
-                // Emit step done
-                if let Some(app) = app_handle {
-                    use tauri::Emitter;
-                    let _ = app.emit(
-                        "pipeline-progress",
-                        PipelineProgressPayload {
-                            recording_id: recording_id.to_string(),
-                            pipeline_name: pipeline_name.to_string(),
-                            step_name: step.name.clone(),
-                            step_index: i,
-                            total_steps,
-                            status: "done".to_string(),
-                        },
-                    );
+            Ok(outcome) => {
+                emit_progress(app_handle, recording_id, pipeline_name, step, i, total_steps, "done");
+                if step.connection_type.role() == ConnectionRole::Processing {
+                    prev_processing_output = outcome.body;
                 }
             }
-            Err(ref error) => {
-                // Record the first error for backward-compatible pipeline state
-                if first_error.is_none() {
-                    first_error = Some(error.clone());
-                }
-                has_failure = true;
-                failed_or_skipped.insert(step.name.clone());
-
-                // Emit failed event
-                if let Some(app) = app_handle {
-                    use tauri::Emitter;
-                    let _ = app.emit(
-                        "pipeline-progress",
-                        PipelineProgressPayload {
-                            recording_id: recording_id.to_string(),
-                            pipeline_name: pipeline_name.to_string(),
-                            step_name: step.name.clone(),
-                            step_index: i,
-                            total_steps,
-                            status: "failed".to_string(),
-                        },
-                    );
-                }
-
-                if !step.connector.is_delivery() {
-                    // Processing step failure — all downstream steps depend on this output.
-                    // Mark all remaining steps as skipped and stop executing.
-                    for remaining in pipeline.steps.iter().skip(i + 1) {
-                        failed_or_skipped.insert(remaining.name.clone());
-                    }
+            Err(err) => {
+                handle_step_failure(
+                    &err,
+                    step,
+                    i,
+                    &pipeline.steps,
+                    &mut first_error,
+                    &mut has_failure,
+                    &mut failed_or_skipped,
+                    app_handle,
+                    recording_id,
+                    pipeline_name,
+                    total_steps,
+                );
+                if step.connection_type.role() == ConnectionRole::Processing {
+                    // Processing failure halts downstream — same as legacy semantics,
+                    // since Processing output feeds chained steps.
                     break;
                 }
-                // Delivery step failure — continue to the next step.
-                // Downstream steps whose input is NOT this step will execute normally.
-                // Downstream steps whose input IS this step will be skipped (checked at loop top).
+                // Delivery failure: log + continue with prev_processing_output unchanged.
             }
         }
     }
 
-    // Write skipped step files for any steps in failed_or_skipped that don't yet have .md files.
-    // (Processing-halt scenario: remaining steps are added to the set but never visited in the loop.)
-    let _ = fs::create_dir_all(&output_dir);
+    // Write skipped artifacts for any steps the engine marked but never visited
+    // (the loop `break`ed past them on processing failure).
     for step in &pipeline.steps {
         if failed_or_skipped.contains(&step.name) {
-            let output_path = output_dir.join(format!("{}.md", step.name));
-            if !output_path.exists() {
-                let now = chrono::Utc::now().to_rfc3339();
-                let skip_reason = if step.input != "transcript" && failed_or_skipped.contains(&step.input) {
-                    format!("Skipped because step '{}' failed", step.input)
-                } else {
-                    "Skipped because a preceding processing step failed".to_string()
-                };
-                let skip_reason_escaped = skip_reason.replace('"', "\\\"");
-                let connector_name = format!("{:?}", step.connector).to_lowercase();
-                let file_content = format!(
-                    "---\nname: {}\ndescription: \"{}\"\nconnector: {}\ninput: {}\nstatus: skipped\ncreated_at: {}\ncompleted_at: {}\nerror: \"{}\"\n---\n\n## Skipped\n{}\n",
-                    step.name,
-                    step.description.as_deref().unwrap_or(""),
-                    connector_name,
-                    step.input,
-                    now, now,
-                    skip_reason_escaped,
-                    skip_reason,
-                );
-                let _ = fs::write(&output_path, &file_content);
-            }
+            write_skipped_artifact(
+                &output_dir,
+                step,
+                "Skipped because a preceding processing step failed",
+            );
         }
     }
 
-    // Determine final pipeline status
     let final_status = if has_failure {
         PipelineStatus::Partial
     } else {
@@ -1225,15 +628,18 @@ pub async fn execute_pipeline_internal(
         first_error.as_deref(),
     )?;
 
-    // Auto-title: if recording still has default title, extract one from the first processing step output
+    // Auto-title: if recording still has default title, extract one from the first
+    // processing step's output that succeeded.
     if final_status == PipelineStatus::Done || final_status == PipelineStatus::Partial {
         if let Ok(meta) = crate::storage::read_metadata(recording_id) {
             let needs_title = meta.title.is_empty()
                 || meta.title == "Untitled Recording"
                 || meta.title.starts_with("Recording ");
             if needs_title {
-                // Find first non-delivery step that succeeded
-                if let Some(step) = pipeline.steps.iter().find(|s| !s.connector.is_delivery() && !failed_or_skipped.contains(&s.name)) {
+                if let Some(step) = pipeline.steps.iter().find(|s| {
+                    s.connection_type.role() == ConnectionRole::Processing
+                        && !failed_or_skipped.contains(&s.name)
+                }) {
                     let step_output = output_dir.join(format!("{}.md", step.name));
                     if let Ok(content) = fs::read_to_string(&step_output) {
                         if let Some(title) = extract_title_from_output(&content) {
@@ -1246,6 +652,70 @@ pub async fn execute_pipeline_internal(
     }
 
     Ok(final_status)
+}
+
+/// Common bookkeeping for a step that just failed: record the error, mark
+/// downstream steps as skipped if it's a Processing step, emit the UI event.
+#[allow(clippy::too_many_arguments)]
+fn handle_step_failure(
+    error: &str,
+    step: &PipelineStep,
+    step_index: usize,
+    all_steps: &[PipelineStep],
+    first_error: &mut Option<String>,
+    has_failure: &mut bool,
+    failed_or_skipped: &mut HashSet<String>,
+    app_handle: Option<&tauri::AppHandle>,
+    recording_id: &str,
+    pipeline_name: &str,
+    total_steps: usize,
+) {
+    if first_error.is_none() {
+        *first_error = Some(error.to_string());
+    }
+    *has_failure = true;
+    failed_or_skipped.insert(step.name.clone());
+
+    if step.connection_type.role() == ConnectionRole::Processing {
+        for remaining in all_steps.iter().skip(step_index + 1) {
+            failed_or_skipped.insert(remaining.name.clone());
+        }
+    }
+
+    emit_progress(
+        app_handle,
+        recording_id,
+        pipeline_name,
+        step,
+        step_index,
+        total_steps,
+        "failed",
+    );
+}
+
+fn emit_progress(
+    app_handle: Option<&tauri::AppHandle>,
+    recording_id: &str,
+    pipeline_name: &str,
+    step: &PipelineStep,
+    step_index: usize,
+    total_steps: usize,
+    status: &str,
+) {
+    if let Some(app) = app_handle {
+        use tauri::Emitter;
+        let _ = app.emit(
+            "pipeline-progress",
+            PipelineProgressPayload {
+                recording_id: recording_id.to_string(),
+                pipeline_name: pipeline_name.to_string(),
+                step_name: step.name.clone(),
+                step_index,
+                total_steps,
+                status: status.to_string(),
+            },
+        );
+    }
 }
 
 /// Acquire an exclusive file lock using platform-appropriate mechanism.
@@ -1481,19 +951,15 @@ pub fn get_step_outputs(
             let content = fs::read_to_string(&step_file).unwrap_or_default();
             // Parse status, error, and duration from frontmatter
             let (status, error, duration_secs, output) = parse_step_status(&content);
-            // Load augmented prompt from sidecar file if present
-            let aug_path = output_dir.join(format!("{}.augmented-prompt.txt", step.name));
-            let augmented_prompt = if aug_path.exists() {
-                fs::read_to_string(&aug_path).ok()
-            } else {
-                None
-            };
             statuses.push(StepStatus {
                 name: step.name.clone(),
                 status,
                 error,
                 duration_secs,
-                augmented_prompt,
+                // augmented_prompt was an N+1 look-ahead artifact (LLM step
+                // composing a Notion/Linear schema spec). Gone in the new model
+                // — users put any schema hint in their template directly.
+                augmented_prompt: None,
                 output,
             });
         } else {
@@ -1686,21 +1152,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_resolve_input_path_transcript() {
-        let path = resolve_input_path("abc-123", "my-pipeline", "transcript", 0);
-        assert!(path.to_string_lossy().contains("abc-123"));
-        // Falls back to transcript.md when no .json exists
-        assert!(
-            path.to_string_lossy().ends_with("transcript.md")
-            || path.to_string_lossy().ends_with("transcript_rendered.txt")
+    fn test_render_template_all_three_placeholders() {
+        let out = render_template(
+            "Hi {app}, transcript is:\n{transcript}\n\nPrev: {processing_result}",
+            "hello world",
+            "Zoom",
+            "summary v1",
         );
+        assert!(out.contains("Hi Zoom"));
+        assert!(out.contains("hello world"));
+        assert!(out.contains("Prev: summary v1"));
     }
 
     #[test]
-    fn test_resolve_input_path_step() {
-        let path = resolve_input_path("abc-123", "my-pipeline", "summarize", 0);
-        assert!(path.to_string_lossy().contains("pipelines/my-pipeline"));
-        assert!(path.to_string_lossy().ends_with("summarize.md"));
+    fn test_render_template_missing_keys_render_as_empty() {
+        // No-placeholder template — passes through verbatim.
+        assert_eq!(render_template("static text", "T", "A", "P"), "static text");
+    }
+
+    #[test]
+    fn test_render_template_empty_processing_result_for_first_step() {
+        let out = render_template("[{processing_result}]", "T", "A", "");
+        assert_eq!(out, "[]");
     }
 
     #[test]
@@ -1753,19 +1226,31 @@ mod tests {
     }
 
     #[test]
-    fn test_pipeline_output_dir() {
-        let dir = get_pipeline_output_dir("abc-123", "my-pipeline", 0);
-        assert!(dir.to_string_lossy().contains("abc-123"));
-        assert!(dir.to_string_lossy().contains("pipelines/my-pipeline"));
-    }
-
-    #[test]
     fn test_pipeline_output_dir_isolation() {
-        // PIPE-05: Each pipeline gets its own output directory
         let dir_a = get_pipeline_output_dir("rec-1", "pipeline-a", 0);
         let dir_b = get_pipeline_output_dir("rec-1", "pipeline-b", 0);
         assert_ne!(dir_a, dir_b);
         assert!(dir_a.to_string_lossy().contains("pipelines/pipeline-a"));
         assert!(dir_b.to_string_lossy().contains("pipelines/pipeline-b"));
+    }
+
+    #[test]
+    fn test_with_integration_id_overwrites_or_inserts() {
+        // Insert into an empty object
+        let cfg = with_integration_id(&serde_json::json!({}), "abc-123");
+        assert_eq!(cfg["integration_id"], "abc-123");
+
+        // Overwrite existing
+        let cfg = with_integration_id(&serde_json::json!({"integration_id": "old"}), "new-456");
+        assert_eq!(cfg["integration_id"], "new-456");
+
+        // Preserve other fields
+        let cfg = with_integration_id(
+            &serde_json::json!({"target": "#general", "thread_ts": "1.2"}),
+            "slack-1",
+        );
+        assert_eq!(cfg["target"], "#general");
+        assert_eq!(cfg["thread_ts"], "1.2");
+        assert_eq!(cfg["integration_id"], "slack-1");
     }
 }

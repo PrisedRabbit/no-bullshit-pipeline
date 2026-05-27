@@ -2,43 +2,29 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::path::PathBuf;
-use crate::config::get_config_dir;
+use crate::config::{get_config_dir, ConnectionType};
 use crate::storage::get_data_dir;
 
-/// Connector types available for pipeline steps
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum ConnectorType {
-    Llm,
-    Save,
-    Webhook,
-    Slack,
-    Mcp,
-    Notion,
-    Linear,
-    #[serde(rename = "cli_agent")]
-    CliAgent,
-}
-
-impl ConnectorType {
-    /// Delivery connectors send output to external services.
-    /// Their failure does not block other independent steps — the pipeline continues
-    /// executing subsequent steps whose inputs are not derived from this step.
-    ///
-    /// Processing connectors (Llm, Mcp) produce output consumed by downstream steps.
-    /// Their failure halts all downstream steps because those steps depend on the output.
-    pub fn is_delivery(&self) -> bool {
-        matches!(self, ConnectorType::Notion | ConnectorType::Linear | ConnectorType::Slack | ConnectorType::Webhook | ConnectorType::Save)
-    }
-}
-
-/// A single step in a pipeline
+/// A single step in a pipeline.
+///
+/// New shape (see `docs/connections-model.md`): the step does NOT carry its
+/// own auth / target — it picks a pre-built [`Connection`](crate::config::Connection)
+/// by id, and writes a template that gets the 3 placeholders substituted by
+/// the engine before being handed to the connector. No `input` field — chain
+/// is strictly linear (`{processing_result}` = immediately previous processing
+/// step's output).
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PipelineStep {
     pub name: String,
-    pub connector: ConnectorType,
-    pub input: String, // "transcript" or previous step name
-    pub config: serde_json::Value, // Connector-specific config
+    /// Determines which connector dispatches this step + which Connections are
+    /// eligible to pick in the UI.
+    pub connection_type: ConnectionType,
+    /// Id of the Connection in `AppSettings.connections`. Empty is a draft
+    /// state from the editor; `validate_pipeline` rejects it.
+    pub connection_id: String,
+    /// Free-form text with `{transcript}` / `{app}` / `{processing_result}`
+    /// placeholders. Engine renders before invoking the connector.
+    pub template: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
@@ -137,7 +123,13 @@ fn migrate_pipelines_if_needed() {
     }
 }
 
-/// Validate a pipeline definition
+/// Validate a pipeline definition.
+///
+/// Cross-file checks (does `connection_id` resolve to a real Connection? does
+/// its type match `connection_type`?) are NOT done here — they need
+/// `AppSettings` which we don't pull through this layer. The runner does that
+/// at execution time and fails the step with a clear "Connection not found"
+/// (see `docs/connections-model.md` closed-decision #8).
 pub fn validate_pipeline(pipeline: &Pipeline) -> Result<(), String> {
     // Pipeline must have non-empty name
     if pipeline.name.trim().is_empty() {
@@ -169,27 +161,13 @@ pub fn validate_pipeline(pipeline: &Pipeline) -> Result<(), String> {
             ));
         }
 
-        // Validate input references
-        if i == 0 {
-            // First step input must be "transcript"
-            if step.input != "transcript" {
-                return Err(format!(
-                    "First step '{}' input must be 'transcript', got '{}'",
-                    step.name, step.input
-                ));
-            }
-        } else {
-            // Subsequent steps can reference "transcript" or a previous step name
-            if step.input != "transcript" && !defined_steps.contains(&step.input) {
-                return Err(format!(
-                    "Step '{}' references unknown input '{}'. Must be 'transcript' or a previous step name",
-                    step.name, step.input
-                ));
-            }
+        // Step must reference a Connection.
+        if step.connection_id.trim().is_empty() {
+            return Err(format!(
+                "Step '{}' has no Connection selected. Pick one in the editor or create a {:?} Connection first.",
+                step.name, step.connection_type
+            ));
         }
-
-        // Validate connector-specific config
-        validate_step_config(step)?;
 
         // Check for duplicate step names
         if defined_steps.contains(&step.name) {
@@ -202,192 +180,14 @@ pub fn validate_pipeline(pipeline: &Pipeline) -> Result<(), String> {
     Ok(())
 }
 
-/// Validate connector-specific config for a pipeline step
-fn validate_step_config(step: &PipelineStep) -> Result<(), String> {
-    match step.connector {
-        ConnectorType::Llm => {
-            let has_template = step.config.get("prompt_template")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.trim().is_empty())
-                .is_some();
-            let has_inline = step.config.get("prompt_inline")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.trim().is_empty())
-                .is_some();
-            if !has_template && !has_inline {
-                return Err(format!(
-                    "Step '{}': LLM connector requires 'prompt_template' or 'prompt_inline' in config",
-                    step.name
-                ));
-            }
-            // Validate provider if specified
-            if let Some(provider) = step.config.get("provider").and_then(|v| v.as_str())
-                && !["openai", "google", "anthropic", "local", "ollama", "cli_agent"].contains(&provider)
-            {
-                return Err(format!(
-                    "Step '{}': Unknown LLM provider '{}'. Must be openai, google, anthropic, local, ollama, or cli_agent",
-                    step.name, provider
-                ));
-            }
-        }
-        ConnectorType::Save => {
-            let has_path = step.config.get("path")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.trim().is_empty())
-                .is_some();
-            let has_folder_path = step.config.get("folder_path")
-                .or_else(|| step.config.get("folder"))
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.trim().is_empty())
-                .is_some();
-            let has_integration_id = step.config.get("integration_id")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.trim().is_empty())
-                .is_some();
-            if !has_path && !has_folder_path && !has_integration_id {
-                return Err(format!(
-                    "Step '{}': Save connector requires 'path', 'folder_path', or 'integration_id' in config",
-                    step.name
-                ));
-            }
-        }
-        ConnectorType::Webhook => {
-            let url = step.config.get("url").and_then(|v| v.as_str());
-            if url.is_none() {
-                return Err(format!(
-                    "Step '{}': Webhook connector requires 'url' in config",
-                    step.name
-                ));
-            }
-            // Validate URL starts with http(s)
-            if let Some(u) = url
-                && !u.starts_with("http://") && !u.starts_with("https://")
-            {
-                return Err(format!(
-                    "Step '{}': Webhook URL must start with http:// or https://",
-                    step.name
-                ));
-            }
-            // Validate HTTP method if specified
-            if let Some(method) = step.config.get("method").and_then(|v| v.as_str()) {
-                let m = method.to_uppercase();
-                if !["POST", "PUT", "PATCH"].contains(&m.as_str()) {
-                    return Err(format!(
-                        "Step '{}': Unsupported HTTP method '{}'. Must be POST, PUT, or PATCH",
-                        step.name, method
-                    ));
-                }
-            }
-        }
-        ConnectorType::Slack => {
-            if step.config.get("integration_id").and_then(|v| v.as_str()).is_none() {
-                return Err(format!(
-                    "Step '{}': Slack connector requires 'integration_id' in config",
-                    step.name
-                ));
-            }
-            if step.config.get("target").and_then(|v| v.as_str()).is_none() {
-                return Err(format!(
-                    "Step '{}': Slack connector requires 'target' in config",
-                    step.name
-                ));
-            }
-        }
-        ConnectorType::Mcp => {
-            let url = step.config.get("url").and_then(|v| v.as_str());
-            if url.is_none() {
-                return Err(format!(
-                    "Step '{}': MCP connector requires 'url' in config",
-                    step.name
-                ));
-            }
-            if let Some(u) = url
-                && !u.starts_with("http://") && !u.starts_with("https://")
-            {
-                return Err(format!(
-                    "Step '{}': MCP URL must start with http:// or https://",
-                    step.name
-                ));
-            }
-            match step.config.get("tool").and_then(|v| v.as_str()) {
-                None | Some("") => {
-                    return Err(format!(
-                        "Step '{}': MCP connector requires 'tool' in config",
-                        step.name
-                    ));
-                }
-                _ => {}
-            }
-        }
-        ConnectorType::Notion => {
-            if step.config.get("integration_id").and_then(|v| v.as_str()).is_none() {
-                return Err(format!(
-                    "Step '{}': Notion connector requires 'integration_id' in config",
-                    step.name
-                ));
-            }
-        }
-        ConnectorType::Linear => {
-            if step.config.get("integration_id").and_then(|v| v.as_str()).is_none() {
-                return Err(format!(
-                    "Step '{}': Linear connector requires 'integration_id' in config",
-                    step.name
-                ));
-            }
-        }
-        ConnectorType::CliAgent => {
-            let cli = step.config.get("cli").and_then(|v| v.as_str());
-            match cli {
-                None | Some("") => {
-                    return Err(format!(
-                        "Step '{}': CLI agent connector requires 'cli' in config ('claude' or 'codex')",
-                        step.name
-                    ));
-                }
-                Some(c) if c != "claude" && c != "codex" => {
-                    return Err(format!(
-                        "Step '{}': CLI agent 'cli' must be 'claude' or 'codex', got '{}'",
-                        step.name, c
-                    ));
-                }
-                _ => {}
-            }
-            let has_prompt = step.config.get("prompt").and_then(|v| v.as_str()).is_some_and(|s| !s.is_empty());
-            let has_prompt_template = step.config.get("prompt_template").and_then(|v| v.as_str()).is_some_and(|s| !s.is_empty());
-            if !has_prompt && !has_prompt_template {
-                return Err(format!(
-                    "Step '{}': CLI agent connector requires 'prompt' or 'prompt_template' in config",
-                    step.name
-                ));
-            }
-            let model_mode = step.config.get("model_mode").and_then(|v| v.as_str()).unwrap_or("default");
-            if model_mode != "default" && model_mode != "advanced" {
-                return Err(format!(
-                    "Step '{}': CLI agent 'model_mode' must be 'default' or 'advanced', got '{}'",
-                    step.name, model_mode
-                ));
-            }
-            let model_args = step.config.get("model_args").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
-            let model = step.config.get("model").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
-            let provider = step.config.get("provider").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
-            if model_mode == "default" && model_args.is_some() {
-                return Err(format!(
-                    "Step '{}': CLI agent in default mode cannot have 'model_args' - use dropdown selection or switch to advanced mode",
-                    step.name
-                ));
-            }
-            if model_mode == "advanced" && (model.is_some() || provider.is_some()) {
-                return Err(format!(
-                    "Step '{}': CLI agent in advanced mode cannot have 'model' or 'provider' - use 'model_args' for custom CLI arguments",
-                    step.name
-                ));
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Load all pipelines from disk
+/// Load all pipelines from disk.
+///
+/// Old-shape pipelines (pre `connections-pipelines` refactor) cannot
+/// deserialize into the new `PipelineStep` and would explode the whole load.
+/// Per decision #7 in `docs/connections-model.md` we wipe instead of
+/// migrating — log the parse error and return an empty map so the user lands
+/// in a working app and rebuilds via the new editor. Other I/O errors still
+/// bubble up.
 pub fn load_pipelines() -> Result<HashMap<String, Pipeline>, String> {
     migrate_pipelines_if_needed();
     let path = get_pipelines_path();
@@ -397,10 +197,17 @@ pub fn load_pipelines() -> Result<HashMap<String, Pipeline>, String> {
     }
 
     let file = File::open(&path).map_err(|e| format!("Failed to open pipelines.json: {}", e))?;
-    let pipelines: HashMap<String, Pipeline> =
-        serde_json::from_reader(file).map_err(|e| format!("Failed to parse pipelines.json: {}", e))?;
-
-    Ok(pipelines)
+    match serde_json::from_reader::<_, HashMap<String, Pipeline>>(file) {
+        Ok(pipelines) => Ok(pipelines),
+        Err(e) => {
+            log::warn!(
+                "pipelines.json failed to parse with new Connection-based schema ({}); \
+                 starting with an empty list. Recreate pipelines via the editor.",
+                e
+            );
+            Ok(HashMap::new())
+        }
+    }
 }
 
 /// Save all pipelines to disk
@@ -481,6 +288,16 @@ pub fn delete_pipeline(app: tauri::AppHandle, name: String) -> Result<(), String
 mod tests {
     use super::*;
 
+    fn step(name: &str, ct: ConnectionType, conn_id: &str, template: &str) -> PipelineStep {
+        PipelineStep {
+            name: name.to_string(),
+            connection_type: ct,
+            connection_id: conn_id.to_string(),
+            template: template.to_string(),
+            description: None,
+        }
+    }
+
     fn make_valid_pipeline() -> Pipeline {
         Pipeline {
             name: "test-pipeline".to_string(),
@@ -489,26 +306,8 @@ mod tests {
             created_at: String::new(),
             updated_at: String::new(),
             steps: vec![
-                PipelineStep {
-                    name: "summarize".to_string(),
-                    connector: ConnectorType::Llm,
-                    input: "transcript".to_string(),
-                    config: serde_json::json!({
-                        "prompt_template": "meeting-notes",
-                        "provider": "openai",
-                        "model": "gpt-4o"
-                    }),
-                    description: Some("Summarize the transcript".to_string()),
-                },
-                PipelineStep {
-                    name: "save-to-obsidian".to_string(),
-                    connector: ConnectorType::Save,
-                    input: "summarize".to_string(),
-                    config: serde_json::json!({
-                        "path": "~/Documents/{date}-{pipeline-name}.md"
-                    }),
-                    description: None,
-                },
+                step("summarize", ConnectionType::CliAgent, "conn-claude-1", "Summarize: {transcript}"),
+                step("save-to-obsidian", ConnectionType::SaveLocal, "conn-save-1", "{processing_result}"),
             ],
         }
     }
@@ -537,49 +336,21 @@ mod tests {
     }
 
     #[test]
-    fn test_first_step_must_use_transcript_input() {
+    fn test_step_with_empty_name_fails() {
         let mut pipeline = make_valid_pipeline();
-        pipeline.steps[0].input = "something-else".to_string();
+        pipeline.steps[0].name = "".to_string();
         let result = validate_pipeline(&pipeline);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("must be 'transcript'"));
+        assert!(result.unwrap_err().contains("empty name"));
     }
 
     #[test]
-    fn test_step_referencing_future_step_fails() {
-        let pipeline = Pipeline {
-            name: "bad-pipeline".to_string(),
-            description: "test".to_string(),
-            auto_run: false,
-            created_at: String::new(),
-            updated_at: String::new(),
-            steps: vec![
-                PipelineStep {
-                    name: "step-a".to_string(),
-                    connector: ConnectorType::Llm,
-                    input: "transcript".to_string(),
-                    config: serde_json::json!({"prompt_template": "meeting-notes"}),
-                    description: None,
-                },
-                PipelineStep {
-                    name: "step-b".to_string(),
-                    connector: ConnectorType::Save,
-                    input: "step-c".to_string(), // references future step
-                    config: serde_json::json!({"path": "~/out.md"}),
-                    description: None,
-                },
-                PipelineStep {
-                    name: "step-c".to_string(),
-                    connector: ConnectorType::Webhook,
-                    input: "step-a".to_string(),
-                    config: serde_json::json!({"url": "https://example.com/hook"}),
-                    description: None,
-                },
-            ],
-        };
+    fn test_step_with_empty_connection_id_fails() {
+        let mut pipeline = make_valid_pipeline();
+        pipeline.steps[0].connection_id = "".to_string();
         let result = validate_pipeline(&pipeline);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("unknown input 'step-c'"));
+        assert!(result.unwrap_err().contains("no Connection selected"));
     }
 
     #[test]
@@ -591,34 +362,13 @@ mod tests {
             created_at: String::new(),
             updated_at: String::new(),
             steps: vec![
-                PipelineStep {
-                    name: "step-a".to_string(),
-                    connector: ConnectorType::Llm,
-                    input: "transcript".to_string(),
-                    config: serde_json::json!({"prompt_template": "meeting-notes"}),
-                    description: None,
-                },
-                PipelineStep {
-                    name: "step-a".to_string(),
-                    connector: ConnectorType::Save,
-                    input: "step-a".to_string(),
-                    config: serde_json::json!({"path": "~/out.md"}),
-                    description: None,
-                },
+                step("step-a", ConnectionType::CliAgent, "c1", "{transcript}"),
+                step("step-a", ConnectionType::SaveLocal, "c2", "{processing_result}"),
             ],
         };
         let result = validate_pipeline(&pipeline);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Duplicate step name"));
-    }
-
-    #[test]
-    fn test_step_with_empty_name_fails() {
-        let mut pipeline = make_valid_pipeline();
-        pipeline.steps[0].name = "".to_string();
-        let result = validate_pipeline(&pipeline);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("empty name"));
     }
 
     #[test]
@@ -628,238 +378,10 @@ mod tests {
         let deserialized: Pipeline = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.name, pipeline.name);
         assert_eq!(deserialized.steps.len(), pipeline.steps.len());
-        assert_eq!(deserialized.steps[0].connector, ConnectorType::Llm);
-        assert_eq!(deserialized.steps[1].connector, ConnectorType::Save);
-    }
-
-    #[test]
-    fn test_connector_type_serialization() {
-        assert_eq!(
-            serde_json::to_string(&ConnectorType::Llm).unwrap(),
-            "\"llm\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ConnectorType::Save).unwrap(),
-            "\"save\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ConnectorType::Webhook).unwrap(),
-            "\"webhook\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ConnectorType::Mcp).unwrap(),
-            "\"mcp\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ConnectorType::Slack).unwrap(),
-            "\"slack\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ConnectorType::Notion).unwrap(),
-            "\"notion\""
-        );
-    }
-
-    #[test]
-    fn test_notion_connector_type_serialization() {
-        assert_eq!(
-            serde_json::to_string(&ConnectorType::Notion).unwrap(),
-            "\"notion\""
-        );
-    }
-
-    #[test]
-    fn test_notion_connector_type_deserialization() {
-        let ct: ConnectorType = serde_json::from_str("\"notion\"").unwrap();
-        assert_eq!(ct, ConnectorType::Notion);
-    }
-
-    #[test]
-    fn test_notion_step_missing_integration_id_fails() {
-        let pipeline = Pipeline {
-            name: "test".to_string(),
-            description: "test".to_string(),
-            auto_run: false,
-            created_at: String::new(),
-            updated_at: String::new(),
-            steps: vec![PipelineStep {
-                name: "post-to-notion".to_string(),
-                connector: ConnectorType::Notion,
-                input: "transcript".to_string(),
-                config: serde_json::json!({}),
-                description: None,
-            }],
-        };
-        let result = validate_pipeline(&pipeline);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("integration_id"));
-    }
-
-    #[test]
-    fn test_notion_step_valid_config_passes() {
-        let pipeline = Pipeline {
-            name: "test".to_string(),
-            description: "test".to_string(),
-            auto_run: false,
-            created_at: String::new(),
-            updated_at: String::new(),
-            steps: vec![PipelineStep {
-                name: "post-to-notion".to_string(),
-                connector: ConnectorType::Notion,
-                input: "transcript".to_string(),
-                config: serde_json::json!({"integration_id": "abc-123"}),
-                description: None,
-            }],
-        };
-        assert!(validate_pipeline(&pipeline).is_ok());
-    }
-
-    #[test]
-    fn test_llm_step_with_prompt_inline_passes() {
-        let pipeline = Pipeline {
-            name: "test".to_string(),
-            description: "test".to_string(),
-            auto_run: false,
-            created_at: String::new(),
-            updated_at: String::new(),
-            steps: vec![PipelineStep {
-                name: "custom".to_string(),
-                connector: ConnectorType::Llm,
-                input: "transcript".to_string(),
-                config: serde_json::json!({ "prompt_inline": "Summarize this: {transcript}" }),
-                description: None,
-            }],
-        };
-        assert!(validate_pipeline(&pipeline).is_ok());
-    }
-
-    #[test]
-    fn test_llm_step_missing_prompt_template_fails() {
-        let pipeline = Pipeline {
-            name: "test".to_string(),
-            description: "test".to_string(),
-            auto_run: false,
-            created_at: String::new(),
-            updated_at: String::new(),
-            steps: vec![PipelineStep {
-                name: "summarize".to_string(),
-                connector: ConnectorType::Llm,
-                input: "transcript".to_string(),
-                config: serde_json::json!({"provider": "openai"}), // missing prompt_template
-                description: None,
-            }],
-        };
-        let result = validate_pipeline(&pipeline);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("prompt_template"));
-    }
-
-    #[test]
-    fn test_llm_step_invalid_provider_fails() {
-        let pipeline = Pipeline {
-            name: "test".to_string(),
-            description: "test".to_string(),
-            auto_run: false,
-            created_at: String::new(),
-            updated_at: String::new(),
-            steps: vec![PipelineStep {
-                name: "summarize".to_string(),
-                connector: ConnectorType::Llm,
-                input: "transcript".to_string(),
-                config: serde_json::json!({
-                    "prompt_template": "meeting-notes",
-                    "provider": "invalid-provider"
-                }),
-                description: None,
-            }],
-        };
-        let result = validate_pipeline(&pipeline);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Unknown LLM provider"));
-    }
-
-    #[test]
-    fn test_save_step_missing_path_fails() {
-        let pipeline = Pipeline {
-            name: "test".to_string(),
-            description: "test".to_string(),
-            auto_run: false,
-            created_at: String::new(),
-            updated_at: String::new(),
-            steps: vec![PipelineStep {
-                name: "save-it".to_string(),
-                connector: ConnectorType::Save,
-                input: "transcript".to_string(),
-                config: serde_json::json!({}), // missing path
-                description: None,
-            }],
-        };
-        let result = validate_pipeline(&pipeline);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("path"));
-    }
-
-    #[test]
-    fn test_webhook_step_missing_url_fails() {
-        let pipeline = Pipeline {
-            name: "test".to_string(),
-            description: "test".to_string(),
-            auto_run: false,
-            created_at: String::new(),
-            updated_at: String::new(),
-            steps: vec![PipelineStep {
-                name: "notify".to_string(),
-                connector: ConnectorType::Webhook,
-                input: "transcript".to_string(),
-                config: serde_json::json!({"method": "POST"}), // missing url
-                description: None,
-            }],
-        };
-        let result = validate_pipeline(&pipeline);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("url"));
-    }
-
-    #[test]
-    fn test_webhook_step_invalid_url_fails() {
-        let pipeline = Pipeline {
-            name: "test".to_string(),
-            description: "test".to_string(),
-            auto_run: false,
-            created_at: String::new(),
-            updated_at: String::new(),
-            steps: vec![PipelineStep {
-                name: "notify".to_string(),
-                connector: ConnectorType::Webhook,
-                input: "transcript".to_string(),
-                config: serde_json::json!({"url": "ftp://not-http.com"}),
-                description: None,
-            }],
-        };
-        let result = validate_pipeline(&pipeline);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("http://"));
-    }
-
-    #[test]
-    fn test_webhook_step_invalid_method_fails() {
-        let pipeline = Pipeline {
-            name: "test".to_string(),
-            description: "test".to_string(),
-            auto_run: false,
-            created_at: String::new(),
-            updated_at: String::new(),
-            steps: vec![PipelineStep {
-                name: "notify".to_string(),
-                connector: ConnectorType::Webhook,
-                input: "transcript".to_string(),
-                config: serde_json::json!({"url": "https://example.com", "method": "DELETE"}),
-                description: None,
-            }],
-        };
-        let result = validate_pipeline(&pipeline);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Unsupported HTTP method"));
+        assert_eq!(deserialized.steps[0].connection_type, ConnectionType::CliAgent);
+        assert_eq!(deserialized.steps[1].connection_type, ConnectionType::SaveLocal);
+        assert_eq!(deserialized.steps[0].connection_id, "conn-claude-1");
+        assert_eq!(deserialized.steps[0].template, "Summarize: {transcript}");
     }
 
     #[test]
@@ -869,33 +391,5 @@ mod tests {
         let result = validate_pipeline(&pipeline);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("invalid characters"));
-    }
-
-    #[test]
-    fn test_subsequent_step_can_reference_transcript() {
-        let pipeline = Pipeline {
-            name: "multi-input".to_string(),
-            description: "test".to_string(),
-            auto_run: false,
-            created_at: String::new(),
-            updated_at: String::new(),
-            steps: vec![
-                PipelineStep {
-                    name: "step-a".to_string(),
-                    connector: ConnectorType::Llm,
-                    input: "transcript".to_string(),
-                    config: serde_json::json!({"prompt_template": "meeting-notes"}),
-                    description: None,
-                },
-                PipelineStep {
-                    name: "step-b".to_string(),
-                    connector: ConnectorType::Llm,
-                    input: "transcript".to_string(), // also reads from transcript
-                    config: serde_json::json!({"prompt_template": "brainstorm"}),
-                    description: None,
-                },
-            ],
-        };
-        assert!(validate_pipeline(&pipeline).is_ok());
     }
 }

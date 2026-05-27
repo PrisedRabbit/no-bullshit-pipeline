@@ -39,6 +39,15 @@ pub struct RecordingMetadata {
     /// format. Defaults to "manual" for older metadata files (back-compat).
     #[serde(default = "default_recording_source")]
     pub source: String,
+    /// Friendly display name of the app that produced this recording, e.g.
+    /// "Zoom", "FaceTime", "NBP". Captured at recording start when the call
+    /// detector emits an app label (`call-event.app`); pipelines use it to
+    /// substitute the `{app}` template placeholder without resolving the
+    /// bundle id at run time. Manual / dictation recordings get a sensible
+    /// default at the engine level — this field stays None for them so we
+    /// don't bake the default into stored metadata.
+    #[serde(default)]
+    pub app_friendly_name: Option<String>,
 }
 
 fn default_status() -> String {
@@ -173,6 +182,7 @@ pub fn create_recording(title: String, tags: Vec<String>) -> Result<RecordingMet
         transcript_preview: None,
         app_bundle_id: None,
         source: "manual".to_string(),
+        app_friendly_name: None,
     };
 
     // Create the recording directory

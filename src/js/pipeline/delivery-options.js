@@ -6,7 +6,7 @@ export function suggestPipelineName() {
   const processing = [];
   const delivery = [];
   for (const step of pipelineState.pipelineEditorSteps) {
-    if (step.connector === 'llm' || step.connector === 'mcp' || step.connector === 'cli_agent') {
+    if (step.connector === 'llm' || step.connector === 'cli_agent') {
       const titleCased = (step.name || 'Untitled')
         .replace(/[-_]/g, ' ')
         .replace(/\b\w/g, c => c.toUpperCase());

@@ -11,7 +11,6 @@ import { renderAvailableIntegrations } from './available.js';
 export async function loadAllIntegrations() {
   await Promise.all([
     loadNotionProfiles(),
-    loadLinearProfiles(),
     loadSlackForIntegrations(),
     loadSavePathIntegrations(),
     loadWebhookProfiles(),
@@ -28,15 +27,6 @@ async function loadNotionProfiles() {
   } catch (err) {
     console.error('Failed to load Notion profiles:', err);
     intState.setNotionProfiles([]);
-  }
-}
-
-async function loadLinearProfiles() {
-  try {
-    intState.setLinearProfiles(await invoke('list_linear_profiles'));
-  } catch (err) {
-    console.error('Failed to load Linear profiles:', err);
-    intState.setLinearProfiles([]);
   }
 }
 

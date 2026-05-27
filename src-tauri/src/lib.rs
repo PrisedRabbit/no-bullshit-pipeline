@@ -434,14 +434,6 @@ pub fn run() {
             integrations::save_path::list_save_path_integrations,
             integrations::save_path::update_save_path_integration,
             integrations::save_path::remove_save_path_integration,
-            // Linear integrations
-            integrations::linear::add_linear_integration,
-            integrations::linear::list_linear_teams,
-            integrations::linear::sync_linear_schema,
-            integrations::linear::test_linear_integration,
-            integrations::linear::remove_linear_integration,
-            integrations::linear::list_linear_profiles,
-            integrations::linear::update_linear_member_aliases,
             // Webhook integrations
             integrations::webhook::add_webhook_integration,
             integrations::webhook::list_webhook_profiles,

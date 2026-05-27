@@ -585,6 +585,9 @@ error: null
 ///
 /// When `raw_llm_output` is `Some`, the raw output is appended to the file body
 /// so users can inspect what the AI actually returned and diagnose prompt issues.
+// Used by the dropped N+1 LLM→Notion retry path; kept for forward-compat per
+// `docs/connections-model.md` (Llm type stays hidden in v1).
+#[allow(dead_code)]
 fn write_failure_output(
     output_path: &Path,
     step_name: &str,
@@ -759,6 +762,8 @@ pub async fn execute_structured(
 ///
 /// - `raw_llm_output`: The complete raw LLM output to preserve. If `None`,
 ///   falls back to writing a failure file without raw output (same as `execute()`).
+// Same as above — N+1 retry path entry point. Kept for forward-compat.
+#[allow(dead_code)]
 pub async fn execute_with_raw_preservation(
     input_path: &Path,
     config: &serde_json::Value,

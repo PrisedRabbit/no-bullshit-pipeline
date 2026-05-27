@@ -40,4 +40,3 @@ export { renderAvailableIntegrations } from './available.js';
 export { renderModelsProviders } from './providers.js';
 export { renderLocalLlmModels } from './local-models.js';
 export { openNotionWizard } from './notion-wizard.js';
-export { openLinearWizard } from './linear-wizard.js';

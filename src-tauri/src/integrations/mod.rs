@@ -4,7 +4,6 @@ use std::collections::HashMap;
 pub mod slack;
 pub mod notion;
 pub mod save_path;
-pub mod linear;
 pub mod webhook;
 
 #[cfg(not(debug_assertions))]

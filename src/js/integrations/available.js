@@ -3,10 +3,9 @@
 import { invoke } from '../core/tauri.js';
 import { escapeHtml } from '../core/utils.js';
 import { showToast } from '../ui/toast.js';
-import { INT_NOTION_SVG, INT_LINEAR_SVG, INT_SLACK_SVG, INT_FOLDER_SVG, INT_LINK_SVG } from './icons.js';
+import { INT_NOTION_SVG, INT_SLACK_SVG, INT_FOLDER_SVG, INT_LINK_SVG } from './icons.js';
 import { loadAllIntegrations } from './load.js';
 import { openNotionWizard } from './notion-wizard.js';
-import { openLinearWizard } from './linear-wizard.js';
 
 const availableListEl = () => document.getElementById('available-integrations-list');
 
@@ -16,7 +15,6 @@ export function renderAvailableIntegrations() {
 
   const available = [
     buildCard('notion', 'add-notion-integration-btn', INT_NOTION_SVG, 'Notion', 'Connect a Notion database for automatic page creation'),
-    buildCard('linear', 'add-linear-integration-btn', INT_LINEAR_SVG, 'Linear', 'Connect Linear to create issues from pipeline output'),
     buildCard('slack', 'add-slack-integration-btn', INT_SLACK_SVG, 'Slack', 'Send pipeline output to Slack channels or DMs'),
     buildCard('save-path', 'add-save-path-btn', INT_FOLDER_SVG, 'Save Path', 'Save pipeline output to a named folder location'),
     buildCard('webhook', 'add-webhook-btn', INT_LINK_SVG, 'Webhook', 'Send pipeline output to any HTTP endpoint'),
@@ -25,7 +23,6 @@ export function renderAvailableIntegrations() {
   el.innerHTML = available.join('');
 
   wireNotionAdd();
-  wireLinearAdd();
   wireSlackAdd();
   wireSavePathAdd(el);
   wireWebhookAdd(el);
@@ -47,11 +44,6 @@ function buildCard(type, id, icon, name, detail) {
 function wireNotionAdd() {
   const btn = document.getElementById('add-notion-integration-btn');
   if (btn) btn.addEventListener('click', () => openNotionWizard());
-}
-
-function wireLinearAdd() {
-  const btn = document.getElementById('add-linear-integration-btn');
-  if (btn) btn.addEventListener('click', () => openLinearWizard());
 }
 
 function wireSlackAdd() {

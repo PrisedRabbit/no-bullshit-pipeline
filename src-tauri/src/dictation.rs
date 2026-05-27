@@ -10,7 +10,8 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::config::{load_settings, DictationShortcut, TranscriptionProvider};
-use crate::pipelines::{load_pipelines, ConnectorType};
+use crate::config::ConnectionType;
+use crate::pipelines::load_pipelines;
 
 const TARGET_RATE: u32 = 16_000;
 
@@ -878,11 +879,17 @@ async fn transcribe(app: &AppHandle, mono_16k: &[f32]) -> Result<String, String>
 }
 
 /// Runs all text-transforming steps of `pipeline_name` against `text` in
-/// memory. Llm and CliAgent steps chain — their output replaces `current`.
-/// Delivery steps (Save/Webhook/Slack/Notion/Linear) are skipped with a
-/// debug log because they target filesystem/external services and don't
-/// fit a paste-only dictation flow. Mcp is also skipped for now — needs
-/// an inline executor wired in.
+/// memory. CliAgent steps chain — their output replaces `current`. Delivery
+/// steps (Slack/Notion/Telegram/Webhook/SaveLocal) and Shell are skipped
+/// with a debug log because they target filesystem/external services and
+/// don't fit a paste-only dictation flow. Hidden types (Llm/Mcp/Linear)
+/// likewise skipped — they aren't pickable from the new UI.
+///
+/// New Connection model: the step references a `connection_id`; we look it
+/// up in `AppSettings.connections`, render the step template against the
+/// running `current` text (mapped to `{transcript}` + `{processing_result}`
+/// so authors can use either placeholder), then feed the rendered string to
+/// the connector's inline executor.
 async fn run_text_pipeline(text: &str, pipeline_name: &str) -> Result<String, String> {
     let pipelines = load_pipelines().map_err(|e| format!("load pipelines: {}", e))?;
     let pipeline = pipelines
@@ -890,59 +897,68 @@ async fn run_text_pipeline(text: &str, pipeline_name: &str) -> Result<String, St
         .ok_or_else(|| format!("Pipeline '{}' not found", pipeline_name))?
         .clone();
 
+    let settings = load_settings();
+    let connections: std::collections::HashMap<String, &crate::config::Connection> =
+        settings.connections.iter().map(|c| (c.id.clone(), c)).collect();
+
     let mut current = text.to_string();
     let mut ran_any_transform = false;
 
     for step in &pipeline.steps {
-        match &step.connector {
-            ConnectorType::Llm => {
-                let t = std::time::Instant::now();
-                log::info!(
-                    "dictation pipeline '{}': starting Llm step '{}' (input_chars={})",
-                    pipeline_name,
-                    step.name,
-                    current.len()
-                );
-                let out = crate::connectors::llm::execute_inline(&step.config, &current)
-                    .await
-                    .map_err(|e| format!("step '{}': {}", step.name, e))?;
-                log::info!(
-                    "dictation pipeline '{}': Llm step '{}' finished in {:?} (output_chars={})",
-                    pipeline_name,
-                    step.name,
-                    t.elapsed(),
-                    out.len()
-                );
-                current = out;
-                ran_any_transform = true;
-            }
-            ConnectorType::CliAgent => {
+        match &step.connection_type {
+            ConnectionType::CliAgent => {
+                let connection = match connections.get(&step.connection_id) {
+                    Some(c) => *c,
+                    None => {
+                        log::warn!(
+                            "dictation pipeline '{}': step '{}' references missing Connection '{}' — skipping",
+                            pipeline_name, step.name, step.connection_id
+                        );
+                        continue;
+                    }
+                };
+
+                // Render template with the running text as both {transcript} and
+                // {processing_result} so existing authoring works either way. {app}
+                // resolves to "Dictation" — there's no recording context here.
+                let rendered = step
+                    .template
+                    .replace("{transcript}", &current)
+                    .replace("{processing_result}", &current)
+                    .replace("{app}", "Dictation");
+
+                // Synthesize the engine-fed cli_agent config: connection.config
+                // carries cli/model/timeout; we inject the rendered template as
+                // the prompt, and call execute_inline with empty input so the
+                // connector's own concat is a no-op.
+                let mut cfg = connection.config.clone();
+                if !cfg.is_object() {
+                    cfg = serde_json::Value::Object(serde_json::Map::new());
+                }
+                if let Some(obj) = cfg.as_object_mut() {
+                    obj.insert("prompt".to_string(), serde_json::Value::String(rendered));
+                    obj.remove("prompt_template");
+                }
+
                 let t = std::time::Instant::now();
                 log::info!(
                     "dictation pipeline '{}': starting CliAgent step '{}' (input_chars={})",
-                    pipeline_name,
-                    step.name,
-                    current.len()
+                    pipeline_name, step.name, current.len()
                 );
-                let out = crate::connectors::cli_agent::execute_inline(&step.config, &current)
+                let out = crate::connectors::cli_agent::execute_inline(&cfg, "")
                     .await
                     .map_err(|e| format!("step '{}': {}", step.name, e))?;
                 log::info!(
                     "dictation pipeline '{}': CliAgent step '{}' finished in {:?} (output_chars={})",
-                    pipeline_name,
-                    step.name,
-                    t.elapsed(),
-                    out.len()
+                    pipeline_name, step.name, t.elapsed(), out.len()
                 );
                 current = out;
                 ran_any_transform = true;
             }
             other => {
                 log::debug!(
-                    "dictation pipeline '{}': skipping {:?} step '{}' (delivery/mcp not wired for dictation yet)",
-                    pipeline_name,
-                    other,
-                    step.name
+                    "dictation pipeline '{}': skipping {:?} step '{}' (only CliAgent supported in dictation flow)",
+                    pipeline_name, other, step.name
                 );
             }
         }

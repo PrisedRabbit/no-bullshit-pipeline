@@ -228,9 +228,10 @@ pub struct Connection {
 /// of the step's type are pickable) and runtime dispatch (the runner matches
 /// on this to call the right connector).
 ///
-/// Variants whose UI was dropped in v1 (`Llm`, `Mcp`, `Linear`) stay in the
-/// enum so serialization is forward-compatible — re-surfacing them later
-/// won't need a settings migration.
+/// `Llm` (direct LLM API) stays in the enum — code in `connectors/llm.rs` is
+/// preserved for forward-compat per `docs/connections-model.md`. MCP and
+/// Linear were cut entirely (decided post-spec): less surface area, easier
+/// to re-add later than to maintain dead branches.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum ConnectionType {
@@ -245,8 +246,6 @@ pub enum ConnectionType {
     SaveLocal,
     // Hidden in v1 UI; kept for forward-compatible serialization.
     Llm,
-    Mcp,
-    Linear,
 }
 
 /// Processing steps feed their output to the next step and halt downstream on
@@ -264,14 +263,12 @@ impl ConnectionType {
         match self {
             ConnectionType::CliAgent
             | ConnectionType::Shell
-            | ConnectionType::Llm
-            | ConnectionType::Mcp => ConnectionRole::Processing,
+            | ConnectionType::Llm => ConnectionRole::Processing,
             ConnectionType::Slack
             | ConnectionType::Notion
             | ConnectionType::Telegram
             | ConnectionType::Webhook
-            | ConnectionType::SaveLocal
-            | ConnectionType::Linear => ConnectionRole::Delivery,
+            | ConnectionType::SaveLocal => ConnectionRole::Delivery,
         }
     }
 }

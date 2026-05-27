@@ -1,11 +1,9 @@
 pub mod cli_agent;
 pub mod llm;
-pub mod mcp;
 pub mod save;
 pub mod webhook;
 pub mod slack;
 pub mod notion;
-pub mod linear;
 
 /// Strip YAML frontmatter from markdown content if present.
 /// Returns the content after the closing `---` delimiter, trimmed of leading newlines.
