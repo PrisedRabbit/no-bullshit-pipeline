@@ -175,20 +175,10 @@ export function initTranscriptionSettings() {
     });
   }
 
-  const setApiKeyBtn = document.getElementById('set-api-key-btn');
-  if (setApiKeyBtn) {
-    setApiKeyBtn.addEventListener('click', () => {
-      const provider = transcriptionProviderSelect?.value || '';
-      const keyId = PROVIDER_KEY_MAP[provider];
-      if (typeof window.__nbpSwitchSettingsTab === 'function') window.__nbpSwitchSettingsTab('models');
-      if (keyId) {
-        setTimeout(() => {
-          const input = document.getElementById(`settings-api-key-${keyId}`);
-          if (input) { input.scrollIntoView({ behavior: 'smooth', block: 'center' }); input.focus(); }
-        }, 100);
-      }
-    });
-  }
+  // set-api-key-btn used to route to the deleted Models tab. Cloud STT was
+  // killed in the asr-bakeoff branch (on-device only — see memory
+  // `asr-code-switching`), so the button is permanently hidden via
+  // `display:none` in the HTML and no longer has a meaningful target.
 }
 
 export function applyTranscriptionSettings() {

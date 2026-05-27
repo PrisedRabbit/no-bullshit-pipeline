@@ -37,11 +37,7 @@ import { allPipelineDefs } from './pipeline/state.js';
 // Prompts
 import { loadPromptTemplates, initPromptTemplates } from './prompts/templates.js';
 
-// Slack
-import { loadSlackIntegrations, initSlack } from './slack/slack.js';
-
-// Integrations (models, providers, connected services)
-import { initIntegrationsSettings, loadAllIntegrations, renderModelsProviders } from './integrations/init.js';
+// Connections (unified flat-list — replaces the legacy Models + Integrations tabs).
 import { initConnectionsTab } from './connections/index.js';
 
 // Health
@@ -54,7 +50,6 @@ window.__nbpLoadPipelineDefs = loadPipelineDefs;
 window.__nbpRenderPipelineFlowHTML = renderPipelineFlowHTML;
 window.__nbpLoadPromptTemplates = loadPromptTemplates;
 window.__nbpSwitchSettingsTab = switchSettingsTab;
-window.__nbpRenderModelsProviders = renderModelsProviders;
 
 // Wire record button
 const recordToggleBtn = document.getElementById('record-toggle-btn');
@@ -66,7 +61,6 @@ on('tab:prompts', () => loadPromptTemplates());
 on('recording:showDetail', (id) => showDetailView(id));
 on('recording:hideDetail', () => hideDetailView());
 on('recordings:reload', async () => { await loadRecordings(); renderRecordingsList(); });
-on('integrations:changed', () => loadAllIntegrations());
 on('pipelines:renderChips', () => renderPipelineChips());
 
 // Load templates for detail view
@@ -88,8 +82,6 @@ async function init() {
   renderRecordingsList();
   await loadTemplates();
   await loadPromptTemplates();
-  await loadSlackIntegrations();
-  await loadAllIntegrations();
 
   try {
     const version = await invoke('get_app_version');
@@ -224,8 +216,6 @@ async function bootstrapApp() {
   initPermissions();
   // controls.js and detail.js wire their own event listeners on import
   initPromptTemplates();
-  initSlack();
-  initIntegrationsSettings();
   initConnectionsTab();
   initModelVersion();
 

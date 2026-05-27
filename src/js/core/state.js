@@ -11,7 +11,6 @@ export let currentAssignedPipelines = new Set();
 export const pendingAutoExec = new Map();
 export let pipelineRunningSteps = {};
 export let allPromptTemplates = [];
-export let slackIntegrations = {};
 /// IDs that currently have a transcription job in flight. Updated by the
 /// transcription_progress listener in main.js. Read by list rendering to
 /// show "Transcribing…" on the affected row.
@@ -26,4 +25,3 @@ export function setIsRecordingBusy(v) { isRecordingBusy = v; }
 export function setCurrentAssignedPipelines(v) { currentAssignedPipelines = v; }
 export function setPipelineRunningSteps(v) { pipelineRunningSteps = v; }
 export function setAllPromptTemplates(v) { allPromptTemplates = v; }
-export function setSlackIntegrations(v) { slackIntegrations = v; }

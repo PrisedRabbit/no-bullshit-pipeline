@@ -26,8 +26,6 @@ const AUDIT_ELEMENTS = [
   { id: 'process-btn',               desc: 'Transcribe button' },
   { id: 'pipeline-cards',            desc: 'Pipeline cards container' },
   { id: 'delete-modal',              desc: 'Delete confirmation modal' },
-  { id: 'add-slack-modal',           desc: 'Add Slack workspace modal' },
-  { id: 'notion-wizard-modal',       desc: 'Notion setup wizard modal' },
   { id: 'onboarding-overlay',        desc: 'Onboarding overlay' },
 ];
 

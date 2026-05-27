@@ -6,7 +6,6 @@ import { showToast } from '../ui/toast.js';
 import { currentAssignedPipelines } from '../core/state.js';
 import * as pipelineState from './state.js';
 import { renderPipelineFlowHTML } from './flow-renderer.js';
-import { loadCliAvailability } from './models.js';
 import { openPipelineEditor } from './editor.js';
 import { renderPipelineChips } from './chips.js';
 
@@ -28,8 +27,6 @@ export async function loadPipelineDefs() {
 
     renderPipelineDefsList();
     renderPipelineChips();
-    // Pre-load CLI availability in background
-    loadCliAvailability();
   } catch (err) {
     console.error('Failed to load pipelines:', err);
     if (pipelineDefsListEl) {

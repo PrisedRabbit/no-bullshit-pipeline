@@ -37,8 +37,6 @@ export async function loadSettings() {
 
     applyTranscriptionSettings();
 
-    if (typeof window.__nbpRenderModelsProviders === 'function') window.__nbpRenderModelsProviders();
-
     if (saveMixOnlyCheckbox) saveMixOnlyCheckbox.checked = state.appSettings.save_mix_only !== false;
     if (autoRecordCheckbox) autoRecordCheckbox.checked = state.appSettings.auto_record_meetings !== false;
 
