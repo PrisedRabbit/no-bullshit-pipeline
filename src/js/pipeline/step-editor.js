@@ -71,9 +71,19 @@ export async function showStepEditor(index) {
 function renderForm(step, index) {
   const types = getConnectionTypes();
   const currentType = step.connection_type || step.type || 'cli_agent';
-  const typeOptions = types.map(t =>
-    `<option value="${escapeHtml(t.key)}"${t.key === currentType ? ' selected' : ''}>${escapeHtml(t.label)}</option>`
-  ).join('');
+
+  // Group by role so the picker mirrors the Connections-tab layout:
+  // Processing types feed their output downstream; Delivery types are
+  // terminal. Without optgroups the dropdown was a flat soup that didn't
+  // communicate the difference (and CLI agent ended up next to Save Local).
+  const optionFor = (t) =>
+    `<option value="${escapeHtml(t.key)}"${t.key === currentType ? ' selected' : ''}>${escapeHtml(t.label)}</option>`;
+  const processingOpts = types.filter(t => t.role === 'processing').map(optionFor).join('');
+  const deliveryOpts = types.filter(t => t.role === 'delivery').map(optionFor).join('');
+  const typeOptions = `
+    <optgroup label="Processing">${processingOpts}</optgroup>
+    <optgroup label="Delivery">${deliveryOpts}</optgroup>
+  `;
 
   const connectionPickerHTML = renderConnectionPicker(currentType, step.connection_id || '');
 
