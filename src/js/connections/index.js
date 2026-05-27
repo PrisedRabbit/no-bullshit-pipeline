@@ -44,14 +44,18 @@ function telegramIcon() {
 }
 
 // Form schema per type. Each field:
-//   { key, label, hint?, type: 'text'|'password'|'textarea'|'select', options?, required? }
+//   { key, label, hint?, type: 'text'|'password'|'textarea'|'select'|'cli-detect',
+//     options?, required? }
 // `secret: true` on a field means it routes to Keychain via save_connection's
 // `token` arg instead of being stored in connection.config.
+// `cli-detect` is special: the renderer fetches `check_cli_availability` at
+// open time and shows only installed CLIs (with install hints when nothing
+// is installed). One CLI per row, install command copy-paste-ready.
 const TYPE_SCHEMA = {
   cli_agent: {
     fields: [
-      { key: 'cli',           label: 'CLI',            type: 'select', options: ['claude', 'codex', 'opencode'], required: true, hint: 'Which agent binary to invoke (must be installed and on PATH).' },
-      { key: 'model',         label: 'Model',          type: 'text',   hint: 'Optional. Leave blank for the CLI default. Example: claude-sonnet-4-20250514.' },
+      { key: 'cli',           label: 'CLI',            type: 'cli-detect', required: true, hint: 'Only CLIs currently on your PATH show up. Install one to unlock it.' },
+      { key: 'model',         label: 'Model',          type: 'text',   hint: 'Optional. Free-text — CLI validates at runtime. Examples: claude → sonnet · codex → o3 · opencode → openai/gpt-4o · agy → gemini-3.1-pro.' },
       { key: 'timeout_secs',  label: 'Timeout (sec)',  type: 'number', hint: 'Default 300. The whole subprocess is killed at this limit.' },
     ],
   },
@@ -101,6 +105,20 @@ const TYPE_SCHEMA = {
 let connections = [];
 let editingType = null;        // when a form is open: type key
 let editingExisting = null;    // when editing an existing entry: connection object
+
+// `check_cli_availability` result cache. Refreshed when the CLI Agent form
+// opens — cheap (`which X` per supported CLI) and means newly-installed
+// agents show up without an app restart.
+let cliAvailabilityCache = [];
+
+async function refreshCliAvailability() {
+  try {
+    cliAvailabilityCache = await invoke('check_cli_availability');
+  } catch (err) {
+    console.error('check_cli_availability failed:', err);
+    cliAvailabilityCache = [];
+  }
+}
 
 const connectedById = (id) => connections.find(c => c.id === id);
 const typeMeta = (key) => TYPES.find(t => t.key === key);
@@ -247,13 +265,18 @@ function wireCardHandlers(scopeEl) {
 
 // --- Per-type form (inline modal) -----------------------------------------
 
-function openFormFor(typeKey, existing) {
+async function openFormFor(typeKey, existing) {
   editingType = typeKey;
   editingExisting = existing;
   const meta = typeMeta(typeKey);
   if (!meta) return;
 
   const fields = fieldsOf(typeKey);
+  // Refresh CLI installation status before rendering — so the form shows
+  // newly-installed agents without an app restart.
+  if (fields.some(f => f.type === 'cli-detect')) {
+    await refreshCliAvailability();
+  }
   const initial = existing ? { name: existing.name, ...(existing.config || {}) } : {};
   // Normalise array stored as args -> textarea-friendly newlines on edit.
   if (typeKey === 'shell' && Array.isArray(initial.args)) {
@@ -298,6 +321,9 @@ function renderField(f, initial, isEdit) {
     : '';
   const required = f.required && !(f.secret && isEdit) ? ' required' : '';
 
+  if (f.type === 'cli-detect') {
+    return renderCliDetectField(f, value, hintHTML);
+  }
   if (f.type === 'select') {
     const opts = (f.options || []).map(o => {
       const sel = String(value || '') === String(o) ? ' selected' : '';
@@ -326,6 +352,64 @@ function renderField(f, initial, isEdit) {
       <span style="font-size:0.8rem;color:var(--text-secondary);">${escapeHtml(f.label)}</span>
       <input data-field="${escapeHtml(f.key)}" type="${inputType}" placeholder="${escapeHtml(placeholder)}" value="${escapeHtml(value == null ? '' : String(value))}"${required} />
       ${hintHTML}
+    </label>
+  `;
+}
+
+// Render the CLI dropdown using `check_cli_availability` cache. Only installed
+// CLIs show as pickable options; un-installed ones list below with a
+// copy-paste install command. If the connection being edited references a CLI
+// that's currently missing (e.g. uninstalled since save), it's shown as a
+// disabled-looking option flagged with ⚠ so the user notices.
+function renderCliDetectField(f, currentValue, hintHTML) {
+  const installed = cliAvailabilityCache.filter(c => c.installed);
+  const missing = cliAvailabilityCache.filter(c => !c.installed);
+
+  // Build options: installed CLIs in alphabetical-by-display-name order.
+  const installedOpts = installed
+    .map(c => {
+      const sel = currentValue === c.id ? ' selected' : '';
+      return `<option value="${escapeHtml(c.id)}"${sel}>${escapeHtml(c.name)} (${escapeHtml(c.id)})</option>`;
+    })
+    .join('');
+
+  // If editing an entry whose CLI is no longer installed, preserve the value
+  // with a warning so save doesn't silently switch it.
+  const stale = currentValue && !installed.some(c => c.id === currentValue);
+  const staleOpt = stale
+    ? `<option value="${escapeHtml(currentValue)}" selected>⚠ ${escapeHtml(currentValue)} — not installed</option>`
+    : '';
+
+  const placeholderOpt = !currentValue && installed.length > 0
+    ? '<option value="" disabled selected>— choose a CLI —</option>'
+    : '';
+
+  const noneInstalled = installed.length === 0 && !stale;
+
+  const selectHTML = noneInstalled
+    ? `<select data-field="${escapeHtml(f.key)}" disabled style="opacity:0.6;"><option>No CLI agents installed</option></select>`
+    : `<select data-field="${escapeHtml(f.key)}">${placeholderOpt}${staleOpt}${installedOpts}</select>`;
+
+  // Always show the install hints for missing CLIs — even when others ARE
+  // installed. Users picking «which agent to use» benefit from seeing what
+  // else they could enable with one command.
+  const missingHTML = missing.length === 0
+    ? ''
+    : `<div style="margin-top:6px;display:flex;flex-direction:column;gap:4px;">
+         ${missing.map(c => `
+           <div style="font-size:0.72rem;color:var(--text-secondary);opacity:0.75;display:flex;gap:6px;align-items:center;">
+             <span style="opacity:0.7;">Install ${escapeHtml(c.name)}:</span>
+             <code style="background:var(--bg-input);padding:1px 6px;border-radius:3px;font-size:0.7rem;">${escapeHtml(c.install_hint)}</code>
+           </div>
+         `).join('')}
+       </div>`;
+
+  return `
+    <label style="display:flex;flex-direction:column;gap:4px;">
+      <span style="font-size:0.8rem;color:var(--text-secondary);">${escapeHtml(f.label)}</span>
+      ${selectHTML}
+      ${hintHTML}
+      ${missingHTML}
     </label>
   `;
 }

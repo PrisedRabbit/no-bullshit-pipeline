@@ -5,50 +5,16 @@ use std::process::Command;
 use std::time::Duration;
 use tokio::process::Command as AsyncCommand;
 
+// CLIs we know how to invoke non-interactively. Each is `(id, friendly_name,
+// install_hint)`. The id IS the binary name on PATH — `which <id>` is how
+// we detect installation. Adding a new CLI = one row here + one match arm
+// in `process_with_cli` below.
 pub const SUPPORTED_CLIS: &[(&str, &str, &str)] = &[
-    ("claude", "Claude Code", "npm install -g @anthropic-ai/claude-code"),
+    ("claude", "Claude Code", "curl -fsSL https://claude.ai/install.sh | bash"),
     ("codex", "Codex CLI", "npm install -g @openai/codex"),
     ("opencode", "OpenCode", "npm install -g opencode-ai"),
+    ("agy", "Antigravity (Google)", "curl -fsSL https://antigravity.google/cli/install.sh | bash"),
 ];
-
-pub const CLI_MODELS: &[(&str, &str, &str)] = &[
-    ("claude", "sonnet", "Claude Sonnet (latest)"),
-    ("claude", "opus", "Claude Opus (latest)"),
-    ("claude", "haiku", "Claude Haiku (latest)"),
-    ("claude", "claude-sonnet-4-20250514", "Claude Sonnet 4"),
-    ("claude", "claude-opus-4-20250514", "Claude Opus 4"),
-    ("codex", "o3", "O3"),
-    ("codex", "o4-mini", "O4 Mini"),
-    ("codex", "o3-mini", "O3 Mini"),
-    ("opencode", "openai/gpt-4o", "GPT-4o"),
-    ("opencode", "openai/gpt-4o-mini", "GPT-4o Mini"),
-    ("opencode", "openai/o3-mini", "O3 Mini"),
-    ("opencode", "anthropic/claude-sonnet-4-20250514", "Claude Sonnet 4"),
-    ("opencode", "anthropic/claude-opus-4-20250514", "Claude Opus 4"),
-    ("opencode", "anthropic/claude-3-5-sonnet-20241022", "Claude 3.5 Sonnet"),
-    ("opencode", "google/gemini-2.5-pro-preview-06-05", "Gemini 2.5 Pro"),
-    ("opencode", "google/gemini-2.0-flash", "Gemini 2.0 Flash"),
-];
-
-pub const OPENCODE_PROVIDERS: &[(&str, &str)] = &[
-    ("openai", "OpenAI"),
-    ("anthropic", "Anthropic"),
-    ("google", "Google"),
-    ("opencode", "OpenCode (free)"),
-    ("zai-coding-plan", "ZAI Coding Plan"),
-];
-
-#[derive(serde::Serialize, Clone)]
-pub struct CliModelInfo {
-    pub id: String,
-    pub name: String,
-}
-
-#[derive(serde::Serialize, Clone)]
-pub struct CliProviderInfo {
-    pub id: String,
-    pub name: String,
-}
 
 #[derive(serde::Serialize, Clone)]
 pub struct CliInfo {
@@ -56,42 +22,19 @@ pub struct CliInfo {
     pub name: String,
     pub installed: bool,
     pub install_hint: String,
-    pub models: Vec<CliModelInfo>,
-    pub providers: Vec<CliProviderInfo>,
 }
 
 #[tauri::command]
 pub fn check_cli_availability() -> Vec<CliInfo> {
-    SUPPORTED_CLIS.iter().map(|(id, name, hint)| {
-        let installed = check_cli_installed(id);
-        let models: Vec<CliModelInfo> = CLI_MODELS
-            .iter()
-            .filter(|(cli_id, _, _)| *cli_id == *id)
-            .map(|(_, model_id, model_name)| CliModelInfo {
-                id: model_id.to_string(),
-                name: model_name.to_string(),
-            })
-            .collect();
-        let providers: Vec<CliProviderInfo> = if *id == "opencode" {
-            OPENCODE_PROVIDERS
-                .iter()
-                .map(|(prov_id, prov_name)| CliProviderInfo {
-                    id: prov_id.to_string(),
-                    name: prov_name.to_string(),
-                })
-                .collect()
-        } else {
-            vec![]
-        };
-        CliInfo {
+    SUPPORTED_CLIS
+        .iter()
+        .map(|(id, name, hint)| CliInfo {
             id: id.to_string(),
             name: name.to_string(),
-            installed,
+            installed: check_cli_installed(id),
             install_hint: hint.to_string(),
-            models,
-            providers,
-        }
-    }).collect()
+        })
+        .collect()
 }
 
 pub fn check_cli_installed(cli: &str) -> bool {
@@ -102,17 +45,76 @@ pub fn check_cli_installed(cli: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Execute a CLI agent (Claude Code, Codex, or OpenCode) as a pipeline step.
+/// Build the `tokio::process::Command` that runs `cli` non-interactively with
+/// `full_prompt`. Adding a new CLI = one match arm here. Caller is
+/// responsible for `current_dir`, stdio piping, kill_on_drop.
 ///
-/// Config fields:
-///   cli             - "claude", "codex", or "opencode" (required)
-///   prompt          - Prompt text sent along with the input (required)
-///   working_directory - Working directory for the subprocess (optional, default: home dir)
-///   timeout_secs    - Timeout in seconds (optional, default: 300)
-///   model_mode      - "default" or "advanced" (optional, default: "default")
-///   model           - Model ID for default mode (optional)
-///   provider        - Provider ID for OpenCode provider-model selection (optional)
-///   model_args      - Custom args for advanced mode (optional)
+/// Invocation contract per CLI:
+///   - `claude -p <prompt> [--model M]`     (Anthropic)
+///   - `codex  exec <prompt> [-m M]`        (OpenAI)
+///   - `opencode run <prompt> [-m M]`       (model = `provider/id`, e.g. `openai/gpt-4o`)
+///   - `agy    -p <prompt> [-m M]`          (Google Antigravity — same flags as Claude)
+///
+/// Caller assumes the CLI is already verified installed via `check_cli_installed`.
+fn build_cli_command(cli: &str, full_prompt: &str, model: Option<&str>) -> AsyncCommand {
+    match cli {
+        "claude" => {
+            let mut c = AsyncCommand::new("claude");
+            c.arg("-p").arg(full_prompt);
+            if let Some(m) = model {
+                c.arg("--model").arg(m);
+            }
+            c
+        }
+        "codex" => {
+            let mut c = AsyncCommand::new("codex");
+            c.arg("exec").arg(full_prompt);
+            if let Some(m) = model {
+                c.arg("-m").arg(m);
+            }
+            c
+        }
+        "opencode" => {
+            let mut c = AsyncCommand::new("opencode");
+            c.arg("run").arg(full_prompt);
+            if let Some(m) = model {
+                c.arg("-m").arg(m);
+            }
+            c
+        }
+        "agy" => {
+            // Google Antigravity CLI — same `-p` / `-m` shape as Claude.
+            // See https://antigravity.google/docs/cli-using
+            let mut c = AsyncCommand::new("agy");
+            c.arg("-p").arg(full_prompt);
+            if let Some(m) = model {
+                c.arg("-m").arg(m);
+            }
+            c
+        }
+        _ => {
+            // Unreachable in normal flow — execute()/process_with_cli() both
+            // validate `cli` against SUPPORTED_CLIS before reaching this point.
+            // Use a sentinel that will fail fast if it ever does.
+            log::error!("build_cli_command: unknown cli '{}'", cli);
+            AsyncCommand::new(cli)
+        }
+    }
+}
+
+/// Execute a CLI agent as a pipeline step.
+///
+/// Config fields (simplified — the old `model_mode` / `model_args` / `provider`
+/// surface was overkill for a 3-user personal tool and got cut):
+///   cli           - one of `SUPPORTED_CLIS` ids (required)
+///   prompt        - prompt text — for the new Connection model the engine
+///                   substitutes placeholders into `step.template` and feeds
+///                   the result here (required)
+///   model         - model id string passed verbatim to the CLI's -m flag
+///                   (optional; CLI default if omitted). Free-text — we don't
+///                   maintain a list, the CLI validates at runtime.
+///   timeout_secs  - kills the subprocess if exceeded (optional, default 300)
+///   working_directory - cwd for the subprocess (optional, default: $HOME)
 pub async fn execute(
     input_path: &Path,
     config: &serde_json::Value,
@@ -126,56 +128,44 @@ pub async fn execute(
     let cli = config
         .get("cli")
         .and_then(|v| v.as_str())
-        .ok_or("CLI agent config missing 'cli' (must be 'claude', 'codex', or 'opencode')")?;
+        .ok_or("CLI agent config missing 'cli'")?;
 
     let valid_clis: Vec<&str> = SUPPORTED_CLIS.iter().map(|(id, _, _)| *id).collect();
     if !valid_clis.contains(&cli) {
         return Err(format!(
-            "CLI agent 'cli' must be 'claude', 'codex', or 'opencode', got '{}'",
-            cli
+            "CLI agent 'cli' must be one of {:?}, got '{}'",
+            valid_clis, cli
         ));
     }
 
-    // Check if CLI is installed
     if !check_cli_installed(cli) {
-        let cli_info = SUPPORTED_CLIS.iter().find(|(id, _, _)| *id == cli);
-        let install_hint = cli_info.map(|(_, _, hint)| *hint).unwrap_or("npm install -g <cli>");
+        let install_hint = SUPPORTED_CLIS
+            .iter()
+            .find(|(id, _, _)| *id == cli)
+            .map(|(_, _, hint)| *hint)
+            .unwrap_or("see project docs");
         return Err(format!(
-            "CLI '{}' is not installed or not in PATH. Install it first: {}",
+            "CLI '{}' is not installed or not in PATH. Install: {}",
             cli, install_hint
         ));
     }
 
-    let prompt = if let Some(template_name) = config
-        .get("prompt_template")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.trim().is_empty())
-    {
-        let template = crate::prompt_templates::get_prompt_template_internal(template_name)?;
-        template.prompt.clone()
-    } else if let Some(inline) = config
+    let prompt = config
         .get("prompt")
         .and_then(|v| v.as_str())
         .filter(|s| !s.trim().is_empty())
-    {
-        inline.to_string()
-    } else {
-        return Err("CLI agent config missing 'prompt' or 'prompt_template'".to_string());
-    };
+        .ok_or("CLI agent config missing 'prompt'")?
+        .to_string();
 
     let timeout_secs = config
         .get("timeout_secs")
         .and_then(|v| v.as_u64())
         .unwrap_or(300);
 
-    let model_mode = config
-        .get("model_mode")
+    let model = config
+        .get("model")
         .and_then(|v| v.as_str())
-        .unwrap_or("default");
-
-    let model = config.get("model").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
-    let provider = config.get("provider").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
-    let model_args = config.get("model_args").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
+        .filter(|s| !s.trim().is_empty());
 
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let working_directory = config
@@ -185,70 +175,21 @@ pub async fn execute(
         .map(|p| expand_tilde(p, &home))
         .unwrap_or_else(|| PathBuf::from(&home));
 
-    // Read input content
+    // Read input content. In the new Connection-based engine, this is the
+    // engine's transient input file holding the rendered template; pipeline
+    // is the entire prompt already. Old `{transcript}` substitution kept
+    // for backward-compat if someone still passes a template-shaped prompt.
     let raw_content = fs::read_to_string(input_path)
         .map_err(|e| format!("Failed to read input file: {}", e))?;
     let content = super::strip_frontmatter(&raw_content);
 
-    // Substitute {transcript} variable, or append content if no placeholder
     let full_prompt = if prompt.contains("{transcript}") {
         crate::prompt_templates::substitute_variables(&prompt, content)
     } else {
         format!("{}\n\n{}", prompt, content)
     };
 
-    let mut cmd = match cli {
-        "claude" => {
-            let mut c = AsyncCommand::new("claude");
-            c.arg("-p").arg(&full_prompt);
-            if model_mode == "advanced" {
-                if let Some(args) = model_args {
-                    for arg in shell_words::split(args).map_err(|e| format!("Invalid model_args: {}", e))? {
-                        c.arg(arg);
-                    }
-                }
-            } else if let Some(m) = model {
-                c.arg("--model").arg(m);
-            }
-            c
-        }
-        "codex" => {
-            let mut c = AsyncCommand::new("codex");
-            c.arg("exec").arg(&full_prompt);
-            if model_mode == "advanced" {
-                if let Some(args) = model_args {
-                    for arg in shell_words::split(args).map_err(|e| format!("Invalid model_args: {}", e))? {
-                        c.arg(arg);
-                    }
-                }
-            } else if let Some(m) = model {
-                c.arg("-m").arg(m);
-            }
-            c
-        }
-        "opencode" => {
-            let mut c = AsyncCommand::new("opencode");
-            c.arg("run").arg(&full_prompt);
-            if model_mode == "advanced" {
-                if let Some(args) = model_args {
-                    for arg in shell_words::split(args).map_err(|e| format!("Invalid model_args: {}", e))? {
-                        c.arg(arg);
-                    }
-                }
-            } else if let Some(m) = model {
-                let model_value = if m.contains('/') {
-                    m.to_string()
-                } else if let Some(p) = provider {
-                    format!("{}/{}", p, m)
-                } else {
-                    m.to_string()
-                };
-                c.arg("-m").arg(&model_value);
-            }
-            c
-        }
-        _ => unreachable!(),
-    };
+    let mut cmd = build_cli_command(cli, &full_prompt, model);
 
     cmd.current_dir(&working_directory);
     // Prevent interactive prompts
@@ -476,7 +417,7 @@ pub async fn process_with_cli(
 ) -> Result<String, String> {
     if !check_cli_installed(cli) {
         let cli_info = SUPPORTED_CLIS.iter().find(|(id, _, _)| *id == cli);
-        let install_hint = cli_info.map(|(_, _, hint)| *hint).unwrap_or("npm install -g <cli>");
+        let install_hint = cli_info.map(|(_, _, hint)| *hint).unwrap_or("see project docs");
         return Err(format!(
             "CLI '{}' is not installed. Install: {}",
             cli, install_hint
@@ -486,36 +427,7 @@ pub async fn process_with_cli(
     let full_prompt = format!("{}\n\n{}", prompt, transcript);
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
 
-    let mut cmd = match cli {
-        "claude" => {
-            let mut c = AsyncCommand::new("claude");
-            c.arg("-p").arg(&full_prompt);
-            if let Some(m) = model {
-                c.arg("--model").arg(m);
-            }
-            c
-        }
-        "codex" => {
-            let mut c = AsyncCommand::new("codex");
-            c.arg("exec").arg(&full_prompt);
-            if let Some(m) = model {
-                c.arg("-m").arg(m);
-            }
-            c
-        }
-        "opencode" => {
-            let mut c = AsyncCommand::new("opencode");
-            c.arg("run").arg(&full_prompt);
-            if let Some(m) = model {
-                c.arg("-m").arg(m);
-            }
-            c
-        }
-        _ => {
-            return Err(format!("Unsupported CLI: '{}'. Use 'claude', 'codex', or 'opencode'", cli));
-        }
-    };
-
+    let mut cmd = build_cli_command(cli, &full_prompt, model);
     cmd.current_dir(&home);
     cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::piped());

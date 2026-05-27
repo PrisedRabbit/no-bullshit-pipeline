@@ -54,7 +54,6 @@ notion-client = "1.0.12"
 llama-cpp-2 = { version = "0.1.140", features = ["metal", "sampler"] }
 encoding_rs = "0.8"
 sha2 = "0.10"
-shell-words = "1.1"
 tauri-plugin-notification = "2.3.3"
 env_logger = "0.11.10"
 tauri-plugin-single-instance = "2.4.0"
