@@ -26,8 +26,10 @@ import { escapeHtml } from '../core/utils.js';
 import { showToast } from '../ui/toast.js';
 import * as pipelineState from './state.js';
 import { getConnectionTypes, getLoadedConnections, loadConnections } from '../connections/index.js';
-import { closeStepEditorPanel, renderPipelineSteps } from './editor.js';
+import { closeStepEditorPanel, closePipelineEditor, renderPipelineSteps } from './editor.js';
 import { maybeAutoName } from './delivery-options.js';
+import { ViewManager } from '../ui/view-manager.js';
+import { switchSettingsTab } from '../settings/settings.js';
 
 const PROCESSING_TYPES = new Set(['cli_agent', 'shell']);
 
@@ -273,8 +275,13 @@ function wireFormEvents(editorEl, step, index) {
       // different type and would render as "stale". User picks fresh.
       const shadow = { ...step, connection_id: '', template: defaultTemplateFor(newType) };
       host.innerHTML = renderBody(newType, shadow);
+      wireEmptyStateLink(editorEl);
     }
   });
+
+  // Empty-state link wiring lives on the body host (re-rendered on type
+  // change), so re-attach after each re-render too.
+  wireEmptyStateLink(editorEl);
 
   // Done — write the step + close.
   editorEl.querySelector('.step-editor-done').addEventListener('click', () => {
@@ -312,6 +319,26 @@ function wireFormEvents(editorEl, step, index) {
     closeStepEditorPanel();
     renderPipelineSteps();
     maybeAutoName();
+  });
+}
+
+// "Open Settings → Connections" link in the empty-state body. Closes the
+// pipeline editor (so the user lands on the Connections form they need to
+// fill, not on a pipeline editor with a half-broken step behind it), then
+// navigates to Settings → Connections.
+function wireEmptyStateLink(editorEl) {
+  const link = editorEl.querySelector('.step-create-connection-link');
+  if (!link) return;
+  link.addEventListener('click', (e) => {
+    e.preventDefault();
+    closeStepEditorPanel();
+    closePipelineEditor();
+    ViewManager.showSettings();
+    // Small defer so the settings DOM is in the active class state before
+    // we switch tabs — mirrors how settings-btn → switchSettingsTab works
+    // elsewhere in the app (the tab content needs a `style.display` flip
+    // that switchSettingsTab does inline).
+    requestAnimationFrame(() => switchSettingsTab('connections'));
   });
 }
 
