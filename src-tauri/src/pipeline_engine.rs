@@ -253,12 +253,15 @@ async fn dispatch_step(
             .await?
         }
         ConnectionType::Shell => {
-            // Placeholder: shell connector lands in Phase 1D. For now fail clearly
-            // so we don't pretend Shell works.
-            return Err(format!(
-                "Shell connector not yet implemented (Phase 1D). Step '{}' cannot run.",
-                step.name
-            ));
+            connectors::shell::execute(
+                &input_path,
+                &connection.config,
+                output_dir,
+                &step.name,
+                step_input_label,
+                step.description.as_deref(),
+            )
+            .await?
         }
         ConnectionType::Slack => {
             let cfg = with_integration_id(&connection.config, &connection.id);
@@ -286,10 +289,16 @@ async fn dispatch_step(
             .map_err(|e| e.to_string())?
         }
         ConnectionType::Telegram => {
-            return Err(format!(
-                "Telegram connector not yet implemented (Phase 1D). Step '{}' cannot run.",
-                step.name
-            ));
+            let cfg = with_integration_id(&connection.config, &connection.id);
+            connectors::telegram::execute(
+                &input_path,
+                &cfg,
+                output_dir,
+                &step.name,
+                step_input_label,
+                step.description.as_deref(),
+            )
+            .await?
         }
         ConnectionType::Webhook => {
             connectors::webhook::execute(

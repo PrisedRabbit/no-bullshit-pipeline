@@ -48,6 +48,7 @@ mod devices;
 pub mod pipelines;
 mod prompt_templates;
 mod connectors;
+mod connections;
 mod pipeline_engine;
 mod transcript_migration;
 mod integrations;
@@ -439,6 +440,12 @@ pub fn run() {
             integrations::webhook::list_webhook_profiles,
             integrations::webhook::remove_webhook_integration,
             integrations::webhook::test_webhook_integration,
+            // Connections — unified flat-list CRUD (see docs/connections-model.md).
+            // Phase 2 deletes the per-type integration commands above in favour of these.
+            connections::list_connections,
+            connections::save_connection,
+            connections::delete_connection,
+            connections::test_connection,
             // Local LLM
             local_llm::get_llm_models_info,
             local_llm::refresh_llm_model_sizes,
