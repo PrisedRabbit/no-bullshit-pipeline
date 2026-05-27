@@ -195,19 +195,59 @@ pub async fn test_connection(id: String) -> Result<String, String> {
                 .unwrap_or("(no username)");
             Ok(format!("Connected as @{}", username))
         }
+        ConnectionType::Slack => {
+            // auth.test confirms the token is valid + returns the workspace name.
+            let token = crate::integrations::get_token(&format!("slack:{}", id))
+                .map_err(|e| format!("Slack token missing in Keychain: {}", e))?;
+            let resp = reqwest::Client::new()
+                .post("https://slack.com/api/auth.test")
+                .header("Authorization", format!("Bearer {}", token))
+                .send()
+                .await
+                .map_err(|e| format!("Network error: {}", e))?;
+            let body: serde_json::Value = resp
+                .json()
+                .await
+                .map_err(|e| format!("Failed to parse Slack response: {}", e))?;
+            if body.get("ok") != Some(&serde_json::Value::Bool(true)) {
+                let err = body.get("error").and_then(|v| v.as_str()).unwrap_or("auth.test failed");
+                return Err(err.to_string());
+            }
+            let team = body.get("team").and_then(|v| v.as_str()).unwrap_or("(unknown workspace)");
+            Ok(format!("Connected to {}", team))
+        }
+        ConnectionType::Notion => {
+            // users.me — cheap + confirms the integration token is valid.
+            let token = crate::integrations::get_token(&format!("notion:{}", id))
+                .map_err(|e| format!("Notion token missing in Keychain: {}", e))?;
+            let resp = reqwest::Client::new()
+                .get("https://api.notion.com/v1/users/me")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Notion-Version", "2022-06-28")
+                .send()
+                .await
+                .map_err(|e| format!("Network error: {}", e))?;
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                return Err(format!("Notion {} — {}", status, body));
+            }
+            let body: serde_json::Value = resp
+                .json()
+                .await
+                .map_err(|e| format!("Failed to parse Notion response: {}", e))?;
+            let name = body
+                .get("bot")
+                .and_then(|b| b.get("workspace_name"))
+                .and_then(|v| v.as_str())
+                .or_else(|| body.get("name").and_then(|v| v.as_str()))
+                .unwrap_or("(workspace name not reported)");
+            Ok(format!("Connected as {}", name))
+        }
         ConnectionType::Shell
         | ConnectionType::SaveLocal
         | ConnectionType::CliAgent
-        | ConnectionType::Webhook => Ok("No remote test for this type — config is local.".to_string()),
-        // Slack/Notion still have their own per-integration test commands
-        // exposed today (Phase 2 unifies into here). For now surface a
-        // pointer rather than duplicating their logic.
-        ConnectionType::Slack | ConnectionType::Notion | ConnectionType::Llm => {
-            Err(format!(
-                "test_connection: type {:?} still routed via legacy test_{}_integration command",
-                conn.connection_type,
-                format!("{:?}", conn.connection_type).to_lowercase()
-            ))
-        }
+        | ConnectionType::Webhook
+        | ConnectionType::Llm => Ok("No remote test for this type — config is local.".to_string()),
     }
 }

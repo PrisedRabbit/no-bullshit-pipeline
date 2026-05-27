@@ -230,8 +230,7 @@
             <button class="settings-tab active" data-tab="asr">ASR</button>
             <button class="settings-tab" data-tab="recording">Recording</button>
             <button class="settings-tab" data-tab="dictation">Dictation</button>
-            <button class="settings-tab" data-tab="models">Models</button>
-            <button class="settings-tab" data-tab="integrations">Integrations</button>
+            <button class="settings-tab" data-tab="connections">Connections</button>
             <button class="settings-tab" data-tab="prompts">Prompts</button>
             <button class="settings-tab" data-tab="pipelines">Pipelines</button>
             <button class="settings-tab" data-tab="theme">Theme</button>
@@ -693,18 +692,33 @@
               </div>
             </div><!-- end shortcuts tab -->
 
-            <div class="settings-grid settings-tab-content" data-tab="models">
-              <!-- Provider sections rendered by JS -->
-              <div id="models-providers-list">
-                <!-- Each provider rendered as its own connections-group -->
+            <div class="settings-grid settings-tab-content" data-tab="connections">
+              <!-- Processing connections — output feeds the next pipeline step -->
+              <div class="connections-group">
+                <div class="connections-group-header">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="4 17 10 11 4 5"></polyline>
+                    <line x1="12" y1="19" x2="20" y2="19"></line>
+                  </svg>
+                  <div class="group-info">
+                    <div class="group-label">Processing</div>
+                    <div class="group-desc">Transforms the transcript; output feeds the next pipeline step.</div>
+                  </div>
+                </div>
+                <div class="settings-section" style="margin-top: 0;">
+                  <h3>Connected</h3>
+                  <div id="connections-processing-list" style="display: flex; flex-direction: column; gap: 12px;">
+                    <div style="text-align: center; padding: 40px 0; color: var(--text-secondary); opacity: 0.6;">Loading…</div>
+                  </div>
+                </div>
+                <div class="settings-section" style="margin-top: 24px;">
+                  <h3>Add</h3>
+                  <div id="connections-processing-add" style="display: flex; flex-direction: column; gap: 12px;"></div>
+                </div>
               </div>
 
-
-            </div><!-- end models tab -->
-
-            <div class="settings-grid settings-tab-content" data-tab="integrations">
-              <!-- Delivery integrations -->
-              <div class="connections-group">
+              <!-- Delivery connections — terminal, sends output to an external system -->
+              <div class="connections-group" style="margin-top: 32px;">
                 <div class="connections-group-header">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -712,23 +726,21 @@
                   </svg>
                   <div class="group-info">
                     <div class="group-label">Delivery</div>
-                    <div class="group-desc">Where pipeline output gets sent</div>
+                    <div class="group-desc">Sends the previous step's output to an external destination.</div>
                   </div>
                 </div>
                 <div class="settings-section" style="margin-top: 0;">
                   <h3>Connected</h3>
-                  <div id="connected-integrations-list" style="display: flex; flex-direction: column; gap: 12px;">
-                    <div style="text-align: center; padding: 40px 0; color: var(--text-secondary); opacity: 0.6;">
-                      Loading integrations...
-                    </div>
+                  <div id="connections-delivery-list" style="display: flex; flex-direction: column; gap: 12px;">
+                    <div style="text-align: center; padding: 40px 0; color: var(--text-secondary); opacity: 0.6;">Loading…</div>
                   </div>
                 </div>
                 <div class="settings-section" style="margin-top: 24px;">
-                  <h3>Available</h3>
-                  <div id="available-integrations-list" style="display: flex; flex-direction: column; gap: 12px;"></div>
+                  <h3>Add</h3>
+                  <div id="connections-delivery-add" style="display: flex; flex-direction: column; gap: 12px;"></div>
                 </div>
               </div>
-            </div><!-- end integrations tab -->
+            </div><!-- end connections tab -->
 
             <div class="settings-grid settings-tab-content" data-tab="theme">
               <!-- Theme Configuration -->

@@ -18,13 +18,24 @@ export const PROVIDER_META = {
   ollama:    { img: 'assets/ollama.svg',     filter: 'none', bgColor: 'transparent' },
 };
 
+// Keyed by ConnectionType (snake_case to match Rust serde). Used by the
+// pipeline chip renderer + connections cards for the type-coloured tile.
+// `save_local` keeps the legacy `save` colour so re-using the icon styling
+// stays consistent.
+const SHELL_SVG = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>`;
+const TELEGRAM_SVG = `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9.04 15.6 8.86 19c.43 0 .62-.18.85-.4l2.05-1.96 4.25 3.1c.78.43 1.34.2 1.55-.72l2.8-13.13c.27-1.16-.42-1.62-1.18-1.34L2.07 10.05c-1.13.44-1.11 1.07-.19 1.36l4.43 1.39 10.27-6.47c.48-.32.92-.14.56.18z"/></svg>`;
+
 export const CONNECTOR_META = {
-  llm:       { abbr: 'AI',  textColor: 'var(--accent)',  bgColor: 'var(--accent-soft)' },
-  cli_agent: { svg: CLI_SVG, textColor: '#fff',          bgColor: 'rgba(99,102,241,0.9)' },
-  save:      { svg: SAVE_SVG,    textColor: '#10b981',   bgColor: 'rgba(16,185,129,0.15)' },
-  slack:     { svg: SLACK_SVG,   textColor: '#fff',      bgColor: '#4A154B' },
-  notion:    { svg: NOTION_SVG,  textColor: '#fff',      bgColor: '#2f2f2f' },
-  webhook:   { svg: WEBHOOK_SVG, textColor: '#60a5fa',   bgColor: 'rgba(59,130,246,0.2)' },
+  llm:        { abbr: 'AI',         textColor: 'var(--accent)', bgColor: 'var(--accent-soft)' },
+  cli_agent:  { svg: CLI_SVG,       textColor: '#fff',          bgColor: 'rgba(99,102,241,0.9)' },
+  shell:      { svg: SHELL_SVG,     textColor: '#fff',          bgColor: 'rgba(82,82,91,0.9)' },
+  slack:      { svg: SLACK_SVG,     textColor: '#fff',          bgColor: '#4A154B' },
+  notion:     { svg: NOTION_SVG,    textColor: '#fff',          bgColor: '#2f2f2f' },
+  telegram:   { svg: TELEGRAM_SVG,  textColor: '#fff',          bgColor: '#229ED9' },
+  webhook:    { svg: WEBHOOK_SVG,   textColor: '#60a5fa',       bgColor: 'rgba(59,130,246,0.2)' },
+  save_local: { svg: SAVE_SVG,      textColor: '#10b981',       bgColor: 'rgba(16,185,129,0.15)' },
+  // Legacy alias for any old data still saying `save`.
+  save:       { svg: SAVE_SVG,      textColor: '#10b981',       bgColor: 'rgba(16,185,129,0.15)' },
 };
 
 export const FALLBACK_CLI_INFO = [

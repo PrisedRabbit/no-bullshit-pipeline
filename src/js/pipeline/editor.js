@@ -4,10 +4,9 @@ import { invoke } from '../core/tauri.js';
 import { escapeHtml } from '../core/utils.js';
 import { showToast } from '../ui/toast.js';
 import { showConfirm } from '../ui/confirm-modal.js';
-import { CONNECTOR_META, PROVIDER_META } from './constants.js';
+import { CONNECTOR_META } from './constants.js';
 import * as pipelineState from './state.js';
-import { trimModelName } from './models.js';
-import { llmModelsData } from '../integrations/state.js';
+import { getLoadedConnections } from '../connections/index.js';
 import { maybeAutoName } from './delivery-options.js';
 import { showStepEditor, addNewStep } from './step-editor.js';
 import { loadPipelineDefs } from './defs-list.js';
@@ -23,19 +22,10 @@ const savePipelineDefBtn = document.getElementById('save-pipeline-def-btn');
 const deletePipelineDefBtn = document.getElementById('delete-pipeline-def-btn');
 const closePipelineEditorBtn = document.getElementById('close-pipeline-editor');
 
-export function fixStepInputs() {
-  for (let i = 0; i < pipelineState.pipelineEditorSteps.length; i++) {
-    const step = pipelineState.pipelineEditorSteps[i];
-    if (i === 0) {
-      step.input = 'transcript';
-    } else {
-      const validInputs = ['transcript', ...pipelineState.pipelineEditorSteps.slice(0, i).map(s => s.name)];
-      if (!validInputs.includes(step.input)) {
-        step.input = pipelineState.pipelineEditorSteps[i - 1].name || 'transcript';
-      }
-    }
-  }
-}
+// Kept as a no-op for legacy call sites — the old `step.input` field is gone
+// (Connection-model chain is strictly linear, see docs/connections-model.md
+// decision #3). Removed when no callers remain.
+export function fixStepInputs() {}
 
 export function openPipelineEditor(name) {
   if (!pipelineEditor) return;
@@ -89,41 +79,26 @@ export function renderPipelineSteps() {
     <span class="pflow-chip-label">Transcript</span>
   </div>`;
 
+  const conns = getLoadedConnections();
   for (let i = 0; i < pipelineState.pipelineEditorSteps.length; i++) {
     const step = pipelineState.pipelineEditorSteps[i];
-    let meta = CONNECTOR_META[step.connector] || {
-      abbr: step.connector.substring(0, 2).toUpperCase(),
+    const typeKey = step.connection_type || 'cli_agent';
+    const meta = CONNECTOR_META[typeKey] || {
+      abbr: typeKey.substring(0, 2).toUpperCase(),
       textColor: 'var(--text-primary)',
       bgColor: 'var(--bg-input)',
     };
-    let iconContent = '';
-    let bg = meta.bgColor;
-    let fg = meta.textColor;
-    let subText = escapeHtml(step.connector);
+    const bg = meta.bgColor;
+    const fg = meta.textColor;
+    const iconContent = meta.svg
+      ? meta.svg
+      : `<span style="font-size:7px;font-weight:800;color:${fg};">${meta.abbr}</span>`;
 
-    if (step.connector === 'llm') {
-      const provider = step.config?.provider || 'openai';
-      const provMeta = PROVIDER_META[provider] || PROVIDER_META.openai;
-      bg = provMeta.bgColor;
-      iconContent = `<img src="${provMeta.img}" style="filter:${provMeta.filter};" alt="${provider}" />`;
-      const model = step.config?.model || '';
-      if (model) {
-        let short;
-        if (provider === 'local') {
-          const localModel = (llmModelsData || []).find(m => m.id === model);
-          short = localModel ? localModel.name : model;
-        } else {
-          short = trimModelName(model, provider);
-        }
-        subText = escapeHtml(short);
-      } else {
-        subText = escapeHtml(provider);
-      }
-    } else if (meta.svg) {
-      iconContent = meta.svg;
-    } else {
-      iconContent = `<span style="font-size:7px;font-weight:800;color:${fg};">${meta.abbr}</span>`;
-    }
+    // Sub-label: the chosen Connection's name (or a "no connection" warning)
+    // — much more useful than the old provider/model breadcrumb since the
+    // connection IS the configured target.
+    const conn = conns.find(c => c.id === step.connection_id);
+    const subText = escapeHtml(conn ? conn.name : (step.connection_id ? '⚠ missing connection' : 'pick one'));
 
     const safeName = escapeHtml(step.name || 'Unnamed');
     const isEditing = pipelineState.editingStepIndex === i;
@@ -170,7 +145,6 @@ export function renderPipelineSteps() {
       } else if (pipelineState.editingStepIndex !== null && pipelineState.editingStepIndex > idx) {
         pipelineState.setEditingStepIndex(pipelineState.editingStepIndex - 1);
       }
-      fixStepInputs();
       renderPipelineSteps();
       maybeAutoName();
     });
@@ -212,7 +186,6 @@ export function renderPipelineSteps() {
           if (movedIdx < pipelineState.editingStepIndex && newIdx >= pipelineState.editingStepIndex) pipelineState.setEditingStepIndex(pipelineState.editingStepIndex - 1);
           else if (movedIdx > pipelineState.editingStepIndex && newIdx <= pipelineState.editingStepIndex) pipelineState.setEditingStepIndex(pipelineState.editingStepIndex + 1);
         }
-        fixStepInputs();
         renderPipelineSteps();
         if (pipelineState.editingStepIndex !== null) showStepEditor(pipelineState.editingStepIndex);
       },

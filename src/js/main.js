@@ -42,6 +42,7 @@ import { loadSlackIntegrations, initSlack } from './slack/slack.js';
 
 // Integrations (models, providers, connected services)
 import { initIntegrationsSettings, loadAllIntegrations, renderModelsProviders } from './integrations/init.js';
+import { initConnectionsTab } from './connections/index.js';
 
 // Health
 import { initHealthCheck, scheduleAudit } from './health/init.js';
@@ -225,6 +226,7 @@ async function bootstrapApp() {
   initPromptTemplates();
   initSlack();
   initIntegrationsSettings();
+  initConnectionsTab();
   initModelVersion();
 
   await init().catch(e => console.error('Init failed:', e));
