@@ -37,7 +37,7 @@ pub fn list_input_devices() -> Result<Vec<AudioDeviceInfo>, anyhow::Error> {
             Some(AudioDeviceInfo {
                 id: name.clone(),
                 name: name.clone(),
-                sample_rate: config.sample_rate().0,
+                sample_rate: config.sample_rate(),
                 channels: config.channels(),
                 is_default: Some(&name) == default_name.as_ref(),
             })

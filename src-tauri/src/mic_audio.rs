@@ -4,7 +4,7 @@ use ringbuf::{
     traits::{Consumer, Producer, Split, Observer},
     HeapRb,
 };
-use rubato::{SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction, Resampler};
+use crate::resampler_compat::{SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 use std::fs::File;
 use std::num::{NonZeroU32, NonZeroU8};
 use std::sync::{
@@ -95,7 +95,7 @@ impl MicAudioRecorder {
         
         // Use device's default config (native sample rate)
         let config = device.default_input_config()?;
-        let sample_rate = config.sample_rate().0;
+        let sample_rate = config.sample_rate();
         let channels = config.channels();
         // Snapshot config facts for the debug log before `config` is consumed by
         // `config.into()` in the stream-build match below.
@@ -298,7 +298,7 @@ fn run_audio_processing(
             params,
             resampler_chunk_size,
             2,    // stereo output
-        )?)
+        ).map_err(|e| anyhow::anyhow!(e))?)
     } else {
         None
     };

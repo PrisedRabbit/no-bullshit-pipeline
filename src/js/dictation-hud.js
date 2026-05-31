@@ -43,6 +43,10 @@ console.log('dictation-hud: script loaded');
 let levelTimer = null;
 let waveTimer = null;
 let hideTimer = null;
+// Bumped on every meter stop. Async level-probe callbacks capture the value at
+// schedule time and bail if it changed — kills late writes that re-stick a bar
+// after we've already reset to flat.
+let meterGen = 0;
 // Cache of shortcut_id → hotkey string so we don't re-query settings on every
 // recording start. Populated on demand from the dictation_status payload.
 const hotkeyCache = new Map();
@@ -96,13 +100,16 @@ function startLevelPolling() {
   stopLevelPolling();
   stopWaveAnimation();
   meter.classList.remove('flat');
+  // Re-enable the height transition that resetBars() turned off.
+  bars.forEach((bar) => { bar.style.transition = ''; });
+  const gen = meterGen;
   levelTimer = setInterval(async () => {
     try {
       const levels = await invoke('get_audio_levels');
-      // The probe is async — if the meter was stopped while this call was
-      // in flight, bail so a late write doesn't re-stick the bars after
-      // we've moved to processing/flat.
-      if (!levelTimer) return;
+      // The probe is async — if the meter was stopped (or restarted) while this
+      // call was in flight, the generation no longer matches: bail so a late
+      // write can't re-stick the bars after we've moved to processing/flat.
+      if (!levelTimer || gen !== meterGen) return;
       const mic = levels?.mic ?? 0;
       const sys = levels?.system ?? 0;
       // Show whichever source is louder so the meter reacts to system audio
@@ -135,18 +142,22 @@ function stopLevelPolling() {
   }
 }
 
-// Wipe the inline height/opacity the animation loops set per-frame. Without
-// this the last-rendered values stick (inline beats the .flat CSS rule) and
-// the tallest centre bar stays lit as leftover "dots" after we stop.
+// Wipe the inline height/opacity the animation loops set per-frame. We clear
+// to '' so the bar falls back to the base `.bar { height: 4px }` rule — which
+// is already flat — instead of leaving inline values that could linger if the
+// `.flat` class ever gets stripped by a racing startLevel/Wave call. Combined
+// with the meterGen guard, this kills the leftover "tallest centre bar" dots.
 function resetBars() {
-  // Force explicit flat inline values rather than clearing to '' and hoping
-  // the `.meter.flat` CSS wins — that depends on the flat class actually
-  // being applied and not stripped by a racing startLevel/Wave call. Inline
-  // is unambiguous and deterministic.
+  // Disable the height transition for the reset so a tall bar can't leave an
+  // animated tail "frozen" on screen when the HUD hides mid-animation — the
+  // classic stuck centre-bar dot. Force a reflow to commit the flat values
+  // immediately; the animators re-enable the transition when they restart.
   bars.forEach((bar) => {
+    bar.style.transition = 'none';
     bar.style.height = `${BAR_MIN}px`;
     bar.style.opacity = '0.5';
   });
+  void meter.offsetHeight; // force synchronous reflow
 }
 
 // Pulse-wave animation on the same 5 bars used by the live mic meter — a
@@ -156,6 +167,8 @@ function startWaveAnimation() {
   stopWaveAnimation();
   stopLevelPolling();
   meter.classList.remove('flat');
+  // Re-enable the height transition that resetBars() turned off.
+  bars.forEach((bar) => { bar.style.transition = ''; });
   const PASS_MS = 700;
   const PAUSE_MS = 1000;
   const CYCLE_MS = PASS_MS + PAUSE_MS;
@@ -193,6 +206,9 @@ function stopWaveAnimation() {
 }
 
 function stopAllMeters() {
+  // Invalidate any in-flight async level probe so a late resolve can't paint
+  // over the reset we're about to do.
+  meterGen += 1;
   stopLevelPolling();
   stopWaveAnimation();
   resetBars();
@@ -214,15 +230,26 @@ function setDot(kind) {
   dot.className = `dot ${kind || ''}`;
 }
 
-async function fetchCurrentHotkey(shortcutId) {
+async function fetchShortcutMeta(shortcutId) {
   try {
     const settings = await invoke('load_settings');
     const list = settings?.dictation?.shortcuts || [];
     const sc = list.find((s) => s.id === shortcutId);
-    return sc?.hotkey || null;
+    if (!sc) return null;
+    return { hotkey: sc.hotkey || null, trigger_mode: sc.trigger_mode || 'Toggle' };
   } catch (_e) {
     return null;
   }
+}
+
+// Build the "how to stop" hint for the recording state. Push-to-talk stops on
+// release, so "press again" would be wrong — tell the user to let go instead.
+function stopHint(meta) {
+  if (!meta) return '';
+  if (meta.trigger_mode === 'PushToTalk') {
+    return meta.hotkey ? `Release ${prettyHotkey(meta.hotkey)} to stop` : 'Release to stop';
+  }
+  return meta.hotkey ? `${prettyHotkey(meta.hotkey)} again to stop` : '';
 }
 
 function prettyHotkey(hk) {
@@ -259,18 +286,18 @@ async function onStatus(payload) {
       startLevelPolling();
       setActionButton(null);
       if (partialEl) { partialEl.textContent = ''; partialEl.classList.remove('visible'); }
-      // Always (re)show the "<hotkey> again to stop" hint on recording start.
-      // Use the cache when we already know the binding to avoid a settings
-      // roundtrip on every press of an existing shortcut.
+      // Show the correct "how to stop" hint — "again to stop" for toggle,
+      // "release to stop" for push-to-talk. Use the cache when we already know
+      // the binding to avoid a settings roundtrip on every press.
       if (shortcut_id) {
         const cached = hotkeyCache.get(shortcut_id);
         if (cached) {
-          hint.textContent = `${prettyHotkey(cached)} again to stop`;
+          hint.textContent = stopHint(cached);
         } else {
-          fetchCurrentHotkey(shortcut_id).then((hk) => {
-            if (hk) {
-              hotkeyCache.set(shortcut_id, hk);
-              hint.textContent = `${prettyHotkey(hk)} again to stop`;
+          fetchShortcutMeta(shortcut_id).then((meta) => {
+            if (meta) {
+              hotkeyCache.set(shortcut_id, meta);
+              hint.textContent = stopHint(meta);
             }
           });
         }

@@ -1,6 +1,6 @@
 [package]
 name = "nbp"
-version = "0.4.69"
+version = "0.4.70"
 description = "A Tauri App"
 authors = ["sk"]
 edition = "2024"
@@ -15,50 +15,52 @@ name = "nbp_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.5.6", features = [] }
+tauri-build = { version = "2.6.2", features = [] }
 
 [dependencies]
-tauri = { version = "2.10", features = ["tray-icon", "macos-private-api"] }
+tauri = { version = "2.11", features = ["tray-icon", "macos-private-api"] }
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSString", "NSError", "NSObject", "NSProcessInfo"] }
 objc2-user-notifications = { version = "0.3", features = ["UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationAction", "UNNotification", "UNNotificationSettings", "block2"] }
 block2 = "0.6"
-tauri-plugin-opener = "2.5.3"
-tauri-plugin-dialog = "2.6"
+tauri-plugin-opener = "2.5.4"
+tauri-plugin-dialog = "2.7"
 tauri-plugin-shell = "2.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-base64 = "0.21"
-cpal = "0.15"
+base64 = "0.22"
+cpal = "0.17"
 chrono = { version = "0.4.44", features = ["serde"] }
 hound = "3.5"
-uuid = { version = "1.22", features = ["v4", "serde"] }
+uuid = { version = "1.23", features = ["v4", "serde"] }
 # System Audio Capture (Core Audio Taps)
 cidre = { git = "https://github.com/yury/cidre", branch = "main", features = ["av", "async"] }
-ringbuf = "0.4.8"
+ringbuf = "0.5.0"
 anyhow = "1.0.102"
 ebur128 = "0.1.10"
 vorbis_rs = "0.5"
 lewton = "0.10"
-rubato = "0.15"
-log = "0.4.29"
+rubato = "3.0"
+log = "0.4.30"
 reqwest = { version = "0.13", features = ["json", "blocking", "rustls", "stream", "multipart", "query", "form"] }
 futures-util = "0.3.32"
-tokio = { version = "1.50", features = ["fs", "io-util", "sync", "time", "process"] }
-rodio = { version = "0.21", features = ["vorbis"] }
+tokio = { version = "1.52", features = ["fs", "io-util", "sync", "time", "process"] }
+rodio = { version = "0.22", features = ["vorbis"] }
 lazy_static = "1.5"
 serde_yaml = "0.9"
 libc = "0.2"
 security-framework = "3.7"
-notion-client = "1.0.12"
-llama-cpp-2 = { version = "0.1.140", features = ["metal", "sampler"] }
+notion-client = "1.1.1"
+llama-cpp-2 = { version = "0.1.146", features = ["metal", "sampler"] }
 encoding_rs = "0.8"
-sha2 = "0.10"
+sha2 = "0.11"
 shell-words = "1.1"
 tauri-plugin-notification = "2.3.3"
 env_logger = "0.11.10"
-tauri-plugin-single-instance = "2.4.0"
+tauri-plugin-single-instance = "2.4.2"
 tauri-plugin-global-shortcut = "2"
+audioadapter = "3.0.0"
+audioadapter-buffers = "3.0.0"
 
 [profile.release]
 strip = true

@@ -704,7 +704,7 @@ pub async fn export_transcript_md(
 pub fn convert_ogg_to_wav(ogg_path: &std::path::Path, wav_path: &std::path::Path) -> Result<(), String> {
     use lewton::inside_ogg::OggStreamReader;
     use hound::{WavWriter, WavSpec};
-    use rubato::{SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction, Resampler};
+    use crate::resampler_compat::{SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
     use std::fs::File;
 
     const TARGET_RATE: u32 = 16000;

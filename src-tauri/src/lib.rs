@@ -59,6 +59,7 @@ mod audio_process_detector;
 pub mod app_icons;
 mod dictation;
 mod fn_hotkey;
+mod resampler_compat;
 mod dictation_streaming;
 mod updater;
 mod vocab;

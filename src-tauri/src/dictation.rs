@@ -217,7 +217,7 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
     .ok_or("No input device available")?;
 
     let config = pick_input_config(&device)?;
-    let sample_rate = config.sample_rate().0;
+    let sample_rate = config.sample_rate();
     let channels = config.channels();
     log::info!(
         "dictation: chose input config — rate={}, channels={}, format={:?}",
@@ -1153,7 +1153,7 @@ fn downmix_to_mono(interleaved: &[f32], channels: u16) -> Vec<f32> {
 }
 
 fn resample_mono(input: &[f32], src_rate: u32, dst_rate: u32) -> Result<Vec<f32>, String> {
-    use rubato::{FftFixedInOut, Resampler};
+    use crate::resampler_compat::FftFixedInOut;
 
     // FFT-based resampler — orders of magnitude faster than the polyphase
     // Sinc path for integer ratios like 48k→16k (gcd=16k, ratio 3:1). Quality
@@ -1396,21 +1396,21 @@ fn pick_input_config(device: &cpal::Device) -> Result<cpal::SupportedStreamConfi
         log::info!(
             "dictation: cpal advertises — channels={}, rate_range={}..={}, format={:?}",
             c.channels(),
-            c.min_sample_rate().0,
-            c.max_sample_rate().0,
+            c.min_sample_rate(),
+            c.max_sample_rate(),
             c.sample_format()
         );
     }
 
     let rate_ok = |cfg: &cpal::SupportedStreamConfigRange| {
-        cfg.min_sample_rate().0 <= PREFERRED_RATE && cfg.max_sample_rate().0 >= PREFERRED_RATE
+        cfg.min_sample_rate() <= PREFERRED_RATE && cfg.max_sample_rate() >= PREFERRED_RATE
     };
 
     if let Some(cfg) = configs.iter().find(|c| c.channels() == 1 && rate_ok(c)) {
-        return Ok(cfg.clone().with_sample_rate(cpal::SampleRate(PREFERRED_RATE)));
+        return Ok(cfg.clone().with_sample_rate(PREFERRED_RATE));
     }
     if let Some(cfg) = configs.iter().find(|c| rate_ok(c)) {
-        return Ok(cfg.clone().with_sample_rate(cpal::SampleRate(PREFERRED_RATE)));
+        return Ok(cfg.clone().with_sample_rate(PREFERRED_RATE));
     }
     device
         .default_input_config()

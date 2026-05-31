@@ -214,7 +214,7 @@ pub async fn execute(
         }
         "codex" => {
             let mut c = AsyncCommand::new("codex");
-            c.arg("exec").arg(&full_prompt);
+            c.arg("exec").arg("--skip-git-repo-check").arg(&full_prompt);
             if model_mode == "advanced" {
                 if let Some(args) = model_args {
                     for arg in shell_words::split(args).map_err(|e| format!("Invalid model_args: {}", e))? {
@@ -497,7 +497,7 @@ pub async fn process_with_cli(
         }
         "codex" => {
             let mut c = AsyncCommand::new("codex");
-            c.arg("exec").arg(&full_prompt);
+            c.arg("exec").arg("--skip-git-repo-check").arg(&full_prompt);
             if let Some(m) = model {
                 c.arg("-m").arg(m);
             }
