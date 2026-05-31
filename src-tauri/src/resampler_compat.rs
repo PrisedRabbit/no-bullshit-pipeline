@@ -171,6 +171,9 @@ impl SincFixedIn<f32> {
         })
     }
 
+    // Kept for parity with FftFixedInOut; the sinc call sites drive `process`
+    // directly, so this isn't currently called.
+    #[allow(dead_code)]
     pub fn input_frames_next(&self) -> usize {
         self.inner.input_frames_next()
     }

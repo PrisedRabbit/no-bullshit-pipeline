@@ -25,6 +25,10 @@ pub struct AudioDeviceInfo {
 ///
 /// Returns a vector of AudioDeviceInfo structs containing device details.
 /// The default system input device is marked with is_default = true.
+// cpal 0.17 deprecated `DeviceTrait::name` in favour of `description()`/`id()`,
+// but those return a different string shape; we rely on `name()` to match the
+// exact label users pin in settings, so keep it and silence the lint.
+#[allow(deprecated)]
 pub fn list_input_devices() -> Result<Vec<AudioDeviceInfo>, anyhow::Error> {
     let host = cpal::default_host();
     let default_device = host.default_input_device();
@@ -59,6 +63,7 @@ pub fn get_input_devices() -> Result<Vec<AudioDeviceInfo>, String> {
 ///
 /// Returns the device matching the given name, or None if not found.
 /// Uses device name as identifier since cpal device IDs are unstable.
+#[allow(deprecated)]
 pub fn get_device_by_name(name: &str) -> Option<cpal::Device> {
     let host = cpal::default_host();
     host.input_devices()

@@ -77,6 +77,7 @@ pub struct MicAudioRecorder {
 unsafe impl Send for MicAudioRecorder {}
 
 impl MicAudioRecorder {
+    #[allow(deprecated)] // cpal `DeviceTrait::name` — kept for stable device labels
     pub fn new(output_path: std::path::PathBuf, device_name: Option<String>, skip_file: bool) -> Result<Self> {
         let host = cpal::default_host();
 
