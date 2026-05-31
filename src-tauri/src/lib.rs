@@ -58,6 +58,7 @@ mod call_session;
 mod audio_process_detector;
 pub mod app_icons;
 mod dictation;
+mod fn_hotkey;
 mod dictation_streaming;
 mod updater;
 mod vocab;
@@ -474,6 +475,8 @@ pub fn run() {
             dictation::dictation_reload_shortcuts,
             dictation::dictation_get_registration_status,
             dictation::dictation_release_esc,
+            dictation_fn_capture_start,
+            dictation_fn_capture_stop,
             open_accessibility_settings,
             is_accessibility_granted,
             request_accessibility_permission,
@@ -571,6 +574,9 @@ pub fn reload_dictation_shortcuts(
 
     let gs = app.global_shortcut();
     let _ = gs.unregister_all();
+    // Fn-based shortcuts live on a separate CGEventTap path — reset it too so a
+    // reload fully clears the previous binding set before re-installing.
+    fn_hotkey::unregister_all();
 
     let settings = config::load_settings();
     let mut results: Vec<ShortcutRegistration> = Vec::with_capacity(settings.dictation.shortcuts.len());
@@ -593,6 +599,10 @@ pub fn reload_dictation_shortcuts(
         return Ok(results);
     }
 
+    // Fn-based shortcuts ("fn", "fn+d", …) can't go through the plugin (Carbon
+    // can't bind the Fn flag) — collect them for the CGEventTap path.
+    let mut fn_shortcuts: Vec<config::DictationShortcut> = Vec::new();
+
     for sc in &settings.dictation.shortcuts {
         if sc.hotkey.trim().is_empty() {
             results.push(ShortcutRegistration {
@@ -603,36 +613,76 @@ pub fn reload_dictation_shortcuts(
             });
             continue;
         }
+        if sc.hotkey.trim().to_lowercase().starts_with("fn") {
+            fn_shortcuts.push(sc.clone());
+            continue;
+        }
         let sid = sc.id.clone();
         let name = sc.name.clone();
         let hotkey = sc.hotkey.clone();
         let is_clipboard_source =
             matches!(sc.input_source, config::DictationInputSource::Clipboard);
+        let mode = sc.trigger_mode;
         let result = gs.on_shortcut(hotkey.as_str(), move |app, _shortcut, event| {
-            if event.state == ShortcutState::Pressed {
-                let app = app.clone();
-                let sid = sid.clone();
-                tauri::async_runtime::spawn(async move {
-                    if is_clipboard_source {
+            let pressed = matches!(event.state, ShortcutState::Pressed);
+            let released = matches!(event.state, ShortcutState::Released);
+            if is_clipboard_source {
+                if pressed {
+                    let app = app.clone();
+                    let sid = sid.clone();
+                    tauri::async_runtime::spawn(async move {
                         // One-shot: snapshot clipboard → pipeline → paste. No toggle.
                         if let Err(e) = dictation::run_clipboard_inner(&app, &sid).await {
                             log::warn!("dictation clipboard '{}' failed: {}", sid, e);
                         }
+                    });
+                }
+                return;
+            }
+            match mode {
+                config::DictationTriggerMode::Toggle => {
+                    if !pressed {
                         return;
                     }
-                    let active = app
-                        .state::<dictation::DictationState>()
-                        .is_active
-                        .load(std::sync::atomic::Ordering::Relaxed);
-                    let result = if active {
-                        dictation::stop_inner(&app).await.map(|_| ())
-                    } else {
-                        dictation::start_inner(&app, &sid).await
-                    };
-                    if let Err(e) = result {
-                        log::warn!("dictation toggle for '{}' failed: {}", sid, e);
+                    let app = app.clone();
+                    let sid = sid.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let active = app
+                            .state::<dictation::DictationState>()
+                            .is_active
+                            .load(std::sync::atomic::Ordering::Relaxed);
+                        let result = if active {
+                            dictation::stop_inner(&app).await.map(|_| ())
+                        } else {
+                            dictation::start_inner(&app, &sid).await
+                        };
+                        if let Err(e) = result {
+                            log::warn!("dictation toggle for '{}' failed: {}", sid, e);
+                        }
+                    });
+                }
+                config::DictationTriggerMode::PushToTalk => {
+                    if !pressed && !released {
+                        return;
                     }
-                });
+                    let app = app.clone();
+                    let sid = sid.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let active = app
+                            .state::<dictation::DictationState>()
+                            .is_active
+                            .load(std::sync::atomic::Ordering::Relaxed);
+                        if pressed && !active {
+                            if let Err(e) = dictation::start_inner(&app, &sid).await {
+                                log::warn!("dictation PTT start '{}' failed: {}", sid, e);
+                            }
+                        } else if released && active {
+                            if let Err(e) = dictation::stop_inner(&app).await {
+                                log::warn!("dictation PTT stop '{}' failed: {}", sid, e);
+                            }
+                        }
+                    });
+                }
             }
         });
         match result {
@@ -657,10 +707,30 @@ pub fn reload_dictation_shortcuts(
             }
         }
     }
+
+    // Register Fn-based shortcuts via the CGEventTap path and merge results.
+    if !fn_shortcuts.is_empty() {
+        results.extend(fn_hotkey::reload(app, &fn_shortcuts));
+    }
+
     if let Ok(mut cache) = cache_arc.last_registration.lock() {
         *cache = results.clone();
     }
     Ok(results)
+}
+
+/// Arm the backend Fn-key tap so the Settings hotkey field can capture the
+/// 🌐 / Fn key, which is invisible to the WebView. Returns false when
+/// Accessibility isn't granted (the tap can't be created, so Fn won't capture).
+#[tauri::command]
+fn dictation_fn_capture_start(app: tauri::AppHandle) -> bool {
+    fn_hotkey::set_capture(&app, true)
+}
+
+/// Disarm Fn capture mode (hotkey field blurred / editor closed).
+#[tauri::command]
+fn dictation_fn_capture_stop(app: tauri::AppHandle) {
+    fn_hotkey::set_capture(&app, false);
 }
 
 /// Open System Settings → Privacy & Security → Accessibility so the user can
