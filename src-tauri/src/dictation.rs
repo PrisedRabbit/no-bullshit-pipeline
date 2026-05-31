@@ -380,7 +380,11 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
     // AirPods → AirPods), macOS forces an HFP profile switch and the music
     // already drops on its own — touching the slider then is unreliable
     // (HFP decouples the slider from real playback level, ends up at zero).
+    // cpal `DeviceTrait::name` is deprecated in 0.17 but kept here: we only
+    // compare input vs output device labels, and name() is the stable shape.
+    #[allow(deprecated)]
     let input_name = device.name().ok();
+    #[allow(deprecated)]
     let output_name = host.default_output_device().and_then(|d| d.name().ok());
     let pre_duck_volume = if shortcut.capture_system_audio {
         // Don't duck — we're recording whatever is playing, so killing the
