@@ -451,6 +451,8 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
         sample_rate,
         channels
     );
+    // Blink the tray icon while the dictation mic is live (same as recordings).
+    crate::start_tray_pulse(app);
     Ok(())
 }
 
@@ -465,6 +467,9 @@ pub async fn stop_inner(app: &AppHandle) -> Result<String, String> {
         state.is_active.store(false, Ordering::Relaxed);
         s
     };
+
+    // Capture is done — stop the tray-icon blink (transcribe/paste runs after).
+    crate::stop_tray_pulse();
 
     let mut session = match session {
         Some(s) => s,
@@ -871,27 +876,27 @@ async fn transcribe(app: &AppHandle, mono_16k: &[f32]) -> Result<String, String>
     // locale also comes from the global setting.
     let settings = load_settings();
     match settings.transcription.provider {
-        TranscriptionProvider::FluidAudio | TranscriptionProvider::Qwen3 => {
-            run_fluidaudio(app, mono_16k, &settings).await
-        }
         TranscriptionProvider::AppleSpeech => {
             run_apple_speech(app, mono_16k, Some(&settings.transcription.apple_locale)).await
         }
-        other => Err(format!("Unsupported ASR provider for dictation: {:?}", other)),
+        // FluidAudio, Qwen3, and `Unknown` (old settings.json referencing dead
+        // cloud providers) all run FluidAudio — matches the config.rs contract
+        // and the recording path, instead of erroring out.
+        _ => run_fluidaudio(app, mono_16k, &settings).await,
     }
 }
 
-/// Runs the text-transforming steps of `pipeline_name` against `text` in
-/// memory. CliAgent steps chain — their output replaces `current`. Shell steps
-/// are skipped with a debug log: they're script-mode side effects that expect
-/// an output dir + NBP_* env, which the paste-only dictation flow has no
-/// context for.
+/// Runs `pipeline_name` against the dictation `text` and returns the text to
+/// paste. Mirrors the recording pipeline — every step type runs (the user owns
+/// what they put in the pipeline):
+///   - CliAgent / Shell : transforms; their stdout becomes the running text.
+///   - SaveLocal        : side-effect; writes to the configured folder and
+///                        leaves the running text unchanged, so the transform
+///                        result is still what gets pasted.
 ///
-/// Inline model: each step carries its own `config` (cli/model/timeout). We
-/// render the step template against the running `current` text (mapped to both
-/// `{transcript}` and `{processing_result}` so authors can use either
-/// placeholder), inject it as the `prompt`, and feed it to the connector's
-/// inline executor.
+/// Placeholders match the engine: `{transcript}` = the original transcript,
+/// `{processing_result}` = the running text (empty-effectively on step 1),
+/// `{app}` = "Dictation" (no recording context here).
 async fn run_text_pipeline(text: &str, pipeline_name: &str) -> Result<String, String> {
     let pipelines = load_pipelines().map_err(|e| format!("load pipelines: {}", e))?;
     let pipeline = pipelines
@@ -899,64 +904,59 @@ async fn run_text_pipeline(text: &str, pipeline_name: &str) -> Result<String, St
         .ok_or_else(|| format!("Pipeline '{}' not found", pipeline_name))?
         .clone();
 
-    let mut current = text.to_string();
-    let mut ran_any_transform = false;
+    // Ephemeral context: dictation has no recording, so connector artifacts go
+    // to a throwaway temp dir (the recordings UI never reads them) and the app
+    // name is just "Dictation". Everything else runs through the *same*
+    // `run_one_step` the recording engine uses — no duplicate dispatch.
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let tmp_dir = std::env::temp_dir().join("nbp-dictation-pipeline");
+    let _ = std::fs::create_dir_all(&tmp_dir);
+    let ctx = crate::pipeline_engine::StepContext {
+        transcript: text,
+        app: "Dictation",
+        started_at: &now,
+        output_dir: &tmp_dir,
+    };
+
+    let mut chained = String::new(); // {processing_result} for the next step (engine semantics)
+    let mut paste = text.to_string(); // what we actually paste — the last transform output
 
     for step in &pipeline.steps {
-        match &step.step_type {
-            StepType::CliAgent => {
-                // Render template with the running text as both {transcript} and
-                // {processing_result} so existing authoring works either way. {app}
-                // resolves to "Dictation" — there's no recording context here.
-                let rendered = step
-                    .template
-                    .replace("{transcript}", &current)
-                    .replace("{processing_result}", &current)
-                    .replace("{app}", "Dictation");
-
-                // Synthesize the engine-fed cli_agent config: step.config carries
-                // cli/model/timeout; inject the rendered template as the prompt and
-                // call execute_inline with empty input so the connector's own
-                // concat is a no-op.
-                let mut cfg = step.config.clone();
-                if !cfg.is_object() {
-                    cfg = serde_json::Value::Object(serde_json::Map::new());
+        match crate::pipeline_engine::run_one_step(step, &chained, &ctx).await {
+            Ok(body) => {
+                // Transforms (CLI/Shell) update what gets pasted; SaveLocal is a
+                // side-effect and leaves the paste text alone. A transform that
+                // emits nothing (e.g. a delivery `curl`) also leaves it alone.
+                if matches!(step.step_type, StepType::CliAgent | StepType::Shell)
+                    && !body.trim().is_empty()
+                {
+                    paste = body.clone();
                 }
-                if let Some(obj) = cfg.as_object_mut() {
-                    obj.insert("prompt".to_string(), serde_json::Value::String(rendered));
-                }
-
-                let t = std::time::Instant::now();
+                chained = body;
                 log::info!(
-                    "dictation pipeline '{}': starting CliAgent step '{}' (input_chars={})",
-                    pipeline_name, step.name, current.len()
+                    "dictation pipeline '{}': step '{}' ({:?}) ok",
+                    pipeline_name, step.name, step.step_type
                 );
-                let out = crate::connectors::cli_agent::execute_inline(&cfg, "")
-                    .await
-                    .map_err(|e| format!("step '{}': {}", step.name, e))?;
-                log::info!(
-                    "dictation pipeline '{}': CliAgent step '{}' finished in {:?} (output_chars={})",
-                    pipeline_name, step.name, t.elapsed(), out.len()
-                );
-                current = out;
-                ran_any_transform = true;
             }
-            StepType::Shell | StepType::SaveLocal => {
-                log::debug!(
-                    "dictation pipeline '{}': skipping {:?} step '{}' (only CliAgent runs in the paste-only dictation flow)",
-                    pipeline_name, step.step_type, step.name
-                );
+            Err(e) => {
+                // Save failures are non-fatal — a side-effect shouldn't cost the
+                // user their paste. Transform failures propagate so the caller
+                // falls back to pasting the raw transcript.
+                if matches!(step.step_type, StepType::SaveLocal) {
+                    log::warn!(
+                        "dictation pipeline '{}': save step '{}' failed (non-fatal): {}",
+                        pipeline_name, step.name, e
+                    );
+                } else {
+                    let _ = std::fs::remove_dir_all(&tmp_dir);
+                    return Err(format!("step '{}': {}", step.name, e));
+                }
             }
         }
     }
 
-    if !ran_any_transform {
-        log::warn!(
-            "dictation pipeline '{}' has no CliAgent steps; returning raw transcript",
-            pipeline_name
-        );
-    }
-    Ok(current)
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    Ok(paste)
 }
 
 // --- Tauri commands -------------------------------------------------------
@@ -974,6 +974,7 @@ pub fn cancel_inner(app: &AppHandle) {
         state.is_active.store(false, Ordering::Relaxed);
         s
     };
+    crate::stop_tray_pulse();
     let mut session = match session {
         Some(s) => s,
         None => return,

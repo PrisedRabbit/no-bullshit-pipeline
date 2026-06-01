@@ -186,7 +186,7 @@ pub async fn execute(
     let content = super::strip_frontmatter(&raw_content);
 
     let full_prompt = if prompt.contains("{transcript}") {
-        crate::prompt_templates::substitute_variables(&prompt, content)
+        prompt.replace("{transcript}", content)
     } else {
         format!("{}\n\n{}", prompt, content)
     };
@@ -354,140 +354,7 @@ fn write_error(
     Err(error.to_string())
 }
 
-/// Process text with a CLI agent and return the output as a string.
-/// Used by summarize_recording / process_with_template when CliAgent provider is selected.
-/// Run a CLI-agent step purely in memory: take a config + input string,
-/// return the agent's stdout. Same role as `llm::execute_inline` — used by
-/// Quick Dictate to chain text-transforming pipeline steps without writing
-/// frontmatter files. Skips Mcp/working_directory/output_path features of
-/// the full `execute()` (those only matter for the file-based recording
-/// pipeline).
-pub async fn execute_inline(
-    config: &serde_json::Value,
-    input_text: &str,
-) -> Result<String, String> {
-    let cli = config
-        .get("cli")
-        .and_then(|v| v.as_str())
-        .ok_or("CLI agent config missing 'cli' (claude, codex, or opencode)")?;
-
-    let valid: Vec<&str> = SUPPORTED_CLIS.iter().map(|(id, _, _)| *id).collect();
-    if !valid.contains(&cli) {
-        return Err(format!(
-            "CLI agent 'cli' must be one of {:?}, got '{}'",
-            valid, cli
-        ));
-    }
-
-    let prompt = if let Some(template_name) = config
-        .get("prompt_template")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.trim().is_empty())
-    {
-        crate::prompt_templates::get_prompt_template_internal(template_name)?
-            .prompt
-            .clone()
-    } else if let Some(inline) = config
-        .get("prompt")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.trim().is_empty())
-    {
-        inline.to_string()
-    } else {
-        return Err("CLI agent step missing 'prompt_template' or 'prompt'".into());
-    };
-
-    let timeout_secs = config
-        .get("timeout_secs")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(120);
-
-    let model = config
-        .get("model")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.trim().is_empty());
-
-    process_with_cli(cli, &prompt, input_text, model, timeout_secs).await
-}
-
-pub async fn process_with_cli(
-    cli: &str,
-    prompt: &str,
-    transcript: &str,
-    model: Option<&str>,
-    timeout_secs: u64,
-) -> Result<String, String> {
-    if !check_cli_installed(cli) {
-        let cli_info = SUPPORTED_CLIS.iter().find(|(id, _, _)| *id == cli);
-        let install_hint = cli_info.map(|(_, _, hint)| *hint).unwrap_or("see project docs");
-        return Err(format!(
-            "CLI '{}' is not installed. Install: {}",
-            cli, install_hint
-        ));
-    }
-
-    let full_prompt = format!("{}\n\n{}", prompt, transcript);
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-
-    let mut cmd = build_cli_command(cli, &full_prompt, model);
-    cmd.current_dir(&home);
-    cmd.stdin(std::process::Stdio::null());
-    cmd.stdout(std::process::Stdio::piped());
-    cmd.stderr(std::process::Stdio::piped());
-    cmd.kill_on_drop(true);
-
-    let mut child = cmd.spawn().map_err(|e| {
-        format!("Failed to spawn '{}': {} (is it installed and in PATH?)", cli, e)
-    })?;
-
-    let stdout_handle = child.stdout.take();
-    let stderr_handle = child.stderr.take();
-
-    let wait_result = tokio::time::timeout(
-        Duration::from_secs(timeout_secs),
-        child.wait(),
-    )
-    .await;
-
-    let status = match wait_result {
-        Ok(Ok(status)) => status,
-        Ok(Err(e)) => return Err(format!("CLI process error: {}", e)),
-        Err(_) => {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            return Err(format!("CLI agent '{}' timed out after {}s", cli, timeout_secs));
-        }
-    };
-
-    let stdout_bytes = if let Some(mut h) = stdout_handle {
-        use tokio::io::AsyncReadExt;
-        let mut buf = Vec::new();
-        let _ = h.read_to_end(&mut buf).await;
-        buf
-    } else {
-        Vec::new()
-    };
-    let stderr_bytes = if let Some(mut h) = stderr_handle {
-        use tokio::io::AsyncReadExt;
-        let mut buf = Vec::new();
-        let _ = h.read_to_end(&mut buf).await;
-        buf
-    } else {
-        Vec::new()
-    };
-
-    if !status.success() {
-        let stderr = String::from_utf8_lossy(&stderr_bytes);
-        let stdout = String::from_utf8_lossy(&stdout_bytes);
-        let details = if !stderr.is_empty() {
-            stderr.to_string()
-        } else if !stdout.is_empty() {
-            stdout.to_string()
-        } else {
-            format!("exit code: {:?}", status.code())
-        };
-        return Err(format!("CLI '{}' failed: {}", cli, details.trim()));
-    }
-
-    Ok(String::from_utf8_lossy(&stdout_bytes).trim().to_string())
-}
+// `execute_inline` / `process_with_cli` were the in-memory CLI path Quick
+// Dictate used to call directly. Dictation now routes through the shared
+// `pipeline_engine::run_one_step` (same dispatch as recordings), so they're
+// gone — no second CLI-spawning path to drift from `execute()`.

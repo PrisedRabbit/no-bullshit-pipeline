@@ -21,8 +21,7 @@
 //! ### Pipeline System
 //! - [`pipelines`] - Pipeline definition model and validation
 //! - [`pipeline_engine`] - Sequential step execution engine with progress events
-//! - [`connectors`] - Step connectors (CLI agent, Shell)
-//! - [`prompt_templates`] - Reusable prompt template registry
+//! - [`connectors`] - Step connectors (CLI agent, Shell, Save)
 //! - [`transcript_migration`] - Migration from plain text to frontmatter transcript format
 //!
 //! ### Infrastructure
@@ -42,7 +41,6 @@ pub mod playback;
 mod waveform;
 mod devices;
 pub mod pipelines;
-mod prompt_templates;
 mod connectors;
 mod pipeline_engine;
 mod transcript_migration;
@@ -468,6 +466,9 @@ pub fn run() {
 /// RunEvent::ExitRequested handler), so audio is released cleanly instead of
 /// relying on Drop, which may not run at process exit.
 fn graceful_audio_shutdown(app: &tauri::AppHandle) {
+    // Stop the tray-icon blink on every quit path (Cmd+Q / tray Quit / Exit) so
+    // a pulse thread isn't left scheduling icon swaps into a tearing-down app.
+    stop_tray_pulse();
     let state = app.state::<AudioState>();
     {
         let is_recording = state.is_recording.lock().unwrap_or_else(|e| e.into_inner());
@@ -1236,6 +1237,109 @@ fn ensure_tray_alive(app: &tauri::AppHandle) {
 
 #[cfg(not(target_os = "macos"))]
 fn ensure_tray_alive(_app: &tauri::AppHandle) {}
+
+// ── Recording pulse: blink the tray icon while a recording is live ─────────
+// While recording, the status-bar icon alternates ~once a second between the
+// normal icon and the same icon with a red border (record colour). Quieter and
+// more glanceable than a timer. Icon swaps must happen on the main thread on
+// macOS, so the blink thread schedules them via `run_on_main_thread`.
+static TRAY_PULSE: std::sync::Mutex<Option<std::sync::Arc<std::sync::atomic::AtomicBool>>> =
+    std::sync::Mutex::new(None);
+
+/// Build the recording variant of the tray icon: the default icon with a red
+/// border drawn around it. Returns None if the icon can't be read.
+fn make_recording_icon(app: &tauri::AppHandle) -> Option<tauri::image::Image<'static>> {
+    let base = app.default_window_icon()?;
+    let (w, h) = (base.width() as usize, base.height() as usize);
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let mut rgba = base.rgba().to_vec();
+    let (wf, hf) = (w as f32, h as f32);
+    let min = wf.min(hf);
+    // Border thickness scales with the source bitmap so it reads as ~1–2pt once
+    // the icon is downscaled into the menu bar.
+    let t = (min / 12.0).max(3.0);
+    // Corner radius ≈ the macOS rounded-rect icon mask, so the red frame hugs
+    // the icon shape instead of poking out at square corners.
+    let r_out = min * 0.225;
+    let r_in = (r_out - t).max(0.0);
+    const RED: [u8; 4] = [0xE5, 0x3E, 0x3E, 0xFF]; // record red, opaque
+
+    // Point-in-rounded-rect: distance from the point to the inner "core" rect
+    // (inset by r) is within r. Handles straight edges and rounded corners.
+    let in_rrect = |px: f32, py: f32, x0: f32, y0: f32, x1: f32, y1: f32, r: f32| -> bool {
+        let cx = px.clamp(x0 + r, x1 - r);
+        let cy = py.clamp(y0 + r, y1 - r);
+        let (dx, dy) = (px - cx, py - cy);
+        dx * dx + dy * dy <= r * r
+    };
+
+    for y in 0..h {
+        for x in 0..w {
+            let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+            let on_ring = in_rrect(px, py, 0.0, 0.0, wf, hf, r_out)
+                && !in_rrect(px, py, t, t, wf - t, hf - t, r_in);
+            if on_ring {
+                let i = (y * w + x) * 4;
+                rgba[i..i + 4].copy_from_slice(&RED);
+            }
+        }
+    }
+    Some(tauri::image::Image::new_owned(rgba, w as u32, h as u32))
+}
+
+/// Start blinking the tray icon. Idempotent — a second call while already
+/// pulsing is a no-op.
+pub(crate) fn start_tray_pulse(app: &tauri::AppHandle) {
+    use std::sync::atomic::Ordering;
+    let mut guard = TRAY_PULSE.lock().unwrap_or_else(|e| e.into_inner());
+    if guard.is_some() {
+        return;
+    }
+    let Some(rec_icon) = make_recording_icon(app) else {
+        log::warn!("tray-pulse: could not build recording icon — skipping blink");
+        return;
+    };
+    // Owned ('static) copy of the default icon so it can move into the thread.
+    let Some(normal) = app
+        .default_window_icon()
+        .map(|i| tauri::image::Image::new_owned(i.rgba().to_vec(), i.width(), i.height()))
+    else {
+        return;
+    };
+    let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    *guard = Some(running.clone());
+    drop(guard);
+
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let set_icon = |icon: tauri::image::Image<'static>| {
+            let app = app.clone();
+            let _ = app.clone().run_on_main_thread(move || {
+                if let Some(tray) = app.tray_by_id(TRAY_ID) {
+                    let _ = tray.set_icon(Some(icon));
+                }
+            });
+        };
+        let mut show_border = true;
+        while running.load(Ordering::Relaxed) {
+            set_icon(if show_border { rec_icon.clone() } else { normal.clone() });
+            show_border = !show_border;
+            std::thread::sleep(std::time::Duration::from_millis(600));
+        }
+        // Restore the normal icon when the pulse stops.
+        set_icon(normal.clone());
+    });
+}
+
+/// Stop the tray-icon blink (the worker restores the normal icon on exit).
+pub(crate) fn stop_tray_pulse() {
+    use std::sync::atomic::Ordering;
+    if let Some(running) = TRAY_PULSE.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        running.store(false, Ordering::Relaxed);
+    }
+}
 
 /// Periodic safety net: catches orphaning that happens between
 /// activation-policy events (e.g. sleep/wake while window stays closed). 30s

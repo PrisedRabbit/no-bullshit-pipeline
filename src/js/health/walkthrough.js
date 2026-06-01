@@ -3,7 +3,7 @@ import * as state from '../core/state.js';
 
 const WALKTHROUGH_STEPS = [
   { selector: '#record-toggle-btn',  title: 'Record Button',   desc: 'Start or stop recording. When a recording is selected, this plays it back instead.' },
-  { selector: '#settings-btn',       title: 'Settings',        desc: 'Configure ASR, dictation, connections, pipelines, and appearance.' },
+  { selector: '#settings-btn',       title: 'Settings',        desc: 'Configure ASR, dictation, pipelines, and appearance.' },
   { selector: '#recordings-list',    title: 'Recordings',      desc: 'All your recordings appear here. Click any recording to open its detail view.' },
 ];
 

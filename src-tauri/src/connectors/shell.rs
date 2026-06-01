@@ -88,14 +88,14 @@ async fn run_shell(
     }
     if cfg.cwd.trim().is_empty() {
         return Err(
-            "Shell connection has no 'cwd' set — Working dir is required (no implicit default)."
+            "Shell step has no 'cwd' set — Working dir is required (no implicit default)."
                 .to_string(),
         );
     }
     let cwd = expand_tilde(&cfg.cwd);
     if !cwd.is_dir() {
         return Err(format!(
-            "Shell connection cwd does not exist or is not a directory: {}",
+            "Shell step cwd does not exist or is not a directory: {}",
             cwd.display()
         ));
     }

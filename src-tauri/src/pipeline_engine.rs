@@ -185,6 +185,41 @@ struct StepOutcome {
     body: String,
 }
 
+/// The per-run context a step executes against. Lets both the recording engine
+/// and the dictation flow drive the *same* step dispatch — the only thing that
+/// differs between them is this context (a real recording's transcript +
+/// pipeline output dir, vs. dictation's text + an ephemeral temp dir).
+pub(crate) struct StepContext<'a> {
+    pub transcript: &'a str,
+    pub app: &'a str,
+    /// RFC3339 start time — feeds the save connector's filename.
+    pub started_at: &'a str,
+    pub output_dir: &'a Path,
+}
+
+/// Render + dispatch a single step, returning the body that feeds the next
+/// step's `{processing_result}`. The one shared entry point for running a step
+/// — recording and dictation both go through here so step behaviour can't
+/// drift between them.
+pub(crate) async fn run_one_step(
+    step: &PipelineStep,
+    processing_result: &str,
+    ctx: &StepContext<'_>,
+) -> Result<String, String> {
+    let rendered = render_template(&step.template, ctx.transcript, ctx.app, processing_result);
+    let outcome = dispatch_step(
+        step,
+        &rendered,
+        ctx.transcript,
+        ctx.app,
+        processing_result,
+        ctx.started_at,
+        ctx.output_dir,
+    )
+    .await?;
+    Ok(outcome.body)
+}
+
 /// Dispatch one step to its connector.
 ///
 /// Steps are self-contained (no Connection lookup): the engine renders
@@ -203,7 +238,9 @@ async fn dispatch_step(
     transcript: &str,
     app: &str,
     processing_result: &str,
-    pipeline_name: &str,
+    // Recording's RFC3339 start time — used by the save connector to name the
+    // output file after the meeting (`<app> <date> <time>.md`).
+    started_at: &str,
     output_dir: &Path,
 ) -> Result<StepOutcome, String> {
     fs::create_dir_all(output_dir)
@@ -262,7 +299,8 @@ async fn dispatch_step(
             connectors::save::execute(
                 rendered_input,
                 &step.config,
-                pipeline_name,
+                app,
+                started_at,
                 output_dir,
                 &step.name,
                 step_input_label,
@@ -272,11 +310,18 @@ async fn dispatch_step(
         }
     };
 
-    // Read the artifact body back so it can feed the next step's
-    // `{processing_result}`. Strip the frontmatter the connector wrote.
-    let body = fs::read_to_string(&artifact_path)
-        .map(|raw| connectors::strip_frontmatter(&raw).trim().to_string())
-        .unwrap_or_default();
+    // What feeds the next step's `{processing_result}`. SaveLocal is a
+    // transparent side-effect — it passes its INPUT through unchanged so a
+    // following step sees the content, not the "Saved to <path>" headline its
+    // artifact carries for the UI. CLI/Shell chain their actual output, read
+    // back from the artifact (frontmatter stripped).
+    let body = if matches!(step.step_type, StepType::SaveLocal) {
+        rendered_input.to_string()
+    } else {
+        fs::read_to_string(&artifact_path)
+            .map(|raw| connectors::strip_frontmatter(&raw).trim().to_string())
+            .unwrap_or_default()
+    };
 
     let _ = fs::remove_file(&input_path);
 
@@ -372,6 +417,10 @@ pub async fn execute_pipeline_internal(
     // Load transcript into memory — fail fast if absent.
     let transcript = load_transcript_text(recording_id)?;
     let app_name = resolve_app_name(recording_id);
+    // Recording start time (RFC3339) — feeds the save connector's filename.
+    let started_at = crate::storage::read_metadata(recording_id)
+        .map(|m| m.created_at)
+        .unwrap_or_default();
 
     // Resolve run_index from the active (waiting/running) pipeline state.
     let run_index = {
@@ -387,6 +436,15 @@ pub async fn execute_pipeline_internal(
 
     let output_dir = get_pipeline_output_dir(recording_id, pipeline_name, run_index);
     let total_steps = pipeline.steps.len();
+
+    // Shared step context — the same one dictation builds, so both drive the
+    // identical dispatch via `run_one_step`.
+    let ctx = StepContext {
+        transcript: &transcript,
+        app: &app_name,
+        started_at: &started_at,
+        output_dir: &output_dir,
+    };
 
     // Threaded state across the step loop.
     let mut prev_processing_output = String::new();
@@ -405,25 +463,11 @@ pub async fn execute_pipeline_internal(
             None,
         )?;
 
-        // Render template + dispatch. Raw values threaded too so Shell (which
-        // bypasses the rendered string) gets the real backing data via env.
-        let rendered = render_template(&step.template, &transcript, &app_name, &prev_processing_output);
-        let step_result = dispatch_step(
-            step,
-            &rendered,
-            &transcript,
-            &app_name,
-            &prev_processing_output,
-            pipeline_name,
-            &output_dir,
-        )
-        .await;
-
-        match step_result {
-            Ok(outcome) => {
+        match run_one_step(step, &prev_processing_output, &ctx).await {
+            Ok(body) => {
                 emit_progress(app_handle, recording_id, pipeline_name, step, i, total_steps, "done");
                 // Every step feeds the next — output becomes {processing_result}.
-                prev_processing_output = outcome.body;
+                prev_processing_output = body;
             }
             Err(err) => {
                 handle_step_failure(

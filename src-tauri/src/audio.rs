@@ -111,6 +111,9 @@ pub fn start_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState
     *state.current_session.lock().map_err(|e| e.to_string())? = Some(metadata);
     *is_recording = true;
 
+    // Blink the tray icon while recording.
+    crate::start_tray_pulse(&app_handle);
+
     Ok(metadata_clone)
 }
 
@@ -156,6 +159,9 @@ pub fn stop_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>
         return Ok(());
     }
     log::info!("[ignore-trace] stop_recording: is_recording=true, proceeding to stop captures");
+
+    // Stop the tray-icon blink — recording is ending.
+    crate::stop_tray_pulse();
 
     // Dismiss the call-detection popup immediately — recording is ending, so its
     // Ignore window is moot. Covers every stop route (in-app button, Ignore

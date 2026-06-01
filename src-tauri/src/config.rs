@@ -415,9 +415,3 @@ pub async fn save_settings(
 
     Ok(())
 }
-
-
-/// Get templates directory path
-pub fn get_templates_dir() -> PathBuf {
-    get_config_dir().join("templates")
-}

@@ -22,14 +22,30 @@ fn expand_tilde(p: &str) -> PathBuf {
     PathBuf::from(p)
 }
 
-/// Make a filesystem-safe filename fragment.
-fn sanitize(value: &str) -> String {
+/// Make a filesystem-safe filename fragment while staying readable — keeps
+/// spaces (fine on macOS) and just neutralises the path-illegal characters.
+fn sanitize_name_part(value: &str) -> String {
     let mapped: String = value
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| match c {
+            '/' | '\\' | ':' => '-',
+            c if c.is_control() => ' ',
+            c => c,
+        })
         .collect();
-    let trimmed = mapped.trim_matches('-');
-    if trimmed.is_empty() { "pipeline".to_string() } else { trimmed.to_string() }
+    let trimmed = mapped.trim();
+    if trimmed.is_empty() { "Recording".to_string() } else { trimmed.to_string() }
+}
+
+/// Build the human-readable file stem: `<app> <date> <start-time>`, e.g.
+/// `Zoom 2026-06-01 14-30`. `started_at` is the recording's RFC3339 creation
+/// time; it's shown in local wall-clock so it matches when the meeting
+/// actually happened. Falls back to "now" if the timestamp can't be parsed.
+fn build_stem(app: &str, started_at: &str) -> String {
+    let when = chrono::DateTime::parse_from_rfc3339(started_at)
+        .map(|dt| dt.with_timezone(&chrono::Local).format("%Y-%m-%d %H-%M").to_string())
+        .unwrap_or_else(|_| chrono::Local::now().format("%Y-%m-%d %H-%M").to_string());
+    format!("{} {}", sanitize_name_part(app), when)
 }
 
 /// Append `-001`, `-002`, … until the path is free, so a second run on the
@@ -50,17 +66,15 @@ fn uniquify(path: PathBuf) -> PathBuf {
     path
 }
 
-/// Save `content` to `<folder>/<date>-<pipeline>.md`, atomically. Writes the
-/// `<step>.md` artifact (body = "Saved to <path>") the engine reads back.
-#[allow(clippy::too_many_arguments)]
-pub async fn execute(
+/// Write `content` to `<folder>/<app> <date> <start-time>.md`, atomically, and
+/// return the path. No recording context needed — usable from both the
+/// pipeline engine and the dictation paste flow. `app` + `started_at` name the
+/// file after the recording/session it belongs to.
+pub fn save_to_folder(
     content: &str,
     config: &serde_json::Value,
-    pipeline_name: &str,
-    output_dir: &Path,
-    step_name: &str,
-    step_input: &str,
-    description: Option<&str>,
+    app: &str,
+    started_at: &str,
 ) -> Result<PathBuf, String> {
     let folder_path = config
         .get("folder_path")
@@ -70,9 +84,7 @@ pub async fn execute(
         .filter(|s| !s.is_empty())
         .ok_or("Save step needs a folder — set 'Folder' in the step editor.")?;
 
-    let created_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-    let date = Utc::now().format("%Y-%m-%d").to_string();
-    let stem = format!("{}-{}", date, sanitize(pipeline_name));
+    let stem = build_stem(app, started_at);
     let target = uniquify(expand_tilde(folder_path).join(format!("{}.md", stem)));
 
     if let Some(parent) = target.parent() {
@@ -88,6 +100,24 @@ pub async fn execute(
         .map_err(|e| format!("Failed to write '{}': {}", temp.display(), e))?;
     fs::rename(&temp, &target)
         .map_err(|e| format!("Failed to finalize '{}': {}", target.display(), e))?;
+    Ok(target)
+}
+
+/// Save `content` to the configured folder and write the `<step>.md` artifact
+/// (body = "Saved to <path>") the pipeline engine reads back.
+#[allow(clippy::too_many_arguments)]
+pub async fn execute(
+    content: &str,
+    config: &serde_json::Value,
+    app: &str,
+    started_at: &str,
+    output_dir: &Path,
+    step_name: &str,
+    step_input: &str,
+    description: Option<&str>,
+) -> Result<PathBuf, String> {
+    let created_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let target = save_to_folder(content, config, app, started_at)?;
 
     // Step artifact — same shape the other connectors emit so get_step_outputs
     // reports status; body becomes the chained {processing_result} + run toast.
@@ -119,10 +149,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_sanitize() {
-        assert_eq!(sanitize("Meeting Notes!"), "Meeting-Notes");
-        assert_eq!(sanitize("  "), "pipeline");
-        assert_eq!(sanitize("a/b:c"), "a-b-c");
+    fn test_sanitize_name_part() {
+        // Spaces are kept (readable); only path-illegal chars are neutralised.
+        assert_eq!(sanitize_name_part("Microsoft Teams"), "Microsoft Teams");
+        assert_eq!(sanitize_name_part("a/b:c"), "a-b-c");
+        assert_eq!(sanitize_name_part("   "), "Recording");
+    }
+
+    #[test]
+    fn test_build_stem() {
+        let stem = build_stem("Zoom", "2026-06-01T14:30:00Z");
+        // App name leads; a date-like "YYYY-MM-DD HH-MM" follows. Exact time is
+        // local-tz-dependent, so assert structure not the literal value.
+        assert!(stem.starts_with("Zoom "), "got: {stem}");
+        assert!(stem.contains("2026-0"), "got: {stem}");
+        // Unparseable timestamp falls back to now (still app-prefixed).
+        assert!(build_stem("NBP", "not-a-date").starts_with("NBP "));
     }
 
     #[test]

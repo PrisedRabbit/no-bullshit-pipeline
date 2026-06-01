@@ -59,11 +59,18 @@ async function refreshCliAvailability() {
   }
 }
 
+// First installed CLI id (whichever comes first), or '' if none installed.
+// Used as the default selection so a CLI step is runnable the moment you
+// pick the type — no empty "choose a CLI" state.
+function firstInstalledCli() {
+  return cliAvailabilityCache.find(c => c.installed)?.id || '';
+}
+
 export async function addNewStep() {
   await refreshCliAvailability();
   const defaultType = 'cli_agent';
   // Pre-select the first installed CLI so the step is runnable out of the box.
-  const firstCli = cliAvailabilityCache.find(c => c.installed)?.id || '';
+  const firstCli = firstInstalledCli();
   const step = {
     name: '',
     step_type: defaultType,
@@ -119,13 +126,6 @@ function renderForm(step, index) {
         ${renderBody(currentType, step)}
       </div>
 
-      <div class="step-section" style="border-top:1px solid var(--border-color);padding-top:12px;">
-        <div class="step-editor-row">
-          <label>Name</label>
-          <input class="step-name-input" value="${escapeHtml(step.name || '')}" placeholder="Auto-generated from type" />
-        </div>
-      </div>
-
       <div class="step-editor-actions">
         <button class="step-editor-done">Done</button>
       </div>
@@ -133,138 +133,144 @@ function renderForm(step, index) {
   `;
 }
 
-// Body of the form below the Type row — the inline config + the prompt/script
-// textarea. Differs by type.
+// Body of the form below the Type row — purely type-specific config + template.
+// Steps carry no user-facing name: the chip shows the type (CLI binary / Shell
+// / Save to folder), which is enough to read the pipeline. An internal unique
+// name is auto-generated on save (it backs the per-step artifact file).
 function renderBody(typeKey, step) {
-  if (typeKey === 'shell') return renderShellBody(step);
   if (typeKey === 'save_local') return renderSaveBody(step);
-  return renderCliBody(step);
+  return (typeKey === 'shell') ? renderShellBody(step) : renderCliBody(step);
 }
 
 // --- CLI agent body -------------------------------------------------------
+// Compact one-line rows (matching the Save view). Working dir gets a Browse
+// picker like Save's folder — it's where the CLI runs (point at a repo so the
+// agent can read those files). Model is rarely touched, kept minimal.
 function renderCliBody(step) {
   const cfg = step.config || {};
   const copy = BODY_COPY.cli_agent;
+  const rowLabel = 'font-size:0.85rem;color:var(--text-secondary);min-width:88px;';
+  const browseBtn = 'white-space:nowrap;padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-input);color:var(--text-primary);cursor:pointer;font-size:0.82rem;';
   return `
     <div class="step-section" style="border-top:1px solid var(--border-color);padding-top:12px;display:flex;flex-direction:column;gap:12px;">
-      ${renderCliDetectField(cfg.cli || '')}
-      ${textField('step-cfg-model', 'Model', cfg.model || '', 'Optional. Free-text — CLI validates at runtime. Examples: claude → sonnet · codex → o3 · opencode → openai/gpt-4o · agy → gemini-3.1-pro.')}
-      ${textField('step-cfg-workdir', 'Working dir', cfg.working_directory || '', 'Optional. Where the CLI runs — point at a repo so the agent can read its files. `~` expanded. Default: home directory.')}
-      ${numberField('step-cfg-timeout', 'Timeout (sec)', cfg.timeout_secs, 'Default 300. The whole subprocess is killed at this limit.')}
+      ${renderCliDetectField(cfg.cli || firstInstalledCli(), rowLabel)}
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span style="${rowLabel}">Model</span>
+        <input class="step-cfg-model" type="text" value="${escapeHtml(cfg.model || '')}" placeholder="CLI default — e.g. sonnet, o3, openai/gpt-4o" style="flex:1;min-width:0;" />
+      </div>
+      <div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span style="${rowLabel}">Working dir</span>
+          <input class="step-cfg-workdir" type="text" value="${escapeHtml(cfg.working_directory || '')}" placeholder="default: home folder" style="flex:1;min-width:0;" />
+          <button type="button" class="js-folder-browse" data-input=".step-cfg-workdir" style="${browseBtn}">Browse…</button>
+        </div>
+        <div style="font-size:0.72rem;color:var(--text-secondary);opacity:0.8;margin-top:4px;">Where the CLI runs — point it at a repo/folder so the agent can read those files. \`~\` expanded.</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span style="${rowLabel}">Timeout</span>
+        <input class="step-cfg-timeout" type="number" value="${cfg.timeout_secs == null ? '' : escapeHtml(String(cfg.timeout_secs))}" placeholder="300" style="width:90px;" />
+        <span style="font-size:0.72rem;color:var(--text-secondary);opacity:0.7;">seconds</span>
+      </div>
     </div>
     ${renderTemplateField('cli_agent', step, copy)}
   `;
 }
 
 // --- Shell body -----------------------------------------------------------
+// Compact one-line rows (matching CLI/Save). Working dir is required and gets
+// the same Browse picker — it's where the script runs. No separate env field:
+// if you're writing the script you set vars there; the NBP_* vars we inject
+// are documented under the script box.
 function renderShellBody(step) {
   const cfg = step.config || {};
   const copy = BODY_COPY.shell;
-  // env stored as { KEY: value }; rendered as KEY=value lines for editing.
-  const envLines = (cfg.env && typeof cfg.env === 'object' && !Array.isArray(cfg.env))
-    ? Object.entries(cfg.env).map(([k, v]) => `${k}=${v}`).join('\n')
-    : '';
+  const rowLabel = 'font-size:0.85rem;color:var(--text-secondary);min-width:88px;';
+  const browseBtn = 'white-space:nowrap;padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-input);color:var(--text-primary);cursor:pointer;font-size:0.82rem;';
   return `
     <div class="step-section" style="border-top:1px solid var(--border-color);padding-top:12px;display:flex;flex-direction:column;gap:12px;">
-      ${textField('step-cfg-cwd', 'Working dir', cfg.cwd || '', 'Required. Where the script runs. `~` expanded. Example: ~/work/notes', true)}
-      ${textField('step-cfg-shell', 'Shell', cfg.shell || '', 'Binary that accepts -c <script>. Default /bin/bash. Use /bin/zsh, /usr/bin/env fish, etc. if you prefer.')}
-      ${textareaField('step-cfg-env', 'Env vars (KEY=value per line)', envLines, 'Optional. Merged on top of NBP_TRANSCRIPT / NBP_APP / NBP_PROCESSING_RESULT (so you CAN override them — rare).', 3)}
-      ${numberField('step-cfg-timeout', 'Timeout (sec)', cfg.timeout_secs, 'Default 120. Kills the subprocess if exceeded.')}
+      <div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span style="${rowLabel}">Working dir</span>
+          <input class="step-cfg-cwd" type="text" value="${escapeHtml(cfg.cwd || '')}" placeholder="required — e.g. ~/work/notes" style="flex:1;min-width:0;" />
+          <button type="button" class="js-folder-browse" data-input=".step-cfg-cwd" style="${browseBtn}">Browse…</button>
+        </div>
+        <div style="font-size:0.72rem;color:var(--text-secondary);opacity:0.8;margin-top:4px;">Where the script runs. \`~\` expanded.</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span style="${rowLabel}">Shell</span>
+        <input class="step-cfg-shell" type="text" value="${escapeHtml(cfg.shell || '')}" placeholder="/bin/bash (default)" style="flex:1;min-width:0;" />
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span style="${rowLabel}">Timeout</span>
+        <input class="step-cfg-timeout" type="number" value="${cfg.timeout_secs == null ? '' : escapeHtml(String(cfg.timeout_secs))}" placeholder="120" style="width:90px;" />
+        <span style="font-size:0.72rem;color:var(--text-secondary);opacity:0.7;">seconds</span>
+      </div>
     </div>
     ${renderTemplateField('shell', step, copy)}
   `;
 }
 
 // --- Save-to-folder body --------------------------------------------------
-// WHERE (folder, required) + WHAT (processing_result | transcript). The WHAT
-// radio is materialised into step.template as `{processing_result}` /
-// `{transcript}` on Done, so the engine's render path stays identical.
+// Compact: the auto file-name shown as text above the folder, then Folder
+// (one line + Browse) and What-to-save (one-line dropdown). No Name input —
+// the output file is auto-named from the recording, so a user name would
+// mislead. WHAT is materialised into step.template (`{processing_result}` /
+// `{transcript}`) on Done, so the engine's render path stays identical.
 function renderSaveBody(step) {
   const cfg = step.config || {};
-  const tpl = (step.template || '').trim();
-  const isTranscript = tpl === '{transcript}';
+  const isTranscript = (step.template || '').trim() === '{transcript}';
+  const rowLabel = 'font-size:0.85rem;color:var(--text-secondary);min-width:52px;';
   return `
     <div class="step-section" style="border-top:1px solid var(--border-color);padding-top:12px;display:flex;flex-direction:column;gap:12px;">
-      ${textField('step-cfg-folder', 'Folder', cfg.folder_path || '', 'Required. Where the file lands. `~` expanded. Example: ~/Documents/Meetings. Saved as <date>-<pipeline>.md.', true)}
-    </div>
-    <div class="step-section" style="border-top:1px solid var(--border-color);padding-top:12px;">
-      <div class="step-section-label">What to save</div>
-      <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px;">
-        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.88rem;">
-          <input type="radio" name="step-save-what" value="processing_result" ${!isTranscript ? 'checked' : ''} style="margin-top:3px;" />
-          <span>
-            <strong>Result of the previous step</strong>
-            <span style="display:block;font-size:0.72rem;color:var(--text-secondary);opacity:0.85;">What the last step produced. Empty if this is the first step.</span>
-          </span>
-        </label>
-        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.88rem;">
-          <input type="radio" name="step-save-what" value="transcript" ${isTranscript ? 'checked' : ''} style="margin-top:3px;" />
-          <span>
-            <strong>Raw recording transcript</strong>
-            <span style="display:block;font-size:0.72rem;color:var(--text-secondary);opacity:0.85;">The full transcribed audio, no post-processing.</span>
-          </span>
-        </label>
+      <div>
+        <div style="font-size:0.8rem;color:var(--text-secondary);">File name</div>
+        <div style="font-size:0.85rem;color:var(--text-primary);margin-top:2px;"><code>&lt;app&gt; &lt;date&gt; &lt;time&gt;.md</code></div>
+        <div style="font-size:0.72rem;color:var(--text-secondary);opacity:0.8;margin-top:2px;">Auto-named from the recording — e.g. <code>Zoom 2026-06-01 14-30.md</code>. You don't set it.</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span style="${rowLabel}">Folder</span>
+        <input class="step-cfg-folder" type="text" value="${escapeHtml(cfg.folder_path || '')}" placeholder="~/Documents/Meetings" style="flex:1;min-width:0;" />
+        <button type="button" class="js-folder-browse" data-input=".step-cfg-folder" style="white-space:nowrap;padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-input);color:var(--text-primary);cursor:pointer;font-size:0.82rem;">Browse…</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span style="${rowLabel}">Save</span>
+        <select class="step-save-what" style="flex:1;min-width:0;">
+          <option value="processing_result" ${!isTranscript ? 'selected' : ''}>Result of the previous step</option>
+          <option value="transcript" ${isTranscript ? 'selected' : ''}>Original transcript</option>
+        </select>
       </div>
     </div>
   `;
 }
 
-// Prompt (CLI) / script (Shell) textarea — freeform, with per-type copy.
+// Prompt (CLI) / script (Shell) textarea — full width, with per-type help.
+// CLI shows the available variables as a bullet list; Shell keeps its env-var
+// note (placeholder substitution doesn't apply to shell scripts).
 function renderTemplateField(typeKey, step, copy) {
-  const placeholdersLine = copy.showPlaceholders
-    ? `<br>Placeholders: <code>{transcript}</code> raw recording transcript · <code>{processing_result}</code> previous step's output (empty on step 1) · <code>{app}</code> friendly app name (Zoom / FaceTime / NBP).`
-    : '';
   const monoStyle = copy.mono ? 'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.82rem;' : '';
+  const help = copy.showPlaceholders
+    ? `<div style="font-size:0.72rem;color:var(--text-secondary);opacity:0.85;margin-top:8px;line-height:1.5;">
+         Available variables — drop them into your prompt:
+         <ul style="margin:4px 0 0;padding-left:18px;">
+           <li><code>{transcript}</code> — the full recording transcript</li>
+           <li><code>{processing_result}</code> — the previous step's output (empty on the first step)</li>
+           <li><code>{app}</code> — the app name (Zoom / FaceTime / NBP)</li>
+         </ul>
+       </div>`
+    : `<div style="font-size:0.72rem;color:var(--text-secondary);opacity:0.85;margin-top:6px;line-height:1.5;">${escapeHtml(copy.hint)}</div>`;
   return `
     <div class="step-section" style="border-top:1px solid var(--border-color);padding-top:12px;">
       <div class="step-section-label">${escapeHtml(copy.label)}</div>
-      <textarea class="step-template-textarea" rows="8" placeholder="${escapeHtml(copy.placeholder)}" style="${monoStyle}">${escapeHtml(step.template || '')}</textarea>
-      <div style="font-size:0.72rem;color:var(--text-secondary);opacity:0.85;margin-top:6px;line-height:1.5;">
-        ${escapeHtml(copy.hint)}${placeholdersLine}
-      </div>
+      <textarea class="step-template-textarea" rows="8" placeholder="${escapeHtml(copy.placeholder)}" style="width:100%;box-sizing:border-box;${monoStyle}">${escapeHtml(step.template || '')}</textarea>
+      ${help}
     </div>
-  `;
-}
-
-// --- Field helpers --------------------------------------------------------
-function fieldHint(hint) {
-  return hint ? `<span style="font-size:0.72rem;color:var(--text-secondary);opacity:0.8;">${escapeHtml(hint)}</span>` : '';
-}
-
-function textField(cls, label, value, hint, required = false) {
-  return `
-    <label style="display:flex;flex-direction:column;gap:4px;">
-      <span style="font-size:0.8rem;color:var(--text-secondary);">${escapeHtml(label)}${required ? ' *' : ''}</span>
-      <input class="${cls}" type="text" value="${escapeHtml(value == null ? '' : String(value))}" />
-      ${fieldHint(hint)}
-    </label>
-  `;
-}
-
-function numberField(cls, label, value, hint) {
-  return `
-    <label style="display:flex;flex-direction:column;gap:4px;">
-      <span style="font-size:0.8rem;color:var(--text-secondary);">${escapeHtml(label)}</span>
-      <input class="${cls}" type="number" value="${value == null ? '' : escapeHtml(String(value))}" />
-      ${fieldHint(hint)}
-    </label>
-  `;
-}
-
-function textareaField(cls, label, value, hint, rows = 3) {
-  return `
-    <label style="display:flex;flex-direction:column;gap:4px;">
-      <span style="font-size:0.8rem;color:var(--text-secondary);">${escapeHtml(label)}</span>
-      <textarea class="${cls}" rows="${rows}" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.8rem;">${escapeHtml(value || '')}</textarea>
-      ${fieldHint(hint)}
-    </label>
   `;
 }
 
 // CLI picker built from `check_cli_availability`. Only installed CLIs are
 // pickable; missing ones list below with a copy-paste install command. A
 // previously-saved CLI that's no longer installed is preserved with a ⚠.
-function renderCliDetectField(currentValue) {
+function renderCliDetectField(currentValue, rowLabel) {
   const installed = cliAvailabilityCache.filter(c => c.installed);
   const missing = cliAvailabilityCache.filter(c => !c.installed);
 
@@ -284,8 +290,8 @@ function renderCliDetectField(currentValue) {
 
   const noneInstalled = installed.length === 0 && !stale;
   const selectHTML = noneInstalled
-    ? `<select class="step-cfg-cli" disabled style="opacity:0.6;"><option value="">No CLI agents installed</option></select>`
-    : `<select class="step-cfg-cli">${placeholderOpt}${staleOpt}${installedOpts}</select>`;
+    ? `<select class="step-cfg-cli" disabled style="flex:1;min-width:0;opacity:0.6;"><option value="">No CLI agents installed</option></select>`
+    : `<select class="step-cfg-cli" style="flex:1;min-width:0;">${placeholderOpt}${staleOpt}${installedOpts}</select>`;
 
   const missingHTML = missing.length === 0
     ? ''
@@ -299,19 +305,23 @@ function renderCliDetectField(currentValue) {
        </div>`;
 
   return `
-    <label style="display:flex;flex-direction:column;gap:4px;">
-      <span style="font-size:0.8rem;color:var(--text-secondary);">CLI *</span>
-      ${selectHTML}
-      <span style="font-size:0.72rem;color:var(--text-secondary);opacity:0.8;">Only CLIs currently on your PATH show up. Install one to unlock it.</span>
+    <div style="display:flex;flex-direction:column;gap:4px;">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span style="${rowLabel}">CLI</span>
+        ${selectHTML}
+      </div>
       ${missingHTML}
-    </label>
+    </div>
   `;
 }
 
 function wireFormEvents(editorEl, step, index) {
-  // Close — drop empty drafts so abandoning a fresh "+ Add Step" cleans up.
+  // Close — drop untouched drafts so abandoning a fresh "+ Add Step" cleans up.
+  // A step only gets a name once the user edits it (syncStepFromForm auto-names
+  // on any change / Done); steps always have a default template, so name is the
+  // real "was this touched?" signal.
   editorEl.querySelector('.step-editor-close').addEventListener('click', () => {
-    if (!step.name && !step.template) {
+    if (!step.name) {
       pipelineState.pipelineEditorSteps.splice(index, 1);
     }
     pipelineState.setEditingStepIndex(null);
@@ -330,29 +340,76 @@ function wireFormEvents(editorEl, step, index) {
       host.dataset.currentType = newType;
       const shadow = { ...step, config: {}, template: defaultTemplateFor(newType) };
       host.innerHTML = renderBody(newType, shadow);
+      wireBodyExtras(editorEl);
     }
   });
 
-  // Done — collect config + template + name, write the step, close.
+  // Per-type body widgets (re-wired after every body re-render).
+  wireBodyExtras(editorEl);
+
+  // Live preview: any field change (CLI dropdown, folder, model, save-what,
+  // type, …) writes the current form state into the step and re-renders the
+  // chips, so the chip label tracks the selected CLI immediately instead of
+  // only on Done. `change` bubbles from the inner inputs/selects to here.
+  editorEl.addEventListener('change', () => {
+    syncStepFromForm(editorEl, step, index);
+    renderPipelineSteps();
+    maybeAutoName();
+  });
+
+  // Done — finalise the step + close.
   editorEl.querySelector('.step-editor-done').addEventListener('click', () => {
-    const typeKey = typeSelect.value || step.step_type;
-    // Save steps have no freeform textarea — the WHAT radio materialises into
-    // a canonical placeholder so the engine renders it like any other step.
-    const template = (typeKey === 'save_local')
-      ? `{${editorEl.querySelector('input[name="step-save-what"]:checked')?.value || 'processing_result'}}`
-      : (editorEl.querySelector('.step-template-textarea')?.value ?? '');
-    const config = collectConfig(editorEl, typeKey);
-    const nameInput = (editorEl.querySelector('.step-name-input')?.value || '').trim();
-
-    step.step_type = typeKey;
-    step.config = config;
-    step.template = template;
-    step.name = nameInput || defaultStepName(typeKey, config, index);
-
+    syncStepFromForm(editorEl, step, index);
     pipelineState.setEditingStepIndex(null);
     closeStepEditorPanel();
     renderPipelineSteps();
     maybeAutoName();
+  });
+}
+
+// Read the whole form into `step` (type + inline config + template + an
+// auto-generated unique internal name). Shared by the live-preview change
+// handler and Done so they can't drift.
+function syncStepFromForm(editorEl, step, index) {
+  const typeKey = editorEl.querySelector('.step-type-select')?.value || step.step_type;
+  // Save steps have no freeform textarea — the WHAT dropdown materialises into
+  // a canonical placeholder so the engine renders it like any other step.
+  const template = (typeKey === 'save_local')
+    ? `{${editorEl.querySelector('.step-save-what')?.value || 'processing_result'}}`
+    : (editorEl.querySelector('.step-template-textarea')?.value ?? '');
+  const config = collectConfig(editorEl, typeKey);
+  step.step_type = typeKey;
+  step.config = config;
+  step.template = template;
+  // No user-facing name — auto-generate a unique internal id (backs the
+  // per-step artifact filename + the pipeline validator's uniqueness check).
+  step.name = defaultStepName(typeKey, config, index);
+}
+
+// Wire the native folder pickers (Save folder + CLI working dir). Each Browse
+// button carries `data-input` = the selector of the text field it fills. The
+// fields stay normal editable inputs; Browse just fills them. Re-run after
+// each body re-render. Fires `change` after filling so the live preview syncs.
+function wireBodyExtras(editorEl) {
+  editorEl.querySelectorAll('.js-folder-browse').forEach((btn) => {
+    if (btn.dataset.wired) return;
+    btn.dataset.wired = '1';
+    btn.addEventListener('click', async () => {
+      const input = editorEl.querySelector(btn.dataset.input);
+      try {
+        const selected = await window.__TAURI__.dialog.open({
+          directory: true,
+          multiple: false,
+          defaultPath: (input?.value || '').trim() || undefined,
+        });
+        if (selected && input) {
+          input.value = selected;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      } catch (err) {
+        console.error('folder picker failed:', err);
+      }
+    });
   });
 }
 
@@ -375,18 +432,6 @@ function collectConfig(editorEl, typeKey) {
     if (cwd) config.cwd = cwd;
     const shell = editorEl.querySelector('.step-cfg-shell')?.value?.trim();
     if (shell) config.shell = shell;
-    const envRaw = editorEl.querySelector('.step-cfg-env')?.value || '';
-    const env = {};
-    for (const line of envRaw.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const eq = trimmed.indexOf('=');
-      if (eq <= 0) continue;
-      const key = trimmed.slice(0, eq).trim();
-      const val = trimmed.slice(eq + 1).trim();
-      if (key) env[key] = val;
-    }
-    if (Object.keys(env).length > 0) config.env = env;
   } else if (typeKey === 'save_local') {
     const folder = editorEl.querySelector('.step-cfg-folder')?.value?.trim();
     if (folder) config.folder_path = folder;
@@ -413,14 +458,27 @@ function defaultTemplateFor(typeKey) {
     : '{processing_result}';
 }
 
-// Default step name from the type + its config when the user hasn't typed one.
+// Default step name when the user leaves Name blank. Derived from the type
+// (CLI binary / "shell" / "save"), then de-duplicated against the other steps
+// — names must be unique (they're the artifact filename + the pipeline
+// validator rejects duplicates), so two save steps become "save" + "save-2".
 function defaultStepName(typeKey, config, index) {
-  const base = typeKey === 'cli_agent'
+  const base = (typeKey === 'cli_agent'
     ? (config.cli || 'cli')
-    : (typeKey === 'save_local' ? 'save' : 'shell');
-  return base
+    : (typeKey === 'save_local' ? 'save' : 'shell'))
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 40) || `step-${index + 1}`;
+
+  const taken = new Set(
+    pipelineState.pipelineEditorSteps
+      .filter((_, i) => i !== index)
+      .map(s => s.name)
+      .filter(Boolean)
+  );
+  if (!taken.has(base)) return base;
+  let n = 2;
+  while (taken.has(`${base}-${n}`)) n++;
+  return `${base}-${n}`;
 }

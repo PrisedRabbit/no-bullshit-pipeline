@@ -6,7 +6,7 @@ import { showToast } from '../ui/toast.js';
 import { showConfirm } from '../ui/confirm-modal.js';
 import { CONNECTOR_META } from './constants.js';
 import * as pipelineState from './state.js';
-import { stepSubLabel } from './flow-renderer.js';
+import { stepSubLabel, stepDisplayLabel } from './flow-renderer.js';
 import { maybeAutoName } from './delivery-options.js';
 import { showStepEditor, addNewStep } from './step-editor.js';
 import { loadPipelineDefs } from './defs-list.js';
@@ -93,18 +93,19 @@ export function renderPipelineSteps() {
       ? meta.svg
       : `<span style="font-size:7px;font-weight:800;color:${fg};">${meta.abbr}</span>`;
 
-    // Sub-label: the step's inline config (CLI · model, or shell binary).
-    const subText = escapeHtml(stepSubLabel(step) || typeKey);
-
-    const safeName = escapeHtml(step.name || 'Unnamed');
+    // Label = step type (CLI binary / Shell / Save to folder); sub = the
+    // distinguishing detail (model / folder), shown only when present.
+    const label = escapeHtml(stepDisplayLabel(step));
+    const subLabel = stepSubLabel(step);
+    const subHtml = subLabel ? `<span class="pflow-chip-sub">${escapeHtml(subLabel)}</span>` : '';
     const isEditing = pipelineState.editingStepIndex === i;
 
-    html += `<div class="pflow-chip${isEditing ? ' pflow-chip--editing' : ''}" data-index="${i}" title="${safeName}">
+    html += `<div class="pflow-chip${isEditing ? ' pflow-chip--editing' : ''}" data-index="${i}" title="${label}">
       <span class="pflow-chip-num">${i + 1}</span>
       <div class="pflow-chip-icon" style="background:${bg};color:${fg};">${iconContent}</div>
       <div class="pflow-chip-label-group">
-        <span class="pflow-chip-label">${safeName}</span>
-        <span class="pflow-chip-sub">${subText}</span>
+        <span class="pflow-chip-label">${label}</span>
+        ${subHtml}
       </div>
       <button class="pflow-chip-remove" data-index="${i}" title="Remove step" aria-label="Remove step">\u00d7</button>
     </div>`;

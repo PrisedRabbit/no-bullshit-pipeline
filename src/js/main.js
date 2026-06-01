@@ -55,24 +55,12 @@ on('recording:hideDetail', () => hideDetailView());
 on('recordings:reload', async () => { await loadRecordings(); renderRecordingsList(); });
 on('pipelines:renderChips', () => renderPipelineChips());
 
-// Load templates for detail view
-async function loadTemplates() {
-  const templateSelect = document.getElementById('template-select');
-  if (!templateSelect) return;
-  try {
-    const templates = await invoke('list_templates');
-    templateSelect.innerHTML = '<option value="">Select template...</option>' +
-      templates.map(t => `<option value="${escapeHtml(t.name)}">${escapeHtml(t.description)}</option>`).join('');
-  } catch (err) { console.error('Failed to load templates:', err); }
-}
-
 // ===== INIT =====
 async function init() {
   await loadSettings();
   await loadRecordings();
   await loadPipelineDefs();
   renderRecordingsList();
-  await loadTemplates();
 
   try {
     const version = await invoke('get_app_version');
@@ -129,6 +117,13 @@ async function init() {
     stopWaveformAnimation();
     await loadRecordings();
     if (state.selectedRecordingId === recordingId) showDetailView(recordingId);
+
+    // Saved dictations reuse this event only to refresh the list — they were
+    // already transcribed and ran their shortcut pipeline (+ pasted). Don't
+    // re-transcribe or fire meeting auto_run on them. (auto_run is recording-
+    // only by intent; dictation gets its pipeline per-shortcut.)
+    const rec = (state.allRecordings || []).find((r) => r.id === recordingId);
+    if (rec?.source === 'dictation') return;
 
     // Pipelines to run: explicitly-assigned (pendingAutoExec) plus any pipeline
     // flagged auto_run — those fire after every recording. Deduped, assigned

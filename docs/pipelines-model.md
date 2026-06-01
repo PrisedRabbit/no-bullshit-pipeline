@@ -54,8 +54,10 @@ Write the step's content to a local folder — the one built-in destination.
 - `template`: encodes WHAT to save — `{processing_result}` (default) or
   `{transcript}`, picked via a radio in the editor. The engine renders it, so
   the connector just writes the resulting string.
-- File lands at `<folder>/<date>-<pipeline>.md` (collision-suffixed). The
-  step's chained output is `Saved to <path>` (save is normally terminal).
+- File lands at `<folder>/<app> <date> <start-time>.md` (e.g.
+  `Zoom 2026-06-01 14-30.md`), named after the recording's app + local start
+  time (collision-suffixed). The step's chained output is `Saved to <path>`
+  (save is normally terminal).
 
 ## I/O contract
 
@@ -80,9 +82,17 @@ prior step's output) and marks the run `Partial`. A run with no failures is
 
 ## Dictation
 
-Quick Dictate reuses pipelines for in-memory text transforms: `cli_agent`
-steps chain (each output replaces the running text); `shell` steps are skipped
-(the paste-only flow has no output dir / recording context).
+Quick Dictate runs the **same** pipeline as recordings, through the same
+`pipeline_engine::run_one_step` (no separate dispatch). Whatever pipeline the
+user picks runs in full:
+- `cli_agent` / `shell` — transforms; their output becomes the running text.
+- `save_local` — side-effect; writes to its folder and leaves the text alone.
+
+Differences from a recording, all in a thin wrapper: there's no recording, so
+connector artifacts go to a throwaway temp dir, `{app}` = "Dictation", and the
+**pasted** value is the last transform output (a trailing save doesn't change
+it). A save-step failure is non-fatal (the paste shouldn't be lost); a
+transform failure falls back to pasting the raw transcript.
 
 ## Legacy migration
 

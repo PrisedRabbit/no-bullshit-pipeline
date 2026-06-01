@@ -8,21 +8,35 @@ import { CONNECTOR_META } from './constants.js';
 
 const MIC_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`;
 
-// Short sub-label describing the step's inline config, so similar steps
-// disambiguate at a glance (e.g. two CLI steps on different models).
+// Friendly CLI display names for the chip label.
+const CLI_NAMES = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', agy: 'Antigravity' };
+
+// Main chip label = the step TYPE (steps carry no user-facing name). For CLI
+// this is which CLI (Claude Code / Codex / …); Shell and Save are fixed.
+export function stepDisplayLabel(step) {
+  const cfg = step.config || {};
+  const type = step.step_type || step.connection_type || '';
+  if (type === 'cli_agent') return CLI_NAMES[cfg.cli] || cfg.cli || 'CLI agent';
+  if (type === 'shell') return 'Shell';
+  if (type === 'save_local') return 'Save to folder';
+  return step.name || 'Step';
+}
+
+// Short sub-label with the distinguishing detail, so two steps of the same
+// type disambiguate at a glance (CLI model, shell binary, save folder).
 export function stepSubLabel(step) {
   const cfg = step.config || {};
   const type = step.step_type || step.connection_type || '';
   if (type === 'cli_agent') {
-    return [cfg.cli, cfg.model].filter(Boolean).join(' · ');
+    return cfg.model || ''; // CLI itself is the main label now
   }
   if (type === 'shell') {
-    const sh = (cfg.shell || '/bin/bash').split('/').pop();
-    return sh || 'shell';
+    const sh = (cfg.shell || '').split('/').pop();
+    return sh && sh !== 'bash' ? sh : '';
   }
   if (type === 'save_local') {
     const f = cfg.folder_path || '';
-    return f ? (f.replace(/\/+$/, '').split('/').pop() || f) : 'folder';
+    return f ? (f.replace(/\/+$/, '').split('/').pop() || f) : '';
   }
   return '';
 }
@@ -57,7 +71,7 @@ export function renderPipelineFlowHTML(steps, opts = {}) {
 
     const st = statuses[step.name];
     const stClass = st ? ` pflow-chip--${st}` : '';
-    const safeName = escapeHtml(step.name || 'Unnamed');
+    const safeName = escapeHtml(stepDisplayLabel(step));
     const subLabel = stepSubLabel(step);
     const subHtml = !compact && subLabel
       ? `<span class="pflow-chip-sub">${escapeHtml(subLabel)}</span>`
