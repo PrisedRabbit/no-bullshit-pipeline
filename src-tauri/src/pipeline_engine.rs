@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use chrono::Utc;
 use tokio::sync::Mutex as TokioMutex;
 
-use crate::config::{load_settings, AppSettings, Connection, ConnectionRole, ConnectionType};
+use crate::config::StepType;
 use crate::connectors;
 use crate::pipelines::{
     load_pipelines, validate_pipeline, PipelineProgressPayload, PipelineState, PipelineStatus,
@@ -165,7 +165,9 @@ fn resolve_app_name(recording_id: &str) -> String {
 }
 
 /// Substitute the three template placeholders. Missing keys silently render
-/// as the empty string — see `docs/connections-model.md` I/O contract.
+/// as the empty string. `{transcript}` = full recording transcript, `{app}` =
+/// friendly app name, `{processing_result}` = previous step's output (empty on
+/// step 1).
 fn render_template(template: &str, transcript: &str, app: &str, processing_result: &str) -> String {
     template
         .replace("{transcript}", transcript)
@@ -173,80 +175,58 @@ fn render_template(template: &str, transcript: &str, app: &str, processing_resul
         .replace("{processing_result}", processing_result)
 }
 
-/// Build a `HashMap<id, &Connection>` for O(1) lookup during step dispatch.
-fn index_connections(settings: &AppSettings) -> HashMap<String, &Connection> {
-    settings
-        .connections
-        .iter()
-        .map(|c| (c.id.clone(), c))
-        .collect()
-}
-
 /// Result of a single dispatched step.
 ///
-/// `body` is what the engine threads into the next Processing step's
-/// `{processing_result}` placeholder. We re-read it from the artifact rather
-/// than changing connector signatures to return strings — minimum diff for
-/// the legacy connectors (Slack/Notion/Webhook/Save) which keep writing
+/// `body` is what the engine threads into the next step's `{processing_result}`
+/// placeholder. We re-read it from the artifact rather than changing connector
+/// signatures to return strings — the connectors (CLI agent / Shell) each write
 /// their own `.md` artifact with frontmatter.
 struct StepOutcome {
     body: String,
 }
 
-/// Dispatch one step to the appropriate connector.
+/// Dispatch one step to its connector.
 ///
-/// New-model contract: the engine renders `step.template` into a plain string,
-/// merges the Connection's stored config with the injected fields each
-/// connector expects (e.g. `prompt` for cli_agent, `integration_id` mapped from
-/// the connection id for Slack/Notion), writes the rendered input to a
-/// transient sibling file, and hands all of that to the existing connector
-/// `execute` function. Each connector still writes its own `output_dir/<step>.md`
-/// artifact; we read it back to extract the body for chaining.
+/// Steps are self-contained (no Connection lookup): the engine renders
+/// `step.template` into a plain string, merges `step.config` with the injected
+/// `prompt` field for cli_agent (Shell takes the raw script + NBP_* env), and
+/// hands it to the connector's `execute`. Each connector writes its own
+/// `output_dir/<step>.md` artifact; we read it back to extract the body for
+/// chaining into the next step.
 #[allow(clippy::too_many_arguments)]
 async fn dispatch_step(
     step: &PipelineStep,
-    connection: &Connection,
     rendered_input: &str,
-    // Raw values backing the placeholders. Most connectors only see the
-    // pre-rendered `rendered_input`, but Shell is script-mode — it gets the
-    // RAW values via env vars (so `{transcript}` text can't shell-inject).
+    // Raw values backing the placeholders. CLI agent only sees the
+    // pre-rendered `rendered_input`; Shell is script-mode — it gets the RAW
+    // values via env vars (so `{transcript}` text can't shell-inject).
     transcript: &str,
     app: &str,
     processing_result: &str,
-    output_dir: &Path,
     pipeline_name: &str,
-    recording_id: &str,
+    output_dir: &Path,
 ) -> Result<StepOutcome, String> {
     fs::create_dir_all(output_dir)
         .map_err(|e| format!("Failed to create output dir: {}", e))?;
 
-    // Transient input file the legacy connectors can read.
-    // Hidden (`.<step>.input.txt`) so it doesn't pollute the artifact listing
-    // exposed by get_step_outputs (which only iterates `<step>.md`).
+    // Transient input file the CLI connector reads. Hidden (`.<step>.input.txt`)
+    // so it doesn't pollute the artifact listing get_step_outputs iterates.
     let input_path = output_dir.join(format!(".{}.input.txt", step.name));
     fs::write(&input_path, rendered_input)
         .map_err(|e| format!("Failed to write step input file: {}", e))?;
 
-    // Use the step name itself as the `input` field in artifact frontmatter —
-    // it's metadata-only now, no longer wired to data flow. The previous step's
-    // name would be ambiguous when the user omits `{processing_result}`.
     let step_input_label = if rendered_input.is_empty() { "empty" } else { "rendered-template" };
 
-    let artifact_path = match step.connection_type {
-        ConnectionType::CliAgent => {
-            // Engine has already substituted `{transcript}` etc. into rendered_input.
-            // Feed it as the entire prompt by injecting `prompt` into the config the
-            // connector reads, and pass an empty sibling file so the connector's
-            // own `{transcript}` re-substitution is a no-op (rendered already has no placeholders).
-            let mut cfg = connection.config.clone();
+    let artifact_path = match step.step_type {
+        StepType::CliAgent => {
+            // Engine has already substituted `{transcript}` etc. into
+            // rendered_input. Feed it as the entire prompt by injecting it into
+            // the config the connector reads.
+            let mut cfg = step.config.clone();
             ensure_object(&mut cfg);
             cfg.as_object_mut()
                 .expect("ensured above")
                 .insert("prompt".to_string(), serde_json::Value::String(rendered_input.to_string()));
-            // Overwrite any stored prompt_template — the user's template lives at
-            // step level now, the connection only carries CLI/model/timeout.
-            cfg.as_object_mut()
-                .and_then(|o| o.remove("prompt_template"));
 
             connectors::cli_agent::execute(
                 &input_path,
@@ -258,19 +238,16 @@ async fn dispatch_step(
             )
             .await?
         }
-        ConnectionType::Shell => {
-            // Shell is script-mode: step.template IS the shell script body,
-            // not a stdin payload. Hand raw values to the connector — it
-            // sets NBP_TRANSCRIPT / NBP_APP / NBP_PROCESSING_RESULT env
-            // vars itself. No placeholder substitution here: shell-escaping
-            // user-supplied transcript text is a footgun we avoid by passing
-            // through env instead of inline expansion.
+        StepType::Shell => {
+            // Shell is script-mode: step.template IS the shell script body.
+            // Raw values go through NBP_* env vars — no inline expansion of
+            // transcript text (shell-injection footgun).
             connectors::shell::execute(
                 &step.template,
                 transcript,
                 app,
                 processing_result,
-                &connection.config,
+                &step.config,
                 output_dir,
                 &step.name,
                 step_input_label,
@@ -278,65 +255,18 @@ async fn dispatch_step(
             )
             .await?
         }
-        ConnectionType::Slack => {
-            let cfg = with_integration_id(&connection.config, &connection.id);
-            connectors::slack::execute(
-                &input_path,
-                &cfg,
-                output_dir,
-                &step.name,
-                step_input_label,
-                step.description.as_deref(),
-            )
-            .await?
-        }
-        ConnectionType::Notion => {
-            let cfg = with_integration_id(&connection.config, &connection.id);
-            connectors::notion::execute_structured(
-                &input_path,
-                &cfg,
-                output_dir,
-                &step.name,
-                step_input_label,
-                step.description.as_deref(),
-            )
-            .await
-            .map_err(|e| e.to_string())?
-        }
-        ConnectionType::Telegram => {
-            let cfg = with_integration_id(&connection.config, &connection.id);
-            connectors::telegram::execute(
-                &input_path,
-                &cfg,
-                output_dir,
-                &step.name,
-                step_input_label,
-                step.description.as_deref(),
-            )
-            .await?
-        }
-        ConnectionType::Webhook => {
-            connectors::webhook::execute(
-                &input_path,
-                &connection.config,
-                output_dir,
-                &step.name,
-                step_input_label,
-                step.description.as_deref(),
-            )
-            .await?
-        }
-        ConnectionType::SaveLocal => {
-            let cfg = with_integration_id(&connection.config, &connection.id);
+        StepType::SaveLocal => {
+            // The engine already rendered step.template (`{processing_result}`
+            // or `{transcript}`) into rendered_input — that's the WHAT. The
+            // connector just writes it to the configured folder (WHERE).
             connectors::save::execute(
-                &input_path,
-                &cfg,
+                rendered_input,
+                &step.config,
+                pipeline_name,
                 output_dir,
                 &step.name,
                 step_input_label,
                 step.description.as_deref(),
-                pipeline_name,
-                recording_id,
             )
             .await?
         }
@@ -348,7 +278,6 @@ async fn dispatch_step(
         .map(|raw| connectors::strip_frontmatter(&raw).trim().to_string())
         .unwrap_or_default();
 
-    // Clean up the transient input file — only kept for the connector's read.
     let _ = fs::remove_file(&input_path);
 
     Ok(StepOutcome { body })
@@ -359,22 +288,6 @@ fn ensure_object(v: &mut serde_json::Value) {
     if !v.is_object() {
         *v = serde_json::Value::Object(serde_json::Map::new());
     }
-}
-
-/// Bridge for legacy connectors that expect `integration_id` in their step
-/// config — pass the Connection's id under that key so their Keychain lookup
-/// (`{type}:{integration_id}`) resolves to the token saved under the new
-/// `{type}:{connection_id}` scheme (same shape, decision #5 in the spec).
-fn with_integration_id(connection_config: &serde_json::Value, connection_id: &str) -> serde_json::Value {
-    let mut cfg = connection_config.clone();
-    ensure_object(&mut cfg);
-    if let Some(obj) = cfg.as_object_mut() {
-        obj.insert(
-            "integration_id".to_string(),
-            serde_json::Value::String(connection_id.to_string()),
-        );
-    }
-    cfg
 }
 
 /// Write a `<step>.md` artifact for a skipped step so `get_step_outputs`
@@ -391,13 +304,12 @@ fn write_skipped_artifact(
     }
     let now = Utc::now().to_rfc3339();
     let reason_escaped = reason.replace('"', "\\\"");
-    let connector_label = format!("{:?}", step.connection_type).to_lowercase();
+    let connector_label = format!("{:?}", step.step_type).to_lowercase();
     let content = format!(
-        "---\nname: {}\ndescription: \"{}\"\nconnector: {}\nconnection_id: {}\nstatus: skipped\ncreated_at: {}\ncompleted_at: {}\nerror: \"{}\"\n---\n\n## Skipped\n{}\n",
+        "---\nname: {}\ndescription: \"{}\"\nconnector: {}\nstatus: skipped\ncreated_at: {}\ncompleted_at: {}\nerror: \"{}\"\n---\n\n## Skipped\n{}\n",
         step.name,
         step.description.as_deref().unwrap_or("").replace('"', "\\\""),
         connector_label,
-        step.connection_id,
         now, now,
         reason_escaped,
         reason,
@@ -405,41 +317,17 @@ fn write_skipped_artifact(
     let _ = fs::write(&output_path, content);
 }
 
-/// Write a failure artifact when the engine itself (not the connector) decides
-/// a step can't run — e.g. missing Connection, type mismatch, hidden type.
-fn write_engine_failure_artifact(
-    output_dir: &Path,
-    step: &PipelineStep,
-    error: &str,
-) {
-    let _ = fs::create_dir_all(output_dir);
-    let output_path = output_dir.join(format!("{}.md", step.name));
-    let now = Utc::now().to_rfc3339();
-    let err_escaped = error.replace('"', "\\\"").replace('\n', " ");
-    let connector_label = format!("{:?}", step.connection_type).to_lowercase();
-    let content = format!(
-        "---\nname: {}\ndescription: \"{}\"\nconnector: {}\nconnection_id: {}\nstatus: failed\ncreated_at: {}\ncompleted_at: {}\nerror: \"{}\"\n---\n\n## Error\n{}\n",
-        step.name,
-        step.description.as_deref().unwrap_or("").replace('"', "\\\""),
-        connector_label,
-        step.connection_id,
-        now, now,
-        err_escaped,
-        error,
-    );
-    let _ = fs::write(&output_path, content);
-}
-
 /// Execute a pipeline for a recording.
 ///
-/// New-model flow (see `docs/connections-model.md`):
+/// Flow:
 ///   1. Load transcript text + app friendly name into memory.
-///   2. For each step: resolve its referenced Connection from settings, render
-///      `{transcript}` / `{app}` / `{processing_result}` into `step.template`,
-///      dispatch to the matching connector, read the artifact body back as the
-///      next step's `{processing_result}`.
-///   3. Processing-step failure halts downstream; Delivery failure logs and
-///      continues with the previous `{processing_result}` unchanged.
+///   2. For each step: render `{transcript}` / `{app}` / `{processing_result}`
+///      into `step.template`, dispatch to the step's connector (CLI agent /
+///      Shell), read the artifact body back as the next step's
+///      `{processing_result}`.
+///   3. The chain is strictly linear — any step failure halts downstream
+///      (later steps can't run without the prior step's output) and marks the
+///      run Partial.
 pub async fn execute_pipeline_internal(
     recording_id: &str,
     pipeline_name: &str,
@@ -485,10 +373,6 @@ pub async fn execute_pipeline_internal(
     let transcript = load_transcript_text(recording_id)?;
     let app_name = resolve_app_name(recording_id);
 
-    // Load Connections once; index by id for O(1) per-step lookup.
-    let settings = load_settings();
-    let connections = index_connections(&settings);
-
     // Resolve run_index from the active (waiting/running) pipeline state.
     let run_index = {
         let states = read_pipeline_states(recording_id);
@@ -521,83 +405,25 @@ pub async fn execute_pipeline_internal(
             None,
         )?;
 
-        // Look up the referenced Connection. Missing / type-mismatched →
-        // engine failure with an artifact, then halt-or-continue based on role.
-        let conn = match connections.get(&step.connection_id) {
-            Some(c) if c.connection_type == step.connection_type => *c,
-            Some(c) => {
-                let err = format!(
-                    "Step '{}': Connection '{}' has type {:?} but step expects {:?}",
-                    step.name, c.id, c.connection_type, step.connection_type
-                );
-                write_engine_failure_artifact(&output_dir, step, &err);
-                handle_step_failure(
-                    &err,
-                    step,
-                    i,
-                    &pipeline.steps,
-                    &mut first_error,
-                    &mut has_failure,
-                    &mut failed_or_skipped,
-                    app_handle,
-                    recording_id,
-                    pipeline_name,
-                    total_steps,
-                );
-                if step.connection_type.role() == ConnectionRole::Processing {
-                    break;
-                }
-                continue;
-            }
-            None => {
-                let err = format!(
-                    "Step '{}': Connection '{}' not found. \
-                     Open Settings > Connections to recreate it or remove this step.",
-                    step.name, step.connection_id
-                );
-                write_engine_failure_artifact(&output_dir, step, &err);
-                handle_step_failure(
-                    &err,
-                    step,
-                    i,
-                    &pipeline.steps,
-                    &mut first_error,
-                    &mut has_failure,
-                    &mut failed_or_skipped,
-                    app_handle,
-                    recording_id,
-                    pipeline_name,
-                    total_steps,
-                );
-                if step.connection_type.role() == ConnectionRole::Processing {
-                    break;
-                }
-                continue;
-            }
-        };
-
-        // Render template + dispatch. Raw values threaded too so connectors
-        // that bypass the rendered string (Shell) get the real backing data.
+        // Render template + dispatch. Raw values threaded too so Shell (which
+        // bypasses the rendered string) gets the real backing data via env.
         let rendered = render_template(&step.template, &transcript, &app_name, &prev_processing_output);
         let step_result = dispatch_step(
             step,
-            conn,
             &rendered,
             &transcript,
             &app_name,
             &prev_processing_output,
-            &output_dir,
             pipeline_name,
-            recording_id,
+            &output_dir,
         )
         .await;
 
         match step_result {
             Ok(outcome) => {
                 emit_progress(app_handle, recording_id, pipeline_name, step, i, total_steps, "done");
-                if step.connection_type.role() == ConnectionRole::Processing {
-                    prev_processing_output = outcome.body;
-                }
+                // Every step feeds the next — output becomes {processing_result}.
+                prev_processing_output = outcome.body;
             }
             Err(err) => {
                 handle_step_failure(
@@ -613,12 +439,8 @@ pub async fn execute_pipeline_internal(
                     pipeline_name,
                     total_steps,
                 );
-                if step.connection_type.role() == ConnectionRole::Processing {
-                    // Processing failure halts downstream — same as legacy semantics,
-                    // since Processing output feeds chained steps.
-                    break;
-                }
-                // Delivery failure: log + continue with prev_processing_output unchanged.
+                // A failed step's output can't feed the chain — halt downstream.
+                break;
             }
         }
     }
@@ -658,8 +480,7 @@ pub async fn execute_pipeline_internal(
                 || meta.title.starts_with("Recording ");
             if needs_title {
                 if let Some(step) = pipeline.steps.iter().find(|s| {
-                    s.connection_type.role() == ConnectionRole::Processing
-                        && !failed_or_skipped.contains(&s.name)
+                    !failed_or_skipped.contains(&s.name)
                 }) {
                     let step_output = output_dir.join(format!("{}.md", step.name));
                     if let Ok(content) = fs::read_to_string(&step_output) {
@@ -675,8 +496,9 @@ pub async fn execute_pipeline_internal(
     Ok(final_status)
 }
 
-/// Common bookkeeping for a step that just failed: record the error, mark
-/// downstream steps as skipped if it's a Processing step, emit the UI event.
+/// Common bookkeeping for a step that just failed: record the error, mark this
+/// step and every downstream step as skipped (the linear chain can't continue
+/// without this step's output), emit the UI event.
 #[allow(clippy::too_many_arguments)]
 fn handle_step_failure(
     error: &str,
@@ -697,10 +519,10 @@ fn handle_step_failure(
     *has_failure = true;
     failed_or_skipped.insert(step.name.clone());
 
-    if step.connection_type.role() == ConnectionRole::Processing {
-        for remaining in all_steps.iter().skip(step_index + 1) {
-            failed_or_skipped.insert(remaining.name.clone());
-        }
+    // Linear chain: a failed step's output can't feed the next, so everything
+    // after it is unreachable — mark all downstream steps skipped.
+    for remaining in all_steps.iter().skip(step_index + 1) {
+        failed_or_skipped.insert(remaining.name.clone());
     }
 
     emit_progress(
@@ -1253,25 +1075,5 @@ mod tests {
         assert_ne!(dir_a, dir_b);
         assert!(dir_a.to_string_lossy().contains("pipelines/pipeline-a"));
         assert!(dir_b.to_string_lossy().contains("pipelines/pipeline-b"));
-    }
-
-    #[test]
-    fn test_with_integration_id_overwrites_or_inserts() {
-        // Insert into an empty object
-        let cfg = with_integration_id(&serde_json::json!({}), "abc-123");
-        assert_eq!(cfg["integration_id"], "abc-123");
-
-        // Overwrite existing
-        let cfg = with_integration_id(&serde_json::json!({"integration_id": "old"}), "new-456");
-        assert_eq!(cfg["integration_id"], "new-456");
-
-        // Preserve other fields
-        let cfg = with_integration_id(
-            &serde_json::json!({"target": "#general", "thread_ts": "1.2"}),
-            "slack-1",
-        );
-        assert_eq!(cfg["target"], "#general");
-        assert_eq!(cfg["thread_ts"], "1.2");
-        assert_eq!(cfg["integration_id"], "slack-1");
     }
 }

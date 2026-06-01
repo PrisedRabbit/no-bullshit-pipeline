@@ -49,8 +49,6 @@ rodio = { version = "0.21", features = ["vorbis"] }
 lazy_static = "1.5"
 serde_yaml = "0.9"
 libc = "0.2"
-security-framework = "3.7"
-notion-client = "1.0.12"
 llama-cpp-2 = { version = "0.1.140", features = ["metal", "sampler"] }
 encoding_rs = "0.8"
 sha2 = "0.10"

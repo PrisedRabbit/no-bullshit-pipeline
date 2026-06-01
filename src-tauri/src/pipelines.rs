@@ -1,30 +1,31 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::{self, File};
+use std::fs;
 use std::path::PathBuf;
-use crate::config::{get_config_dir, ConnectionType};
+use crate::config::{get_config_dir, StepType};
 use crate::storage::get_data_dir;
 
 /// A single step in a pipeline.
 ///
-/// New shape (see `docs/connections-model.md`): the step does NOT carry its
-/// own auth / target — it picks a pre-built [`Connection`](crate::config::Connection)
-/// by id, and writes a template that gets the 3 placeholders substituted by
-/// the engine before being handed to the connector. No `input` field — chain
-/// is strictly linear (`{processing_result}` = immediately previous processing
-/// step's output).
+/// Self-contained: the step carries its own type + inline config (CLI binary
+/// & model, or shell cwd/env/timeout). No separate Connection object. The
+/// chain is strictly linear — `{processing_result}` is the immediately
+/// previous step's output; step 1 sees an empty `{processing_result}`.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PipelineStep {
     pub name: String,
-    /// Determines which connector dispatches this step + which Connections are
-    /// eligible to pick in the UI.
-    pub connection_type: ConnectionType,
-    /// Id of the Connection in `AppSettings.connections`. Empty is a draft
-    /// state from the editor; `validate_pipeline` rejects it.
-    pub connection_id: String,
+    /// Which connector dispatches this step.
+    #[serde(alias = "connection_type")]
+    pub step_type: StepType,
     /// Free-form text with `{transcript}` / `{app}` / `{processing_result}`
-    /// placeholders. Engine renders before invoking the connector.
+    /// placeholders (CLI agent) or a bash script body (Shell). Engine renders
+    /// placeholders for CLI; Shell gets raw values via NBP_* env vars.
     pub template: String,
+    /// Inline non-secret config for this step's connector.
+    ///   CLI:   { cli, model?, timeout_secs?, working_directory? }
+    ///   Shell: { cwd, shell?, env?, timeout_secs? }
+    #[serde(default)]
+    pub config: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
@@ -34,6 +35,9 @@ pub struct PipelineStep {
 pub struct Pipeline {
     pub name: String,
     pub description: String,
+    /// Defaulted so a legacy entry missing `steps` loads as a zero-step
+    /// (label-only) pipeline instead of being dropped by the loose loader.
+    #[serde(default)]
     pub steps: Vec<PipelineStep>,
     /// When true, this pipeline runs automatically after every recording
     /// finishes transcribing (in addition to any explicitly-assigned pipelines).
@@ -124,12 +128,6 @@ fn migrate_pipelines_if_needed() {
 }
 
 /// Validate a pipeline definition.
-///
-/// Cross-file checks (does `connection_id` resolve to a real Connection? does
-/// its type match `connection_type`?) are NOT done here — they need
-/// `AppSettings` which we don't pull through this layer. The runner does that
-/// at execution time and fails the step with a clear "Connection not found"
-/// (see `docs/connections-model.md` closed-decision #8).
 pub fn validate_pipeline(pipeline: &Pipeline) -> Result<(), String> {
     // Pipeline must have non-empty name
     if pipeline.name.trim().is_empty() {
@@ -161,14 +159,6 @@ pub fn validate_pipeline(pipeline: &Pipeline) -> Result<(), String> {
             ));
         }
 
-        // Step must reference a Connection.
-        if step.connection_id.trim().is_empty() {
-            return Err(format!(
-                "Step '{}' has no Connection selected. Pick one in the editor or create a {:?} Connection first.",
-                step.name, step.connection_type
-            ));
-        }
-
         // Check for duplicate step names
         if defined_steps.contains(&step.name) {
             return Err(format!("Duplicate step name '{}'", step.name));
@@ -182,12 +172,13 @@ pub fn validate_pipeline(pipeline: &Pipeline) -> Result<(), String> {
 
 /// Load all pipelines from disk.
 ///
-/// Old-shape pipelines (pre `connections-pipelines` refactor) cannot
-/// deserialize into the new `PipelineStep` and would explode the whole load.
-/// Per decision #7 in `docs/connections-model.md` we wipe instead of
-/// migrating — log the parse error and return an empty map so the user lands
-/// in a working app and rebuilds via the new editor. Other I/O errors still
-/// bubble up.
+/// Legacy migration (Option A): pre-simplification pipelines carried steps of
+/// now-removed delivery types (notion / slack / telegram / webhook /
+/// save_local) and a `connection_id` field. We parse loosely first and drop
+/// any step whose type isn't a current [`StepType`] (`cli_agent` / `shell`) —
+/// the leftover cli/shell steps survive, unknown fields like `connection_id`
+/// are ignored by serde. A pipeline that still won't parse is skipped (logged)
+/// rather than nuking the whole file. I/O errors still bubble up.
 pub fn load_pipelines() -> Result<HashMap<String, Pipeline>, String> {
     migrate_pipelines_if_needed();
     let path = get_pipelines_path();
@@ -196,18 +187,49 @@ pub fn load_pipelines() -> Result<HashMap<String, Pipeline>, String> {
         return Ok(HashMap::new());
     }
 
-    let file = File::open(&path).map_err(|e| format!("Failed to open pipelines.json: {}", e))?;
-    match serde_json::from_reader::<_, HashMap<String, Pipeline>>(file) {
-        Ok(pipelines) => Ok(pipelines),
+    let raw = fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read pipelines.json: {}", e))?;
+
+    // Loose parse so one bad pipeline doesn't take down the rest.
+    let map: HashMap<String, serde_json::Value> = match serde_json::from_str(&raw) {
+        Ok(m) => m,
         Err(e) => {
-            log::warn!(
-                "pipelines.json failed to parse with new Connection-based schema ({}); \
-                 starting with an empty list. Recreate pipelines via the editor.",
-                e
-            );
-            Ok(HashMap::new())
+            log::warn!("pipelines.json is not a valid object ({}); starting with an empty list.", e);
+            return Ok(HashMap::new());
+        }
+    };
+
+    let mut pipelines = HashMap::new();
+    for (name, value) in map {
+        match prune_and_parse_pipeline(value) {
+            Ok(p) => {
+                pipelines.insert(name, p);
+            }
+            Err(e) => {
+                log::warn!("Skipping pipeline '{}' — failed to parse ({}).", name, e);
+            }
         }
     }
+    Ok(pipelines)
+}
+
+/// Drop steps of removed networked-delivery types (notion / slack / telegram /
+/// webhook) from a loosely-parsed pipeline value, then deserialize. The step
+/// type lives under `step_type` (new) or `connection_type` (legacy alias);
+/// only the current [`StepType`]s survive (`cli_agent` / `shell` /
+/// `save_local`). Legacy `save_local` steps carried their folder on a
+/// Connection, so they load with empty config — the user re-picks the folder.
+fn prune_and_parse_pipeline(mut value: serde_json::Value) -> Result<Pipeline, serde_json::Error> {
+    if let Some(steps) = value.get_mut("steps").and_then(|v| v.as_array_mut()) {
+        steps.retain(|s| {
+            let ty = s
+                .get("step_type")
+                .or_else(|| s.get("connection_type"))
+                .and_then(|v| v.as_str());
+            matches!(ty, Some("cli_agent") | Some("shell") | Some("save_local"))
+        });
+    }
+    serde_json::from_value::<Pipeline>(value)
 }
 
 /// Save all pipelines to disk
@@ -288,12 +310,12 @@ pub fn delete_pipeline(app: tauri::AppHandle, name: String) -> Result<(), String
 mod tests {
     use super::*;
 
-    fn step(name: &str, ct: ConnectionType, conn_id: &str, template: &str) -> PipelineStep {
+    fn step(name: &str, st: StepType, template: &str) -> PipelineStep {
         PipelineStep {
             name: name.to_string(),
-            connection_type: ct,
-            connection_id: conn_id.to_string(),
+            step_type: st,
             template: template.to_string(),
+            config: serde_json::Value::Null,
             description: None,
         }
     }
@@ -306,8 +328,8 @@ mod tests {
             created_at: String::new(),
             updated_at: String::new(),
             steps: vec![
-                step("summarize", ConnectionType::CliAgent, "conn-claude-1", "Summarize: {transcript}"),
-                step("save-to-obsidian", ConnectionType::SaveLocal, "conn-save-1", "{processing_result}"),
+                step("summarize", StepType::CliAgent, "Summarize: {transcript}"),
+                step("format", StepType::Shell, "echo \"$NBP_PROCESSING_RESULT\""),
             ],
         }
     }
@@ -345,15 +367,6 @@ mod tests {
     }
 
     #[test]
-    fn test_step_with_empty_connection_id_fails() {
-        let mut pipeline = make_valid_pipeline();
-        pipeline.steps[0].connection_id = "".to_string();
-        let result = validate_pipeline(&pipeline);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("no Connection selected"));
-    }
-
-    #[test]
     fn test_duplicate_step_names_fails() {
         let pipeline = Pipeline {
             name: "dup-pipeline".to_string(),
@@ -362,8 +375,8 @@ mod tests {
             created_at: String::new(),
             updated_at: String::new(),
             steps: vec![
-                step("step-a", ConnectionType::CliAgent, "c1", "{transcript}"),
-                step("step-a", ConnectionType::SaveLocal, "c2", "{processing_result}"),
+                step("step-a", StepType::CliAgent, "{transcript}"),
+                step("step-a", StepType::Shell, "{processing_result}"),
             ],
         };
         let result = validate_pipeline(&pipeline);
@@ -378,10 +391,46 @@ mod tests {
         let deserialized: Pipeline = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.name, pipeline.name);
         assert_eq!(deserialized.steps.len(), pipeline.steps.len());
-        assert_eq!(deserialized.steps[0].connection_type, ConnectionType::CliAgent);
-        assert_eq!(deserialized.steps[1].connection_type, ConnectionType::SaveLocal);
-        assert_eq!(deserialized.steps[0].connection_id, "conn-claude-1");
+        assert_eq!(deserialized.steps[0].step_type, StepType::CliAgent);
+        assert_eq!(deserialized.steps[1].step_type, StepType::Shell);
         assert_eq!(deserialized.steps[0].template, "Summarize: {transcript}");
+    }
+
+    #[test]
+    fn test_legacy_connection_type_alias_deserializes() {
+        // Old pipelines.json used `connection_type`; serde alias keeps them readable.
+        let json = r#"{
+            "name": "legacy",
+            "description": "",
+            "steps": [
+                { "name": "s1", "connection_type": "cli_agent", "template": "{transcript}" }
+            ]
+        }"#;
+        let p: Pipeline = serde_json::from_str(json).unwrap();
+        assert_eq!(p.steps[0].step_type, StepType::CliAgent);
+    }
+
+    #[test]
+    fn test_prune_drops_legacy_delivery_steps_keeps_cli_shell() {
+        // Legacy pipeline mixing a CLI step (connection_type alias + dead
+        // connection_id field) with a Notion delivery step. The Notion step
+        // must be dropped; the CLI step survives with its template intact.
+        let json = serde_json::json!({
+            "name": "mixed",
+            "description": "",
+            "steps": [
+                { "name": "summarize", "connection_type": "cli_agent", "connection_id": "dead-id", "template": "{transcript}" },
+                { "name": "to-notion", "connection_type": "notion", "connection_id": "abc", "template": "{processing_result}" },
+                { "name": "post", "step_type": "shell", "template": "echo hi" }
+            ]
+        });
+        let p = prune_and_parse_pipeline(json).unwrap();
+        assert_eq!(p.steps.len(), 2, "notion step should be dropped");
+        assert_eq!(p.steps[0].name, "summarize");
+        assert_eq!(p.steps[0].step_type, StepType::CliAgent);
+        assert_eq!(p.steps[0].template, "{transcript}");
+        assert_eq!(p.steps[1].name, "post");
+        assert_eq!(p.steps[1].step_type, StepType::Shell);
     }
 
     #[test]

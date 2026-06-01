@@ -6,7 +6,7 @@ import { showToast } from '../ui/toast.js';
 import { showConfirm } from '../ui/confirm-modal.js';
 import { CONNECTOR_META } from './constants.js';
 import * as pipelineState from './state.js';
-import { getLoadedConnections } from '../connections/index.js';
+import { stepSubLabel } from './flow-renderer.js';
 import { maybeAutoName } from './delivery-options.js';
 import { showStepEditor, addNewStep } from './step-editor.js';
 import { loadPipelineDefs } from './defs-list.js';
@@ -23,8 +23,8 @@ const deletePipelineDefBtn = document.getElementById('delete-pipeline-def-btn');
 const closePipelineEditorBtn = document.getElementById('close-pipeline-editor');
 
 // Kept as a no-op for legacy call sites — the old `step.input` field is gone
-// (Connection-model chain is strictly linear, see docs/connections-model.md
-// decision #3). Removed when no callers remain.
+// (the step chain is strictly linear: each step eats the previous step's
+// output). Removed when no callers remain.
 export function fixStepInputs() {}
 
 export function openPipelineEditor(name) {
@@ -79,10 +79,9 @@ export function renderPipelineSteps() {
     <span class="pflow-chip-label">Transcript</span>
   </div>`;
 
-  const conns = getLoadedConnections();
   for (let i = 0; i < pipelineState.pipelineEditorSteps.length; i++) {
     const step = pipelineState.pipelineEditorSteps[i];
-    const typeKey = step.connection_type || 'cli_agent';
+    const typeKey = step.step_type || 'cli_agent';
     const meta = CONNECTOR_META[typeKey] || {
       abbr: typeKey.substring(0, 2).toUpperCase(),
       textColor: 'var(--text-primary)',
@@ -94,11 +93,8 @@ export function renderPipelineSteps() {
       ? meta.svg
       : `<span style="font-size:7px;font-weight:800;color:${fg};">${meta.abbr}</span>`;
 
-    // Sub-label: the chosen Connection's name (or a "no connection" warning)
-    // — much more useful than the old provider/model breadcrumb since the
-    // connection IS the configured target.
-    const conn = conns.find(c => c.id === step.connection_id);
-    const subText = escapeHtml(conn ? conn.name : (step.connection_id ? '⚠ missing connection' : 'pick one'));
+    // Sub-label: the step's inline config (CLI · model, or shell binary).
+    const subText = escapeHtml(stepSubLabel(step) || typeKey);
 
     const safeName = escapeHtml(step.name || 'Unnamed');
     const isEditing = pipelineState.editingStepIndex === i;
@@ -209,10 +205,20 @@ if (savePipelineDefBtn) {
         showToast(`Step ${i + 1} needs a name`, 'error');
         return;
       }
-      if (!s.connection_id?.trim()) {
-        // Surface this client-side rather than letting the Rust validator
-        // bounce it back — keeps the editor focused on the broken step.
-        showToast(`Step ${i + 1} ("${s.name}") needs a Connection picked.`, 'error');
+      // Surface required-config gaps client-side rather than letting the Rust
+      // connector bounce them back at run time — keeps the editor on the
+      // broken step. CLI needs a CLI picked; Shell needs a working dir.
+      const cfg = s.config || {};
+      if (s.step_type === 'cli_agent' && !cfg.cli) {
+        showToast(`Step ${i + 1} ("${s.name}") needs a CLI selected.`, 'error');
+        return;
+      }
+      if (s.step_type === 'shell' && !(cfg.cwd || '').trim()) {
+        showToast(`Step ${i + 1} ("${s.name}") needs a working directory.`, 'error');
+        return;
+      }
+      if (s.step_type === 'save_local' && !(cfg.folder_path || '').trim()) {
+        showToast(`Step ${i + 1} ("${s.name}") needs a folder.`, 'error');
         return;
       }
     }

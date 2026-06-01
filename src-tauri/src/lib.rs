@@ -21,7 +21,7 @@
 //! ### Pipeline System
 //! - [`pipelines`] - Pipeline definition model and validation
 //! - [`pipeline_engine`] - Sequential step execution engine with progress events
-//! - [`connectors`] - Built-in connectors (LLM, Save, Webhook)
+//! - [`connectors`] - Step connectors (CLI agent, Shell)
 //! - [`prompt_templates`] - Reusable prompt template registry
 //! - [`transcript_migration`] - Migration from plain text to frontmatter transcript format
 //!
@@ -44,10 +44,8 @@ mod devices;
 pub mod pipelines;
 mod prompt_templates;
 mod connectors;
-mod connections;
 mod pipeline_engine;
 mod transcript_migration;
-mod integrations;
 pub mod local_llm;
 pub mod realtime_transcription;
 mod call_detector;
@@ -396,11 +394,6 @@ pub fn run() {
             pipeline_engine::assign_pipeline,
             pipeline_engine::remove_pipeline_run,
             connectors::cli_agent::check_cli_availability,
-            // Connections — unified flat-list CRUD (see docs/connections-model.md).
-            connections::list_connections,
-            connections::save_connection,
-            connections::delete_connection,
-            connections::test_connection,
             // Local LLM
             local_llm::get_llm_models_info,
             local_llm::refresh_llm_model_sizes,

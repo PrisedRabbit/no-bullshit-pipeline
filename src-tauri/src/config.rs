@@ -1,4 +1,3 @@
-use crate::integrations::IntegrationsConfig;
 use crate::storage::get_data_dir;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
@@ -130,74 +129,18 @@ impl Default for TranscriptionConfig {
     }
 }
 
-/// One configured external service or local capability that pipelines compose
-/// from. See `docs/connections-model.md` for the architectural model.
-///
-/// **Flat self-contained entry.** Each Connection holds its OWN type and its
-/// OWN non-secret target config. Two Notion workspaces with different API keys
-/// = two entries. Two Telegram bots = two entries.
-///
-/// Secrets (API tokens, OAuth tokens) are NOT stored here — they live in the
-/// existing Keychain helper (`integrations/mod.rs::save_token`) keyed by
-/// `{type}:{connection_id}`, so the entry references its credential by id
-/// without duplicating the secret in `settings.json`.
-///
-/// `config` is type-specific non-secret JSON; per-type shape is documented at
-/// the connector module level (e.g. `connectors/slack.rs`).
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Connection {
-    pub id: String,
-    pub name: String,
-    #[serde(rename = "type")]
-    pub connection_type: ConnectionType,
-    #[serde(default)]
-    pub config: serde_json::Value,
-    pub created_at: String,
-}
-
-/// What a Connection is. Drives pipeline-step eligibility (only Connections
-/// of the step's type are pickable) and runtime dispatch (the runner matches
-/// on this to call the right connector).
-///
-/// Direct-LLM-API, MCP, and Linear variants were cut entirely along with the
-/// Models tab and cloud_ai module — less surface area, easier to re-add
-/// later than to maintain dead branches.
+/// What a pipeline step does. Drives runtime dispatch. Each step carries its
+/// own inline config (CLI binary / model / cwd / env / save folder) — there is
+/// no separate reusable "Connection" object anymore. Networked delivery
+/// (Notion / Slack / Telegram / Webhook) was removed: users glue their own
+/// delivery with a Shell step (`curl`, `cp`, …). The one built-in destination
+/// kept is `SaveLocal` — write the step's content to a local folder.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
-pub enum ConnectionType {
-    // Processing — output feeds the next step.
+pub enum StepType {
     CliAgent,
     Shell,
-    // Delivery — terminal, sends output to an external system.
-    Slack,
-    Notion,
-    Telegram,
-    Webhook,
     SaveLocal,
-}
-
-/// Processing steps feed their output to the next step and halt downstream on
-/// failure. Delivery steps are terminal and a failure does NOT break the
-/// chain (subsequent steps still run with the prior `{processing_result}`).
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ConnectionRole {
-    Processing,
-    Delivery,
-}
-
-impl ConnectionType {
-    pub fn role(&self) -> ConnectionRole {
-        match self {
-            ConnectionType::CliAgent
-            | ConnectionType::Shell => ConnectionRole::Processing,
-            ConnectionType::Slack
-            | ConnectionType::Notion
-            | ConnectionType::Telegram
-            | ConnectionType::Webhook
-            | ConnectionType::SaveLocal => ConnectionRole::Delivery,
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -214,14 +157,6 @@ pub struct AppSettings {
     /// Save only the mixed audio file (default: true)
     #[serde(default = "default_true")]
     pub save_mix_only: bool,
-    #[serde(default)]
-    pub integrations: IntegrationsConfig,
-    /// Connections — flat list of self-contained external/local capability
-    /// entries pipelines compose from. See `docs/connections-model.md` and
-    /// the `Connection` struct doc. Insertion-ordered for stable UI; UI
-    /// groups by role/type. Secrets live in Keychain, not here.
-    #[serde(default)]
-    pub connections: Vec<Connection>,
     /// Default pipeline to auto-assign to new recordings (set in Settings > Audio)
     #[serde(default)]
     pub default_pipeline: Option<String>,
@@ -299,8 +234,9 @@ pub struct DictationShortcut {
     /// engine defaults to (typically system locale).
     #[serde(default)]
     pub language: Option<String>,
-    /// Optional pipeline name — when set, the transcript is passed through LLM-only steps
-    /// of this pipeline; non-LLM steps (Save/Webhook/Slack/Notion) are skipped silently
+    /// Optional pipeline name — when set, the transcript is passed through the
+    /// pipeline's CLI-agent steps (text transforms chain); Shell steps are
+    /// skipped silently since the paste-only dictation flow has no output dir.
     #[serde(default)]
     pub pipeline: Option<String>,
     /// Auto-paste into the focused app via Cmd+V (true) or only copy to clipboard (false)
@@ -350,8 +286,6 @@ impl Default for AppSettings {
             transcription: TranscriptionConfig::default(),
             show_recording_notification: true,
             save_mix_only: true,
-            integrations: IntegrationsConfig::default(),
-            connections: Vec::new(),
             default_pipeline: None,
             last_used_pipeline: None,
             auto_record_meetings: true,
@@ -439,20 +373,11 @@ pub fn save_settings_to_disk(settings: &mut AppSettings) -> Result<(), String> {
 }
 
 /// Tauri command: save settings + toggle call detector.
-///
-/// The frontend may hold a stale copy of `integrations` (Slack/Notion/Linear are
-/// modified via dedicated commands that write directly to disk).  To prevent the
-/// frontend from accidentally overwriting them, we always preserve the on-disk
-/// integrations block.
 #[tauri::command]
 pub async fn save_settings(
     app_handle: tauri::AppHandle,
     mut settings: AppSettings,
 ) -> Result<(), String> {
-    // Preserve integrations from disk — frontend doesn't own this data.
-    let disk_settings = load_settings();
-    settings.integrations = disk_settings.integrations;
-
     // Disk write is fast (JSON serialize + atomic rename) — keep it on the
     // command's hot path so the frontend sees Ok only after settings are
     // persisted.
@@ -481,9 +406,4 @@ pub async fn save_settings(
 /// Get templates directory path
 pub fn get_templates_dir() -> PathBuf {
     get_config_dir().join("templates")
-}
-
-/// Get integrations directory path (~/.nbp/integrations/)
-pub fn get_integrations_dir() -> PathBuf {
-    get_config_dir().join("integrations")
 }

@@ -1,82 +1,73 @@
-// step-editor.js — Pipeline step editor (Connection model).
+// step-editor.js — Pipeline step editor (inline, self-contained steps).
 //
-// One step = pick a type → pick a Connection of that type → describe what
-// goes to the connection. Three render modes driven by the chosen type:
+// One step = pick a type → fill its inline config → write the prompt/script.
+// The chain is strictly linear: step 1 eats the transcript, each later step
+// eats the previous step's output. There is no separate "Connection" object —
+// all config (which CLI, model, cwd, env, timeout) lives on the step itself.
 //
-//   1. Processing step (CLI agent / Shell) → freeform textarea with
-//      placeholder substitution. The CONTENT differs by type:
-//        - CLI agent : the prompt sent to the agent (with the recording
-//                       transcript / previous step output substituted in).
-//        - Shell     : the text piped to the configured command's stdin.
-//
-//   2. Delivery step (Slack / Telegram / Webhook / SaveLocal) → no
-//      freeform text. Just a "Send" radio picker that writes
-//      `{transcript}` or `{processing_result}` into step.template under
-//      the hood. Anything richer than that has no business in delivery —
-//      either send the raw recording or the previous step's output.
-//
-//   3. No Connection of the picked type yet → form collapses to a single
-//      "Create one in Settings → Connections" link. Save is blocked.
-//
-// All auth / target / model config lives in the Connection (Settings →
-// Connections); the step composes pre-built bricks. See
-// `docs/connections-model.md`.
+// Two step types:
+//   - CLI agent : config { cli, model?, timeout_secs? }; template is the prompt
+//                 (with {transcript} / {processing_result} / {app} substituted
+//                 before the agent sees it).
+//   - Shell     : config { cwd, shell?, env?, timeout_secs? }; template is the
+//                 bash script body. Raw values arrive via NBP_* env vars (no
+//                 placeholder substitution — avoids shell-injection).
 
+import { invoke } from '../core/tauri.js';
 import { escapeHtml } from '../core/utils.js';
 import { showToast } from '../ui/toast.js';
 import * as pipelineState from './state.js';
-import { getConnectionTypes, getLoadedConnections, loadConnections } from '../connections/index.js';
-import { closeStepEditorPanel, closePipelineEditor, renderPipelineSteps } from './editor.js';
+import { closeStepEditorPanel, renderPipelineSteps } from './editor.js';
 import { maybeAutoName } from './delivery-options.js';
-import { ViewManager } from '../ui/view-manager.js';
-import { switchSettingsTab } from '../settings/settings.js';
 
-const PROCESSING_TYPES = new Set(['cli_agent', 'shell']);
+// Step types, in dropdown order.
+const STEP_TYPES = [
+  { key: 'cli_agent',  label: 'CLI agent' },
+  { key: 'shell',      label: 'Shell script' },
+  { key: 'save_local', label: 'Save to folder' },
+];
 
-/// Per-type copy used to dress the textarea for Processing steps. Keeps
-/// labels honest to what the connector actually does with the content.
-const PROCESSING_COPY = {
+// Per-type copy for the prompt / script textarea.
+const BODY_COPY = {
   cli_agent: {
     label: 'Prompt for the agent',
     placeholder: 'What to ask the CLI agent. Use {transcript} or {processing_result} to inline content.',
     hint: 'Sent to the agent as the prompt body. Placeholders below get substituted before the agent sees them.',
     showPlaceholders: true,
+    mono: false,
   },
   shell: {
     label: 'Shell script',
     placeholder: 'echo "$NBP_TRANSCRIPT" | jq -R .   # any bash you like — multi-line ok',
-    hint: 'Runs in the cwd set on the Connection (default shell: /bin/bash). Stdout becomes this step\'s output, stderr goes to the run log only. Available env vars: $NBP_TRANSCRIPT (full transcript), $NBP_PROCESSING_RESULT (previous step output, empty on step 1), $NBP_APP (Zoom / FaceTime / NBP / …). Read them with $VAR — placeholder substitution is NOT applied to shell scripts (avoids shell-injection from transcript content).',
+    hint: 'Runs in the working dir set above (default shell: /bin/bash). Stdout becomes this step\'s output, stderr goes to the run log only. Env vars: $NBP_TRANSCRIPT (full transcript), $NBP_PROCESSING_RESULT (previous step output, empty on step 1), $NBP_APP (Zoom / FaceTime / NBP / …). Read them with $VAR — placeholder substitution is NOT applied to shell scripts.',
     showPlaceholders: false,
+    mono: true,
   },
 };
 
-// Refresh the Connections list when the editor opens. Lightweight — Tauri
-// command just returns the in-memory settings.connections vector.
-let connectionsFreshness = 0;
-async function ensureConnectionsLoaded() {
-  if (connectionsFreshness === 0 || getLoadedConnections().length === 0) {
-    await loadConnections();
-    connectionsFreshness = Date.now();
+// `check_cli_availability` result cache. Refreshed when the editor opens —
+// cheap (`which X` per supported CLI) so newly-installed agents show up
+// without an app restart.
+let cliAvailabilityCache = [];
+
+async function refreshCliAvailability() {
+  try {
+    cliAvailabilityCache = await invoke('check_cli_availability');
+  } catch (err) {
+    console.error('check_cli_availability failed:', err);
+    cliAvailabilityCache = [];
   }
 }
 
 export async function addNewStep() {
-  // Default to the first type that has at least one Connection so the user
-  // lands in a useful state. If nothing is configured yet, default to
-  // CliAgent (most common path) and let the form show the empty-state link.
-  await ensureConnectionsLoaded();
-  const conns = getLoadedConnections();
-  const firstTypeWithConn = getConnectionTypes().find(t => conns.some(c => (c.connection_type || c.type) === t.key));
-  const defaultType = firstTypeWithConn?.key || 'cli_agent';
-  const defaultConn = conns.find(c => (c.connection_type || c.type) === defaultType);
-
+  await refreshCliAvailability();
+  const defaultType = 'cli_agent';
+  // Pre-select the first installed CLI so the step is runnable out of the box.
+  const firstCli = cliAvailabilityCache.find(c => c.installed)?.id || '';
   const step = {
     name: '',
-    connection_type: defaultType,
-    connection_id: defaultConn?.id || '',
-    // Defer to defaultTemplateFor so Shell gets script-mode skeleton (env
-    // vars demo) and CLI gets placeholder skeleton — keeping the two ideas
-    // in one place.
+    step_type: defaultType,
+    config: firstCli ? { cli: firstCli } : {},
     template: defaultTemplateFor(defaultType),
     description: null,
   };
@@ -88,7 +79,7 @@ export async function addNewStep() {
 export async function showStepEditor(index) {
   const step = pipelineState.pipelineEditorSteps[index];
   if (!step) return;
-  await ensureConnectionsLoaded();
+  await refreshCliAvailability();
 
   const panelEl = document.getElementById('step-editor-panel');
   if (!panelEl) return;
@@ -105,21 +96,10 @@ export async function showStepEditor(index) {
 }
 
 function renderForm(step, index) {
-  const types = getConnectionTypes();
-  const currentType = step.connection_type || step.type || 'cli_agent';
-
-  // Group by role so the picker mirrors the Connections-tab layout:
-  // Processing types feed their output downstream; Delivery types are
-  // terminal. Without optgroups the dropdown was a flat soup that didn't
-  // communicate the difference (and CLI agent ended up next to Save Local).
-  const optionFor = (t) =>
-    `<option value="${escapeHtml(t.key)}"${t.key === currentType ? ' selected' : ''}>${escapeHtml(t.label)}</option>`;
-  const processingOpts = types.filter(t => t.role === 'processing').map(optionFor).join('');
-  const deliveryOpts = types.filter(t => t.role === 'delivery').map(optionFor).join('');
-  const typeOptions = `
-    <optgroup label="Processing">${processingOpts}</optgroup>
-    <optgroup label="Delivery">${deliveryOpts}</optgroup>
-  `;
+  const currentType = step.step_type || 'cli_agent';
+  const typeOptions = STEP_TYPES.map(t =>
+    `<option value="${escapeHtml(t.key)}"${t.key === currentType ? ' selected' : ''}>${escapeHtml(t.label)}</option>`
+  ).join('');
 
   return `
     <div class="step-editor">
@@ -142,7 +122,7 @@ function renderForm(step, index) {
       <div class="step-section" style="border-top:1px solid var(--border-color);padding-top:12px;">
         <div class="step-editor-row">
           <label>Name</label>
-          <input class="step-name-input" value="${escapeHtml(step.name || '')}" placeholder="Auto-generated from connection" />
+          <input class="step-name-input" value="${escapeHtml(step.name || '')}" placeholder="Auto-generated from type" />
         </div>
       </div>
 
@@ -153,94 +133,72 @@ function renderForm(step, index) {
   `;
 }
 
-// Body of the form below the Type row — depends on the chosen type. Three
-// flavours: empty-state (no connection), processing (textarea with prompt /
-// stdin label), delivery (simple "what to send" picker).
+// Body of the form below the Type row — the inline config + the prompt/script
+// textarea. Differs by type.
 function renderBody(typeKey, step) {
-  const matches = getLoadedConnections().filter(c => (c.connection_type || c.type) === typeKey);
-  const typeLabel = (getConnectionTypes().find(t => t.key === typeKey)?.label) || typeKey;
-
-  // --- Empty state: no Connection of this type yet ----------------------
-  if (matches.length === 0) {
-    return `
-      <div class="step-section" style="border-top:1px solid var(--border-color);padding-top:12px;">
-        <div style="text-align:center;padding:24px 8px;display:flex;flex-direction:column;gap:8px;">
-          <div style="font-size:0.9rem;color:var(--text-secondary);">No <strong>${escapeHtml(typeLabel)}</strong> Connection configured yet.</div>
-          <a href="#" class="step-create-connection-link" data-type="${escapeHtml(typeKey)}" style="font-size:0.85rem;color:var(--accent);text-decoration:underline;">Open Settings → Connections to create one</a>
-          <div style="font-size:0.72rem;color:var(--text-secondary);opacity:0.7;">Once it exists, come back here to wire it into this step.</div>
-        </div>
-      </div>
-    `;
-  }
-
-  // Pre-select the only Connection of this type — typical "single Slack /
-  // single Notion" setups don't need an extra click.
-  const effectiveId = matches.length === 1 ? matches[0].id : (step.connection_id || '');
-  const connOptions = matches.map(c =>
-    `<option value="${escapeHtml(c.id)}"${c.id === effectiveId ? ' selected' : ''}>${escapeHtml(c.name)}</option>`
-  ).join('');
-
-  const connectionRow = `
-    <div class="step-section">
-      <div class="step-editor-row">
-        <label>Connection</label>
-        <select class="step-connection-select" style="flex:1;min-width:0;">${connOptions}</select>
-      </div>
-    </div>
-  `;
-
-  if (PROCESSING_TYPES.has(typeKey)) {
-    return connectionRow + renderProcessingBody(typeKey, step);
-  }
-  return connectionRow + renderDeliveryBody(step);
+  if (typeKey === 'shell') return renderShellBody(step);
+  if (typeKey === 'save_local') return renderSaveBody(step);
+  return renderCliBody(step);
 }
 
-// Processing body — freeform textarea, label/hint/placeholder per CLI vs
-// Shell so the user knows whether they're writing a prompt or a script.
-function renderProcessingBody(typeKey, step) {
-  const copy = PROCESSING_COPY[typeKey] || PROCESSING_COPY.cli_agent;
-  // CLI agent uses `{placeholder}` substitution. Shell uses env vars
-  // (NBP_TRANSCRIPT etc.) — the placeholder line would be misleading there.
-  const placeholdersLine = copy.showPlaceholders
-    ? `<br>Placeholders: <code>{transcript}</code> raw recording transcript · <code>{processing_result}</code> previous processing step's output (empty on step 1) · <code>{app}</code> friendly app name (Zoom / FaceTime / NBP).`
+// --- CLI agent body -------------------------------------------------------
+function renderCliBody(step) {
+  const cfg = step.config || {};
+  const copy = BODY_COPY.cli_agent;
+  return `
+    <div class="step-section" style="border-top:1px solid var(--border-color);padding-top:12px;display:flex;flex-direction:column;gap:12px;">
+      ${renderCliDetectField(cfg.cli || '')}
+      ${textField('step-cfg-model', 'Model', cfg.model || '', 'Optional. Free-text — CLI validates at runtime. Examples: claude → sonnet · codex → o3 · opencode → openai/gpt-4o · agy → gemini-3.1-pro.')}
+      ${textField('step-cfg-workdir', 'Working dir', cfg.working_directory || '', 'Optional. Where the CLI runs — point at a repo so the agent can read its files. `~` expanded. Default: home directory.')}
+      ${numberField('step-cfg-timeout', 'Timeout (sec)', cfg.timeout_secs, 'Default 300. The whole subprocess is killed at this limit.')}
+    </div>
+    ${renderTemplateField('cli_agent', step, copy)}
+  `;
+}
+
+// --- Shell body -----------------------------------------------------------
+function renderShellBody(step) {
+  const cfg = step.config || {};
+  const copy = BODY_COPY.shell;
+  // env stored as { KEY: value }; rendered as KEY=value lines for editing.
+  const envLines = (cfg.env && typeof cfg.env === 'object' && !Array.isArray(cfg.env))
+    ? Object.entries(cfg.env).map(([k, v]) => `${k}=${v}`).join('\n')
     : '';
   return `
-    <div class="step-section" style="border-top:1px solid var(--border-color);padding-top:12px;">
-      <div class="step-section-label">${escapeHtml(copy.label)}</div>
-      <textarea class="step-template-textarea" rows="8" placeholder="${escapeHtml(copy.placeholder)}" style="${typeKey === 'shell' ? 'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.82rem;' : ''}">${escapeHtml(step.template || '')}</textarea>
-      <div style="font-size:0.72rem;color:var(--text-secondary);opacity:0.85;margin-top:6px;line-height:1.5;">
-        ${escapeHtml(copy.hint)}${placeholdersLine}
-      </div>
+    <div class="step-section" style="border-top:1px solid var(--border-color);padding-top:12px;display:flex;flex-direction:column;gap:12px;">
+      ${textField('step-cfg-cwd', 'Working dir', cfg.cwd || '', 'Required. Where the script runs. `~` expanded. Example: ~/work/notes', true)}
+      ${textField('step-cfg-shell', 'Shell', cfg.shell || '', 'Binary that accepts -c <script>. Default /bin/bash. Use /bin/zsh, /usr/bin/env fish, etc. if you prefer.')}
+      ${textareaField('step-cfg-env', 'Env vars (KEY=value per line)', envLines, 'Optional. Merged on top of NBP_TRANSCRIPT / NBP_APP / NBP_PROCESSING_RESULT (so you CAN override them — rare).', 3)}
+      ${numberField('step-cfg-timeout', 'Timeout (sec)', cfg.timeout_secs, 'Default 120. Kills the subprocess if exceeded.')}
     </div>
+    ${renderTemplateField('shell', step, copy)}
   `;
 }
 
-// Delivery body — no freeform. Just pick which canonical variable gets
-// sent. The picker is rendered as radios for one-click switching; on save
-// the choice is materialised as `{transcript}` or `{processing_result}` in
-// step.template so the engine's rendering path stays identical to
-// processing steps. Anything else would be premature flexibility for a
-// 3-user tool — see review feedback на «free-text для delivery — нахуя?».
-function renderDeliveryBody(step) {
-  // Existing step might carry an arbitrary template (older pipelines /
-  // hand-edited). Match it to a canonical choice; fall back to
-  // "processing_result" if the template is anything else — that's the
-  // useful default for most delivery steps.
+// --- Save-to-folder body --------------------------------------------------
+// WHERE (folder, required) + WHAT (processing_result | transcript). The WHAT
+// radio is materialised into step.template as `{processing_result}` /
+// `{transcript}` on Done, so the engine's render path stays identical.
+function renderSaveBody(step) {
+  const cfg = step.config || {};
   const tpl = (step.template || '').trim();
   const isTranscript = tpl === '{transcript}';
   return `
+    <div class="step-section" style="border-top:1px solid var(--border-color);padding-top:12px;display:flex;flex-direction:column;gap:12px;">
+      ${textField('step-cfg-folder', 'Folder', cfg.folder_path || '', 'Required. Where the file lands. `~` expanded. Example: ~/Documents/Meetings. Saved as <date>-<pipeline>.md.', true)}
+    </div>
     <div class="step-section" style="border-top:1px solid var(--border-color);padding-top:12px;">
-      <div class="step-section-label">What to send</div>
+      <div class="step-section-label">What to save</div>
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px;">
         <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.88rem;">
-          <input type="radio" name="step-delivery-source" value="processing_result" ${!isTranscript ? 'checked' : ''} style="margin-top:3px;" />
+          <input type="radio" name="step-save-what" value="processing_result" ${!isTranscript ? 'checked' : ''} style="margin-top:3px;" />
           <span>
             <strong>Result of the previous step</strong>
-            <span style="display:block;font-size:0.72rem;color:var(--text-secondary);opacity:0.85;">What the last processing step produced. Empty if there was none.</span>
+            <span style="display:block;font-size:0.72rem;color:var(--text-secondary);opacity:0.85;">What the last step produced. Empty if this is the first step.</span>
           </span>
         </label>
         <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.88rem;">
-          <input type="radio" name="step-delivery-source" value="transcript" ${isTranscript ? 'checked' : ''} style="margin-top:3px;" />
+          <input type="radio" name="step-save-what" value="transcript" ${isTranscript ? 'checked' : ''} style="margin-top:3px;" />
           <span>
             <strong>Raw recording transcript</strong>
             <span style="display:block;font-size:0.72rem;color:var(--text-secondary);opacity:0.85;">The full transcribed audio, no post-processing.</span>
@@ -251,10 +209,109 @@ function renderDeliveryBody(step) {
   `;
 }
 
+// Prompt (CLI) / script (Shell) textarea — freeform, with per-type copy.
+function renderTemplateField(typeKey, step, copy) {
+  const placeholdersLine = copy.showPlaceholders
+    ? `<br>Placeholders: <code>{transcript}</code> raw recording transcript · <code>{processing_result}</code> previous step's output (empty on step 1) · <code>{app}</code> friendly app name (Zoom / FaceTime / NBP).`
+    : '';
+  const monoStyle = copy.mono ? 'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.82rem;' : '';
+  return `
+    <div class="step-section" style="border-top:1px solid var(--border-color);padding-top:12px;">
+      <div class="step-section-label">${escapeHtml(copy.label)}</div>
+      <textarea class="step-template-textarea" rows="8" placeholder="${escapeHtml(copy.placeholder)}" style="${monoStyle}">${escapeHtml(step.template || '')}</textarea>
+      <div style="font-size:0.72rem;color:var(--text-secondary);opacity:0.85;margin-top:6px;line-height:1.5;">
+        ${escapeHtml(copy.hint)}${placeholdersLine}
+      </div>
+    </div>
+  `;
+}
+
+// --- Field helpers --------------------------------------------------------
+function fieldHint(hint) {
+  return hint ? `<span style="font-size:0.72rem;color:var(--text-secondary);opacity:0.8;">${escapeHtml(hint)}</span>` : '';
+}
+
+function textField(cls, label, value, hint, required = false) {
+  return `
+    <label style="display:flex;flex-direction:column;gap:4px;">
+      <span style="font-size:0.8rem;color:var(--text-secondary);">${escapeHtml(label)}${required ? ' *' : ''}</span>
+      <input class="${cls}" type="text" value="${escapeHtml(value == null ? '' : String(value))}" />
+      ${fieldHint(hint)}
+    </label>
+  `;
+}
+
+function numberField(cls, label, value, hint) {
+  return `
+    <label style="display:flex;flex-direction:column;gap:4px;">
+      <span style="font-size:0.8rem;color:var(--text-secondary);">${escapeHtml(label)}</span>
+      <input class="${cls}" type="number" value="${value == null ? '' : escapeHtml(String(value))}" />
+      ${fieldHint(hint)}
+    </label>
+  `;
+}
+
+function textareaField(cls, label, value, hint, rows = 3) {
+  return `
+    <label style="display:flex;flex-direction:column;gap:4px;">
+      <span style="font-size:0.8rem;color:var(--text-secondary);">${escapeHtml(label)}</span>
+      <textarea class="${cls}" rows="${rows}" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.8rem;">${escapeHtml(value || '')}</textarea>
+      ${fieldHint(hint)}
+    </label>
+  `;
+}
+
+// CLI picker built from `check_cli_availability`. Only installed CLIs are
+// pickable; missing ones list below with a copy-paste install command. A
+// previously-saved CLI that's no longer installed is preserved with a ⚠.
+function renderCliDetectField(currentValue) {
+  const installed = cliAvailabilityCache.filter(c => c.installed);
+  const missing = cliAvailabilityCache.filter(c => !c.installed);
+
+  const installedOpts = installed.map(c => {
+    const sel = currentValue === c.id ? ' selected' : '';
+    return `<option value="${escapeHtml(c.id)}"${sel}>${escapeHtml(c.name)} (${escapeHtml(c.id)})</option>`;
+  }).join('');
+
+  const stale = currentValue && !installed.some(c => c.id === currentValue);
+  const staleOpt = stale
+    ? `<option value="${escapeHtml(currentValue)}" selected>⚠ ${escapeHtml(currentValue)} — not installed</option>`
+    : '';
+
+  const placeholderOpt = !currentValue && installed.length > 0
+    ? '<option value="" disabled selected>— choose a CLI —</option>'
+    : '';
+
+  const noneInstalled = installed.length === 0 && !stale;
+  const selectHTML = noneInstalled
+    ? `<select class="step-cfg-cli" disabled style="opacity:0.6;"><option value="">No CLI agents installed</option></select>`
+    : `<select class="step-cfg-cli">${placeholderOpt}${staleOpt}${installedOpts}</select>`;
+
+  const missingHTML = missing.length === 0
+    ? ''
+    : `<div style="margin-top:6px;display:flex;flex-direction:column;gap:4px;">
+         ${missing.map(c => `
+           <div style="font-size:0.72rem;color:var(--text-secondary);opacity:0.75;display:flex;gap:6px;align-items:center;">
+             <span style="opacity:0.7;">Install ${escapeHtml(c.name)}:</span>
+             <code style="background:var(--bg-input);padding:1px 6px;border-radius:3px;font-size:0.7rem;">${escapeHtml(c.install_hint)}</code>
+           </div>
+         `).join('')}
+       </div>`;
+
+  return `
+    <label style="display:flex;flex-direction:column;gap:4px;">
+      <span style="font-size:0.8rem;color:var(--text-secondary);">CLI *</span>
+      ${selectHTML}
+      <span style="font-size:0.72rem;color:var(--text-secondary);opacity:0.8;">Only CLIs currently on your PATH show up. Install one to unlock it.</span>
+      ${missingHTML}
+    </label>
+  `;
+}
+
 function wireFormEvents(editorEl, step, index) {
   // Close — drop empty drafts so abandoning a fresh "+ Add Step" cleans up.
   editorEl.querySelector('.step-editor-close').addEventListener('click', () => {
-    if (!step.name && !step.connection_id) {
+    if (!step.name && !step.template) {
       pipelineState.pipelineEditorSteps.splice(index, 1);
     }
     pipelineState.setEditingStepIndex(null);
@@ -263,57 +320,34 @@ function wireFormEvents(editorEl, step, index) {
     maybeAutoName();
   });
 
-  // Type change — re-render the body for the new type (empty-state /
-  // processing / delivery picker).
+  // Type change — re-render the body for the new type, resetting config +
+  // template (old config belongs to a different type).
   const typeSelect = editorEl.querySelector('.step-type-select');
   typeSelect.addEventListener('change', () => {
     const newType = typeSelect.value;
     const host = editorEl.querySelector('.step-body-host');
     if (host) {
       host.dataset.currentType = newType;
-      // Reset connection_id when switching types — old id belongs to a
-      // different type and would render as "stale". User picks fresh.
-      const shadow = { ...step, connection_id: '', template: defaultTemplateFor(newType) };
+      const shadow = { ...step, config: {}, template: defaultTemplateFor(newType) };
       host.innerHTML = renderBody(newType, shadow);
-      wireEmptyStateLink(editorEl);
     }
   });
 
-  // Empty-state link wiring lives on the body host (re-rendered on type
-  // change), so re-attach after each re-render too.
-  wireEmptyStateLink(editorEl);
-
-  // Done — write the step + close.
+  // Done — collect config + template + name, write the step, close.
   editorEl.querySelector('.step-editor-done').addEventListener('click', () => {
-    const typeKey = editorEl.querySelector('.step-type-select')?.value || step.connection_type;
-    const connSelect = editorEl.querySelector('.step-connection-select');
-    const connId = connSelect?.value || '';
-    if (!connSelect) {
-      showToast(`No ${typeKey} Connection exists yet — create one in Settings before saving this step.`, 'error');
-      return;
-    }
-    if (!connId) {
-      showToast(`Pick a ${typeKey} Connection first.`, 'error');
-      return;
-    }
-
-    let template;
-    if (PROCESSING_TYPES.has(typeKey)) {
-      template = editorEl.querySelector('.step-template-textarea')?.value ?? '';
-    } else {
-      // Delivery: materialise the radio choice into the canonical template
-      // string. Engine's render path doesn't know the difference.
-      const choice = editorEl.querySelector('input[name="step-delivery-source"]:checked')?.value
-        || 'processing_result';
-      template = `{${choice}}`;
-    }
-
+    const typeKey = typeSelect.value || step.step_type;
+    // Save steps have no freeform textarea — the WHAT radio materialises into
+    // a canonical placeholder so the engine renders it like any other step.
+    const template = (typeKey === 'save_local')
+      ? `{${editorEl.querySelector('input[name="step-save-what"]:checked')?.value || 'processing_result'}}`
+      : (editorEl.querySelector('.step-template-textarea')?.value ?? '');
+    const config = collectConfig(editorEl, typeKey);
     const nameInput = (editorEl.querySelector('.step-name-input')?.value || '').trim();
 
-    step.connection_type = typeKey;
-    step.connection_id = connId;
+    step.step_type = typeKey;
+    step.config = config;
     step.template = template;
-    step.name = nameInput || defaultStepName(typeKey, connId, index);
+    step.name = nameInput || defaultStepName(typeKey, config, index);
 
     pipelineState.setEditingStepIndex(null);
     closeStepEditorPanel();
@@ -322,52 +356,68 @@ function wireFormEvents(editorEl, step, index) {
   });
 }
 
-// "Open Settings → Connections" link in the empty-state body. Closes the
-// pipeline editor (so the user lands on the Connections form they need to
-// fill, not on a pipeline editor with a half-broken step behind it), then
-// navigates to Settings → Connections.
-function wireEmptyStateLink(editorEl) {
-  const link = editorEl.querySelector('.step-create-connection-link');
-  if (!link) return;
-  link.addEventListener('click', (e) => {
-    e.preventDefault();
-    closeStepEditorPanel();
-    closePipelineEditor();
-    ViewManager.showSettings();
-    // Small defer so the settings DOM is in the active class state before
-    // we switch tabs — mirrors how settings-btn → switchSettingsTab works
-    // elsewhere in the app (the tab content needs a `style.display` flip
-    // that switchSettingsTab does inline).
-    requestAnimationFrame(() => switchSettingsTab('connections'));
-  });
+// Read the inline config fields out of the form for the given type. Only
+// non-empty values are persisted so the stored config stays lean.
+function collectConfig(editorEl, typeKey) {
+  const config = {};
+  const timeoutRaw = editorEl.querySelector('.step-cfg-timeout')?.value?.trim();
+  const timeout = timeoutRaw ? parseInt(timeoutRaw, 10) : NaN;
+
+  if (typeKey === 'cli_agent') {
+    const cli = editorEl.querySelector('.step-cfg-cli')?.value || '';
+    if (cli) config.cli = cli;
+    const model = editorEl.querySelector('.step-cfg-model')?.value?.trim();
+    if (model) config.model = model;
+    const workdir = editorEl.querySelector('.step-cfg-workdir')?.value?.trim();
+    if (workdir) config.working_directory = workdir;
+  } else if (typeKey === 'shell') {
+    const cwd = editorEl.querySelector('.step-cfg-cwd')?.value?.trim();
+    if (cwd) config.cwd = cwd;
+    const shell = editorEl.querySelector('.step-cfg-shell')?.value?.trim();
+    if (shell) config.shell = shell;
+    const envRaw = editorEl.querySelector('.step-cfg-env')?.value || '';
+    const env = {};
+    for (const line of envRaw.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq <= 0) continue;
+      const key = trimmed.slice(0, eq).trim();
+      const val = trimmed.slice(eq + 1).trim();
+      if (key) env[key] = val;
+    }
+    if (Object.keys(env).length > 0) config.env = env;
+  } else if (typeKey === 'save_local') {
+    const folder = editorEl.querySelector('.step-cfg-folder')?.value?.trim();
+    if (folder) config.folder_path = folder;
+    return config; // no timeout for save
+  }
+
+  if (!Number.isNaN(timeout) && timeout > 0) config.timeout_secs = timeout;
+  return config;
 }
 
-// Sensible default template when the user switches type — keeps the
-// previous content from looking weird (e.g. a CLI prompt suddenly shown
-// under "What to send" radio of delivery).
+// Sensible default template when the user adds a step or switches type.
 function defaultTemplateFor(typeKey) {
   if (typeKey === 'shell') {
-    // Shell uses env vars, not {placeholders}. Default = noop passthrough so
-    // the user has a working starting point that demonstrates the env vars.
     return '# Whatever bash you want. Available env vars:\n#   $NBP_TRANSCRIPT, $NBP_PROCESSING_RESULT, $NBP_APP\n# stdout becomes this step\'s output.\n\necho "$NBP_PROCESSING_RESULT"';
   }
-  if (PROCESSING_TYPES.has(typeKey)) {
-    // CLI agent: first-step heuristic — transcript on step 1, else result.
-    return pipelineState.pipelineEditorSteps.length <= 1
-      ? '{transcript}'
-      : '{processing_result}';
+  if (typeKey === 'save_local') {
+    // Save defaults to the previous step's output (the common "process then
+    // save" shape); the WHAT radio lets the user switch to the transcript.
+    return '{processing_result}';
   }
-  // Delivery picker materialises its own value; keep a safe fallback.
-  return '{processing_result}';
+  // CLI agent: first-step heuristic — transcript on step 1, else previous result.
+  return pipelineState.pipelineEditorSteps.length <= 1
+    ? '{transcript}'
+    : '{processing_result}';
 }
 
-// Generate a sensible default name when the user hasn't typed one. Uses the
-// Connection name so similar steps with different targets disambiguate
-// themselves in the chip bar.
-function defaultStepName(typeKey, connId, index) {
-  const conn = getLoadedConnections().find(c => c.id === connId);
-  const base = conn?.name || typeKey;
-  // Lowercase + hyphenate to fit the chip-name aesthetic.
+// Default step name from the type + its config when the user hasn't typed one.
+function defaultStepName(typeKey, config, index) {
+  const base = typeKey === 'cli_agent'
+    ? (config.cli || 'cli')
+    : (typeKey === 'save_local' ? 'save' : 'shell');
   return base
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')

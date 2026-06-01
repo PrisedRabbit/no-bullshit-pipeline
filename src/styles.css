@@ -3738,43 +3738,6 @@ body.is-recording-active .record-btn .stop-icon {
   opacity: 0.9;
 }
 
-/* ===== CONNECTIONS SUB-TABS ===== */
-/* ===== CONNECTIONS GROUPS ===== */
-.connections-group {
-  margin-bottom: 28px;
-}
-
-.connections-group-header {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 14px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border);
-}
-
-.connections-group-header svg {
-  color: var(--accent);
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-.connections-group-header .group-info {
-  flex: 1;
-}
-
-.connections-group-header .group-label {
-  font-weight: 600;
-  font-size: 0.95rem;
-}
-
-.connections-group-header .group-desc {
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-  opacity: 0.7;
-  margin-top: 2px;
-}
-
 /* ===== PROVIDER CARDS ===== */
 .provider-card {
   display: flex;
@@ -3921,10 +3884,6 @@ body.light .provider-card {
 
 body.light .provider-card:hover {
   border-color: #3b82f6;
-}
-
-body.light .connections-group-header {
-  border-bottom-color: #cbd5e1;
 }
 
 /* ===== PROVIDER MODELS LIST ===== */
@@ -4372,6 +4331,57 @@ body.light .provider-models-section {
 .recording-item-copy { background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 15px; border-radius: 8px; opacity: 0; transition: opacity 0.15s, background 0.15s, color 0.15s; position: absolute; right: 3.25rem; top: 50%; transform: translateY(-50%); display: flex; align-items: center; }
 .recording-item:hover .recording-item-copy { opacity: 0.5; }
 .recording-item-copy:hover { opacity: 1 !important; background: var(--accent-soft); color: var(--accent); }
+
+/* Run-pipeline button — slotted between copy and delete. Same hover-fade
+   pattern; uses accent color on hover to suggest "action" without competing
+   with delete's danger tone. */
+.recording-item-run-pipeline { background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 15px; border-radius: 8px; opacity: 0; transition: opacity 0.15s, background 0.15s, color 0.15s; position: absolute; right: 6rem; top: 50%; transform: translateY(-50%); display: flex; align-items: center; }
+.recording-item:hover .recording-item-run-pipeline { opacity: 0.5; }
+.recording-item-run-pipeline:hover { opacity: 1 !important; background: var(--accent-soft); color: var(--accent); }
+
+/* Dropdown opened by clicking the Run-pipeline button. Anchored via JS
+   (position: fixed below the button); we just style content + chrome. */
+.run-pipeline-dropdown {
+  background: var(--bg-card, var(--bg-input));
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  min-width: 240px;
+  max-width: 320px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 6px;
+}
+.run-pipeline-header {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  padding: 8px 10px 6px;
+}
+.run-pipeline-items {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.run-pipeline-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 0.88rem;
+}
+.run-pipeline-item:hover { background: var(--accent-soft); }
+.run-pipeline-item-name { font-weight: 500; }
+.run-pipeline-item-meta { font-size: 0.72rem; color: var(--text-secondary); opacity: 0.75; }
 
 /* ===== TOAST NOTIFICATIONS ===== */
 #toast-container {

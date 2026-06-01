@@ -34,9 +34,6 @@ import { renderPipelineFlowHTML } from './pipeline/flow-renderer.js';
 import { renderPipelineChips, startRecordingWithPipeline } from './pipeline/chips.js';
 import { allPipelineDefs } from './pipeline/state.js';
 
-// Connections (unified flat-list — replaces the legacy Models + Integrations tabs).
-import { initConnectionsTab } from './connections/index.js';
-
 // Health
 import { initHealthCheck, scheduleAudit } from './health/init.js';
 
@@ -209,7 +206,6 @@ async function bootstrapApp() {
   initTranscriptionSettings();
   initPermissions();
   // controls.js and detail.js wire their own event listeners on import
-  initConnectionsTab();
   initModelVersion();
 
   await init().catch(e => console.error('Init failed:', e));

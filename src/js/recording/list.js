@@ -202,6 +202,15 @@ function buildRowHtml(rec) {
     ? `<button class="recording-item-copy" data-id="${safeId}" title="Copy transcript"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>`
     : '';
 
+  // Run-pipeline button — only when there's a transcript to feed into one
+  // and at least one pipeline defined. Click opens a small dropdown listing
+  // every saved pipeline; pick one to launch it on this recording without
+  // navigating to the detail view.
+  const canRunPipeline = !!rec.transcript_preview && (allPipelineDefs || []).length > 0;
+  const runPipelineBtnHtml = canRunPipeline
+    ? `<button class="recording-item-run-pipeline" data-id="${safeId}" title="Run pipeline"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg></button>`
+    : '';
+
   return `<div class="recording-item ${isCurrentlyRecording ? 'recording-active' : ''}" data-id="${safeId}" onclick="showDetailView(this.dataset.id)">
         <div class="recording-item-header">
           <div class="recording-title">${healthIcon}${appIconHtml}${safeTitle}${isCurrentlyRecording ? ' <span style="color:var(--accent)">●</span>' : ''}</div>
@@ -212,6 +221,7 @@ function buildRowHtml(rec) {
         ${previewHtml}
         ${pipelineTags ? `<div class="recording-pipeline-tags">${pipelineTags}</div>` : ''}
         ${copyBtnHtml}
+        ${runPipelineBtnHtml}
         ${deleteBtnHtml}
       </div>`;
 }
@@ -242,6 +252,156 @@ function wireRowCopy(rowEl) {
       showToast('Copy failed', 'error');
     }
   });
+}
+
+// Fetch per-step outputs after a pipeline finishes and surface a meaningful
+// summary toast. The Tauri command returns "done" / "partial" / other; we
+// translate that into a coloured toast and append the last step's first
+// content line as a headline (e.g. a summary's first sentence, or a shell
+// step's first stdout line).
+async function reportPipelineOutcome(recordingId, pipelineName, result) {
+  let steps = [];
+  try {
+    steps = await invoke('get_step_outputs', { recordingId, pipelineName }) || [];
+  } catch (e) {
+    // Non-fatal — we still report the high-level result below.
+    console.warn('get_step_outputs failed:', e);
+  }
+
+  const lastWithOutput = [...steps].reverse().find(s => s.output || s.error);
+  const headline = lastWithOutput
+    ? firstNonEmptyLine(lastWithOutput.error || lastWithOutput.output)
+    : '';
+  const failedStep = steps.find(s => s.status === 'failed' || s.status === 'error');
+
+  if (result === 'done') {
+    const msg = headline
+      ? `✓ "${pipelineName}" done — ${truncate(headline, 90)}`
+      : `✓ "${pipelineName}" completed`;
+    showToast(msg, 'success', 6000);
+  } else if (result === 'partial') {
+    const msg = failedStep
+      ? `⚠ "${pipelineName}" partial — step "${failedStep.name}" failed${failedStep.error ? ': ' + truncate(failedStep.error, 80) : ''}`
+      : `⚠ "${pipelineName}" partially completed — open recording for details`;
+    showToast(msg, 'warning', 8000);
+  } else {
+    // Engine returned some other status (in_progress? not_started?). Surface
+    // verbatim — should be rare.
+    showToast(`"${pipelineName}": ${result}`, 'info', 6000);
+  }
+}
+
+function firstNonEmptyLine(text) {
+  if (!text) return '';
+  for (const raw of String(text).split('\n')) {
+    const line = raw.trim();
+    if (line) return line;
+  }
+  return '';
+}
+
+function truncate(s, max) {
+  if (!s) return '';
+  return s.length > max ? s.slice(0, max - 1) + '…' : s;
+}
+
+function wireRowRunPipeline(rowEl) {
+  const btn = rowEl.querySelector('.recording-item-run-pipeline');
+  if (!btn) return;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation(); // don't open the detail view
+    openRunPipelineDropdown(btn);
+  });
+}
+
+// Single global dropdown anchored to the clicked button. Click outside or
+// pressing Esc closes it. Re-clicking the same button toggles.
+function openRunPipelineDropdown(anchorBtn) {
+  // Close any existing dropdown first — clicking another button replaces.
+  const existing = document.querySelector('.run-pipeline-dropdown');
+  if (existing) {
+    const wasFor = existing.dataset.anchorId;
+    existing.remove();
+    if (wasFor === anchorBtn.dataset.id) return; // toggle off
+  }
+
+  const recordingId = anchorBtn.dataset.id;
+  const pipelines = allPipelineDefs || [];
+  if (pipelines.length === 0) {
+    showToast('No pipelines defined — create one in Settings → Pipelines', 'info');
+    return;
+  }
+
+  const items = pipelines.map(p => {
+    const stepCount = (p.steps || []).length;
+    const stepsLabel = stepCount === 1 ? '1 step' : `${stepCount} steps`;
+    return `<button class="run-pipeline-item" data-name="${escapeHtml(p.name)}" role="menuitem">
+      <span class="run-pipeline-item-name">${escapeHtml(p.name)}</span>
+      <span class="run-pipeline-item-meta">${stepsLabel}</span>
+    </button>`;
+  }).join('');
+
+  const dropdown = document.createElement('div');
+  dropdown.className = 'run-pipeline-dropdown';
+  dropdown.dataset.anchorId = recordingId;
+  dropdown.setAttribute('role', 'menu');
+  dropdown.innerHTML = `
+    <div class="run-pipeline-header">Run Pipeline</div>
+    <div class="run-pipeline-items">${items}</div>
+  `;
+
+  // Position right below the button. Append to body so it can escape the
+  // recording-item's overflow/relative bounds.
+  document.body.appendChild(dropdown);
+  const rect = anchorBtn.getBoundingClientRect();
+  dropdown.style.position = 'fixed';
+  dropdown.style.top = `${rect.bottom + 4}px`;
+  // Right-align to button so the menu opens leftward into the visible area
+  // (the button is near the right edge of the row).
+  dropdown.style.right = `${window.innerWidth - rect.right}px`;
+  dropdown.style.zIndex = '10000';
+
+  // Wire item clicks.
+  dropdown.querySelectorAll('.run-pipeline-item').forEach(item => {
+    item.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const pipelineName = item.dataset.name;
+      dropdown.remove();
+      // Long timeout on the "running" toast so it sticks around for the whole
+      // run (auto-dismiss would lie about the state). The result toast fires
+      // right after the await resolves and replaces the user's mental model.
+      showToast(`Running "${pipelineName}"…`, 'info', 60_000);
+      try {
+        const result = await invoke('execute_pipeline', { recordingId, pipelineName });
+        await loadRecordings();
+        await reportPipelineOutcome(recordingId, pipelineName, result);
+      } catch (err) {
+        console.error('execute_pipeline failed:', err);
+        showToast(`✗ "${pipelineName}" failed: ${err}`, 'error', 8000);
+      }
+    });
+  });
+
+  // Close on outside click / Esc — defer to next tick so the click that
+  // opened us doesn't immediately close us.
+  setTimeout(() => {
+    const closeOnOutside = (e) => {
+      if (!dropdown.contains(e.target) && e.target !== anchorBtn) {
+        dropdown.remove();
+        document.removeEventListener('click', closeOnOutside);
+        document.removeEventListener('keydown', closeOnEsc);
+      }
+    };
+    const closeOnEsc = (e) => {
+      if (e.key === 'Escape') {
+        dropdown.remove();
+        document.removeEventListener('click', closeOnOutside);
+        document.removeEventListener('keydown', closeOnEsc);
+      }
+    };
+    document.addEventListener('click', closeOnOutside);
+    document.addEventListener('keydown', closeOnEsc);
+  }, 0);
 }
 
 function wireRowDelete(rowEl) {
@@ -317,7 +477,7 @@ export function renderRecordingsList() {
       if (info.signature !== node.html) {
         const newEl = htmlToElement(node.html);
         info.element.replaceWith(newEl);
-        if (node.isRow) { wireRowDelete(newEl); wireRowCopy(newEl); }
+        if (node.isRow) { wireRowDelete(newEl); wireRowCopy(newEl); wireRowRunPipeline(newEl); }
         info.element = newEl;
         info.signature = node.html;
       }
@@ -325,7 +485,7 @@ export function renderRecordingsList() {
       const newEl = htmlToElement(node.html);
       info = { element: newEl, signature: node.html };
       renderedNodes.set(node.key, info);
-      if (node.isRow) { wireRowDelete(newEl); wireRowCopy(newEl); }
+      if (node.isRow) { wireRowDelete(newEl); wireRowCopy(newEl); wireRowRunPipeline(newEl); }
     }
 
     const expectedAtPos = prevNode ? prevNode.nextSibling : recordingsListEl.firstChild;

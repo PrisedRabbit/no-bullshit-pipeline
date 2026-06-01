@@ -277,33 +277,10 @@ pub fn delete_prompt_template(name: String, force: Option<bool>) -> Result<(), S
         return Err(format!("Template '{}' not found", name));
     }
 
-    // Check if any Connection references this template. In the new model
-    // (`docs/connections-model.md`) a step picks a Connection by id; the
-    // Connection's config can hold a `prompt_template` name (e.g. for a CLI
-    // agent's default system prompt). Pipelines themselves no longer carry
-    // template names — they live on the Connections.
-    if !force.unwrap_or(false) {
-        let settings = crate::config::load_settings();
-        let referencing: Vec<String> = settings
-            .connections
-            .iter()
-            .filter(|c| {
-                c.config
-                    .get("prompt_template")
-                    .and_then(|v| v.as_str())
-                    == Some(name.as_str())
-            })
-            .map(|c| c.name.clone())
-            .collect();
-
-        if !referencing.is_empty() {
-            return Err(format!(
-                "Template '{}' is used by Connections: {}. Use force=true to delete anyway.",
-                name,
-                referencing.join(", ")
-            ));
-        }
-    }
+    // Nothing references named templates anymore — pipeline steps carry their
+    // prompt inline in `step.template`. `force` is retained for command
+    // signature compatibility; deletion is unconditional.
+    let _ = force;
 
     templates.remove(&name);
     save_prompt_templates_to_disk(&templates)?;
@@ -318,8 +295,9 @@ mod tests {
     #[test]
     fn test_builtin_templates_exist() {
         let templates = get_builtin_templates();
-        assert_eq!(templates.len(), 1);
+        assert_eq!(templates.len(), 2);
         assert!(templates.contains_key("summary"));
+        assert!(templates.contains_key("action-plan"));
     }
 
     #[test]
