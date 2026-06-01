@@ -606,10 +606,18 @@
                   <div class="editor-field">
                     <label>Hotkey</label>
                     <div class="hotkey-input-wrap">
-                      <input id="dict-editor-hotkey" type="text" class="settings-input-text hotkey-input" readonly placeholder="Click and press keys…" />
+                      <input id="dict-editor-hotkey" type="text" class="settings-input-text hotkey-input" readonly placeholder="Click, then press your combo or 🌐 Fn…" />
                       <button id="dict-editor-hotkey-clear" type="button" class="mini-action-btn hotkey-clear">Clear</button>
                     </div>
-                    <p class="editor-hint">Click the field and press your combo. Esc to cancel.</p>
+                    <p class="editor-hint">Click the field and press your combo (or the 🌐 / Fn key). Esc to cancel.</p>
+                  </div>
+                  <p class="editor-hint">Press the 🌐 / Fn (Globe) key in the field above to bind it (Fn alone, or Fn + a key). Needs Accessibility permission, and System Settings → Keyboard → “Press 🌐 key to” → <strong>Do Nothing</strong>.</p>
+                  <div class="editor-field editor-field-inline">
+                    <span class="editor-inline-label">Push-to-talk (hold to record)<span class="editor-hint" style="display:block;font-weight:normal;opacity:0.65;">On: hold the key to record, release to stop. Off: press once to start, press again to stop.</span></span>
+                    <label class="toggle-switch">
+                      <input type="checkbox" id="dict-editor-push-to-talk" />
+                      <span class="slider round"></span>
+                    </label>
                   </div>
                   <div class="editor-field">
                     <label>Input</label>

@@ -415,7 +415,13 @@ fn compute_sha256(path: &PathBuf) -> Result<String, String> {
         if n == 0 { break; }
         hasher.update(&buf[..n]);
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    use std::fmt::Write as _;
+    let digest = hasher.finalize();
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for b in digest.iter() {
+        let _ = write!(hex, "{:02x}", b);
+    }
+    Ok(hex)
 }
 
 /// Compute SHA-256 and write to sidecar file.

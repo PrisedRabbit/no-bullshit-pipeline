@@ -1,4 +1,4 @@
-use rodio::{Decoder, Sink};
+use rodio::{Decoder, Player};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::BufReader;
@@ -99,10 +99,10 @@ pub fn play_audio(recording_id: String) -> Result<(), String> {
 
 fn run_playback(audio_path: std::path::PathBuf) -> Result<(), String> {
     // Create output stream (must be on this thread)
-    let stream_handle = rodio::OutputStreamBuilder::open_default_stream()
+    let stream_handle = rodio::DeviceSinkBuilder::open_default_sink()
         .map_err(|e| format!("Audio output error: {}", e))?;
 
-    let sink = Sink::connect_new(&stream_handle.mixer());
+    let sink = Player::connect_new(stream_handle.mixer());
 
     // Open with larger buffer for smooth playback
     let file = File::open(&audio_path)

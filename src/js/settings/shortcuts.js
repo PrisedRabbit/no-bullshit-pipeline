@@ -1,7 +1,7 @@
 // Quick Dictate shortcuts editor — Settings → Shortcuts tab.
 // Manages a list of { id, name, hotkey, engine, pipeline, auto_paste }.
 
-import { invoke } from '../core/tauri.js';
+import { invoke, listen } from '../core/tauri.js';
 import * as state from '../core/state.js';
 import { showToast } from '../ui/toast.js';
 import { on } from '../core/events.js';
@@ -18,6 +18,7 @@ const saveBtn = () => document.getElementById('save-dictation-shortcut-btn');
 const deleteBtn = () => document.getElementById('delete-dictation-shortcut-btn');
 const nameInput = () => document.getElementById('dict-editor-name');
 const hotkeyInput = () => document.getElementById('dict-editor-hotkey');
+const pushToTalkCb = () => document.getElementById('dict-editor-push-to-talk');
 const inputSourceSel = () => document.getElementById('dict-editor-input-source');
 const deviceSel = () => document.getElementById('dict-editor-device');
 const deviceField = () => document.getElementById('dict-editor-device-field');
@@ -63,6 +64,7 @@ function emptyDraft() {
     pipeline: null,
     auto_paste: true,
     capture_system_audio: false,
+    trigger_mode: 'Toggle',
   };
 }
 
@@ -259,6 +261,7 @@ async function openEditor(id) {
   titleEl().textContent = draft ? 'Edit Shortcut' : 'New Shortcut';
   nameInput().value = data.name || '';
   hotkeyInput().value = data.hotkey || '';
+  if (pushToTalkCb()) pushToTalkCb().checked = data.trigger_mode === 'PushToTalk';
   inputSourceSel().value = data.input_source || 'Audio';
   autoPasteCb().checked = data.auto_paste !== false;
   systemAudioCb().checked = !!data.capture_system_audio;
@@ -330,6 +333,7 @@ async function handleSave() {
     pipeline: pipelineVal === '' ? null : pipelineVal,
     auto_paste: !!autoPasteCb().checked,
     capture_system_audio: !!systemAudioCb().checked,
+    trigger_mode: (pushToTalkCb() && pushToTalkCb().checked) ? 'PushToTalk' : 'Toggle',
   };
 
   if (editingId) {
@@ -483,6 +487,9 @@ function captureHotkey(e) {
   e.preventDefault();
   e.stopPropagation();
 
+  // The Fn (🌐) key is invisible to the WebView, so it's captured natively by
+  // the backend CGEventTap (see the focus/blur handlers below) and pushed back
+  // via the 'fn_hotkey_captured' event. Regular combos are captured here.
   const main = codeToHotkeyPart(e.code);
   if (!main) return; // modifier-only press → keep waiting
 
@@ -500,8 +507,17 @@ function initHotkeyCapture() {
   const input = hotkeyInput();
   if (!input) return;
   input.addEventListener('keydown', captureHotkey);
-  input.addEventListener('focus', () => input.classList.add('recording'));
-  input.addEventListener('blur', () => input.classList.remove('recording'));
+  // While the field is focused, arm the backend Fn-key tap so pressing 🌐 / Fn
+  // (which the WebView never sees) gets captured and pushed back as the hotkey.
+  // The pulsing field border (.recording) is the visual "waiting" cue.
+  input.addEventListener('focus', () => {
+    input.classList.add('recording');
+    invoke('dictation_fn_capture_start').catch(() => {});
+  });
+  input.addEventListener('blur', () => {
+    input.classList.remove('recording');
+    invoke('dictation_fn_capture_stop').catch(() => {});
+  });
 }
 
 function initHotkeyClear() {
@@ -546,6 +562,14 @@ export function initShortcutsTab() {
 
   initHotkeyCapture();
   initHotkeyClear();
+
+  // Backend pushes the Fn (🌐) accelerator here when the hotkey field is armed.
+  listen('fn_hotkey_captured', (ev) => {
+    const ed = editor();
+    if (!ed || ed.style.display === 'none') return; // only while editing
+    const val = typeof ev.payload === 'string' ? ev.payload : '';
+    if (val) hotkeyInput().value = val;
+  });
 
   // Editor field changes are local until Save — block the container-wide
   // auto-save so in-progress edits don't persist a half-baked shortcut.

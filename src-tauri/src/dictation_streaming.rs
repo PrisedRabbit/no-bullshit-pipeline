@@ -14,7 +14,6 @@ use serde::Deserialize;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
-use rubato::Resampler;
 
 const TARGET_RATE: u32 = 16_000;
 
@@ -234,8 +233,8 @@ impl StreamingSession {
 
 fn build_resampler(
     source_rate: u32,
-) -> Result<(usize, rubato::FftFixedInOut<f32>), String> {
-    use rubato::{FftFixedInOut, Resampler};
+) -> Result<(usize, crate::resampler_compat::FftFixedInOut<f32>), String> {
+    use crate::resampler_compat::FftFixedInOut;
     let resampler = FftFixedInOut::<f32>::new(
         source_rate as usize,
         TARGET_RATE as usize,

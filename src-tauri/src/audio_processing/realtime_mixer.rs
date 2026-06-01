@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
+use crate::resampler_compat::{SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 use std::collections::VecDeque;
 use std::fs::File;
 use std::num::{NonZeroU32, NonZeroU8};
@@ -169,7 +169,8 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
         transcription_params,
         transcription_chunk_size,
         1, // mono
-    )?;
+    )
+    .map_err(|e| anyhow::anyhow!(e))?;
     let mut transcription_accum: Vec<f32> = Vec::with_capacity(transcription_chunk_size * 2);
 
     // Continuous timeline tracking (like mic/system recorders)

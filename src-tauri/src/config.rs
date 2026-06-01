@@ -210,6 +210,16 @@ pub enum DictationInputSource {
     Clipboard,
 }
 
+/// How a shortcut press maps to start/stop:
+/// - `Toggle` — press starts, press again stops (classic; default)
+/// - `PushToTalk` — hold to record, release to stop & process
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+pub enum DictationTriggerMode {
+    #[default]
+    Toggle,
+    PushToTalk,
+}
+
 /// One Quick Dictate shortcut configuration.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct DictationShortcut {
@@ -246,6 +256,10 @@ pub struct DictationShortcut {
     /// Useful for transcribing both sides of a call or dictating over playback.
     #[serde(default)]
     pub capture_system_audio: bool,
+    /// How the hotkey press behaves. Toggle (default) or push-to-talk (hold).
+    /// Push-to-talk is the natural fit for the Fn (🌐) key as a momentary modifier.
+    #[serde(default)]
+    pub trigger_mode: DictationTriggerMode,
 }
 
 fn default_dictation_engine() -> TranscriptionProvider {

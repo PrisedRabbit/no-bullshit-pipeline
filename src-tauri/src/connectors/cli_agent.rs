@@ -68,7 +68,9 @@ fn build_cli_command(cli: &str, full_prompt: &str, model: Option<&str>) -> Async
         }
         "codex" => {
             let mut c = AsyncCommand::new("codex");
-            c.arg("exec").arg(full_prompt);
+            // --skip-git-repo-check: codex exec otherwise refuses to run
+            // outside a git repo (the recording folder isn't one).
+            c.arg("exec").arg("--skip-git-repo-check").arg(full_prompt);
             if let Some(m) = model {
                 c.arg("-m").arg(m);
             }
