@@ -37,6 +37,19 @@ import { allPipelineDefs } from './pipeline/state.js';
 // Health
 import { initHealthCheck, scheduleAudit } from './health/init.js';
 
+// The window itself must never scroll — only the inner `.detail-scroller`
+// does. A stray scrollIntoView()/focus() (step editor, shortcut editor, tab
+// switch) can still nudge the page, dragging the fixed-offset settings content
+// — including the sticky "Back / Settings" header — up behind the fixed
+// app-bar. styles.css caps body to 100vh to prevent this, but transient
+// overflow (animations, sub-pixel on fractional-scaled displays) can reopen a
+// gap. Snap any page-level scroll straight back to 0 so the header can never
+// end up hidden; the inner scroller (which doesn't fire window 'scroll') is
+// untouched, so editors still scroll into view.
+window.addEventListener('scroll', () => {
+  if (window.scrollY !== 0 || window.scrollX !== 0) window.scrollTo(0, 0);
+}, { passive: true });
+
 // Expose globals needed by other modules and onclick handlers
 window.showDetailView = showDetailView;
 window.escapeHtml = escapeHtml;
