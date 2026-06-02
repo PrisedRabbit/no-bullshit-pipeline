@@ -99,6 +99,7 @@ function scheduleHide(delayMs) {
 function startLevelPolling() {
   stopLevelPolling();
   stopWaveAnimation();
+  showMeter();
   meter.classList.remove('flat');
   // Re-enable the height transition that resetBars() turned off.
   bars.forEach((bar) => { bar.style.transition = ''; });
@@ -166,6 +167,7 @@ function resetBars() {
 function startWaveAnimation() {
   stopWaveAnimation();
   stopLevelPolling();
+  showMeter();
   meter.classList.remove('flat');
   // Re-enable the height transition that resetBars() turned off.
   bars.forEach((bar) => { bar.style.transition = ''; });
@@ -213,6 +215,15 @@ function stopAllMeters() {
   stopWaveAnimation();
   resetBars();
   meter.classList.add('flat');
+  // Bulletproof: physically remove the meter from the render tree. Whatever may
+  // have stuck in an inline height/opacity or a half-finished transition simply
+  // cannot paint a pixel while display:none. Every state that needs the meter
+  // explicitly sets display:'' via showMeter() when it starts an animation.
+  meter.style.display = 'none';
+}
+
+function showMeter() {
+  meter.style.display = '';
 }
 
 function setActionButton(label, onClick) {
@@ -282,7 +293,6 @@ async function onStatus(payload) {
       showHud();
       setDot('recording');
       statusEl.textContent = 'Listening…';
-      meter.style.display = '';
       startLevelPolling();
       setActionButton(null);
       if (partialEl) { partialEl.textContent = ''; partialEl.classList.remove('visible'); }
@@ -307,7 +317,6 @@ async function onStatus(payload) {
       showHud();
       setDot('processing');
       statusEl.textContent = 'Reading clipboard…';
-      meter.style.display = '';
       startWaveAnimation();
       hint.textContent = '';
       setActionButton(null);
@@ -316,7 +325,6 @@ async function onStatus(payload) {
       showHud();
       setDot('processing');
       statusEl.textContent = 'Transcribing…';
-      meter.style.display = '';
       startWaveAnimation();
       hint.textContent = 'one sec';
       setActionButton(null);
@@ -325,7 +333,6 @@ async function onStatus(payload) {
       showHud();
       setDot('processing');
       statusEl.textContent = 'Processing pipeline…';
-      meter.style.display = '';
       startWaveAnimation();
       hint.textContent = 'running LLM steps';
       setActionButton(null);
@@ -334,7 +341,6 @@ async function onStatus(payload) {
       showHud();
       setDot('processing');
       statusEl.textContent = 'Pasting…';
-      meter.style.display = '';
       startWaveAnimation();
       hint.textContent = '';
       setActionButton(null);
@@ -344,7 +350,6 @@ async function onStatus(payload) {
       stopAllMeters();
       setDot('error');
       statusEl.textContent = 'Accessibility needed';
-      meter.style.display = 'none';
       hint.textContent = 'Text copied — ⌘V to paste manually';
       setActionButton('Open Settings', async () => {
         try {
@@ -360,7 +365,6 @@ async function onStatus(payload) {
       stopAllMeters();
       setDot('error');
       statusEl.textContent = 'Pipeline failed';
-      meter.style.display = 'none';
       hint.textContent = message || 'Pasted raw transcript';
       setActionButton(null);
       scheduleHide(4000);
@@ -370,7 +374,6 @@ async function onStatus(payload) {
       stopAllMeters();
       setDot('error');
       statusEl.textContent = message || 'Error';
-      meter.style.display = 'none';
       hint.textContent = '';
       setActionButton(null);
       scheduleHide(4000);
