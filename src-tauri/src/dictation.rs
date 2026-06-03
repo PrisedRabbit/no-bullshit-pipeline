@@ -909,6 +909,7 @@ async fn run_text_pipeline(text: &str, pipeline_name: &str) -> Result<String, St
     // name is just "Dictation". Everything else runs through the *same*
     // `run_one_step` the recording engine uses — no duplicate dispatch.
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let date = chrono::Local::now().format("%Y-%m-%d").to_string();
     let tmp_dir = std::env::temp_dir().join("nbp-dictation-pipeline");
     let _ = std::fs::create_dir_all(&tmp_dir);
     let ctx = crate::pipeline_engine::StepContext {
@@ -916,6 +917,10 @@ async fn run_text_pipeline(text: &str, pipeline_name: &str) -> Result<String, St
         app: "Dictation",
         started_at: &now,
         output_dir: &tmp_dir,
+        // Dictation has no calendar match; only {date} is meaningful.
+        calendar_title: "",
+        calendar_attendees: "",
+        date: &date,
     };
 
     let mut chained = String::new(); // {processing_result} for the next step (engine semantics)

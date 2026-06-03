@@ -54,6 +54,63 @@ export function hideDetailView() {
   cleanupPipelineProgress();
 }
 
+// Calendar match row under the title: matched event → attendee chips +
+// re-match / clear; unmatched (with calendar access) → a one-tap match button.
+function renderCalendarRow(rec) {
+  const row = document.getElementById('detail-calendar-row');
+  if (!row) return;
+
+  const attendees = Array.isArray(rec.attendees) ? rec.attendees : [];
+  // A matched recording always shows the matched header — even with no
+  // attendees / id (room-only events). Empty attendees render no chips below.
+  const matched = !!rec.calendar_matched;
+  const calGranted = !!state.permissions?.calendar;
+
+  if (matched) {
+    const chips = attendees.map((a) => {
+      const label = a.name || a.email || 'Unknown';
+      const tip = a.name && a.email ? a.email : '';
+      return `<span class="attendee-chip" title="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
+    }).join('');
+    const n = attendees.length;
+    row.innerHTML = `
+      <div class="cal-row-head">
+        <span class="cal-badge">📅 Calendar</span>
+        ${n ? `<span class="cal-count">${n} attendee${n === 1 ? '' : 's'}</span>` : ''}
+        <button class="cal-mini-btn js-cal-rematch" type="button">Re-match</button>
+        <button class="cal-mini-btn danger js-cal-clear" type="button">Clear</button>
+      </div>
+      ${chips ? `<div class="attendee-chips">${chips}</div>` : ''}
+    `;
+    row.style.display = '';
+  } else if (calGranted && rec.source !== 'dictation') {
+    row.innerHTML = `<button class="cal-mini-btn js-cal-rematch" type="button">📅 Match to calendar event</button>`;
+    row.style.display = '';
+  } else {
+    row.innerHTML = '';
+    row.style.display = 'none';
+    return;
+  }
+
+  const rematchBtn = row.querySelector('.js-cal-rematch');
+  if (rematchBtn) rematchBtn.addEventListener('click', () => calendarAction('rematch_calendar', rec.id, rematchBtn));
+  const clearBtn = row.querySelector('.js-cal-clear');
+  if (clearBtn) clearBtn.addEventListener('click', () => calendarAction('clear_calendar_match', rec.id, clearBtn));
+}
+
+async function calendarAction(cmd, id, btn) {
+  const prev = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    await invoke(cmd, { recordingId: id });
+    await loadRecordings();
+    if (state.selectedRecordingId === id) showDetailView(id);
+  } catch (err) {
+    if (btn) { btn.disabled = false; btn.textContent = prev; }
+    showToast(typeof err === 'string' ? err : 'Calendar action failed', 'warning');
+  }
+}
+
 export async function showDetailView(id) {
   const rec = state.allRecordings.find(r => r.id === id);
   if (!rec) return;
@@ -73,6 +130,8 @@ export async function showDetailView(id) {
   const saveTranscriptBtn = document.getElementById('save-transcript-btn');
 
   if (detailTitleInput) detailTitleInput.value = rec.title || '';
+
+  renderCalendarRow(rec);
 
   const isProcessing = rec.status === 'processing';
 

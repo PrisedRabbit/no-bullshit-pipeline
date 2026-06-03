@@ -120,6 +120,8 @@
                 placeholder="Untitled Recording"
               />
 
+              <div id="detail-calendar-row" class="detail-calendar-row" style="display: none;"></div>
+
               <div id="live-transcript-panel" class="live-transcript-panel" style="display: none;">
                 <div class="live-transcript-header">
                   <span class="live-dot"></span>
@@ -299,6 +301,21 @@
                       />
                       <span class="slider round"></span>
                     </label>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Calendar -->
+              <div class="settings-section">
+                <h3>Calendar</h3>
+                <div class="settings-item" id="perm-cal-item">
+                  <div class="settings-info">
+                    <label>Match meetings to calendar</label>
+                    <p>When a recording ends, NBP finds the calendar event at that time and sets the title + attendees. Read-only, on-device — no sign-in here. Add a calendar account in System Settings → Internet Accounts, then grant access.</p>
+                  </div>
+                  <div class="settings-input-group" style="justify-content: flex-end; gap: 8px;">
+                    <span id="perm-cal-status" class="perm-status denied">Not Granted</span>
+                    <button id="request-cal-btn" class="mini-action-btn">Grant</button>
                   </div>
                 </div>
               </div>

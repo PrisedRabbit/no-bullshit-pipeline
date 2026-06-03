@@ -154,6 +154,9 @@ fn test_recording_metadata_serialization() {
         app_bundle_id: None,
         app_friendly_name: None,
         source: "manual".to_string(),
+        attendees: vec![],
+        calendar_event_id: None,
+        calendar_matched: false,
     };
 
     // Serialize to JSON

@@ -14,6 +14,9 @@
 //   NBP_TRANSCRIPT         — full recording transcript
 //   NBP_APP                — friendly app name (Zoom / FaceTime / NBP / …)
 //   NBP_PROCESSING_RESULT  — previous Processing step's output (empty on step 1)
+//   NBP_CALENDAR_TITLE     — matched calendar event title (empty if unmatched)
+//   NBP_CALENDAR_ATTENDEES — matched event attendees, comma-separated
+//   NBP_DATE               — recording date, local YYYY-MM-DD
 //
 // Env-var passing — not `{transcript}` placeholder substitution into the
 // script string — keeps the user safe from shell injection (transcript text
@@ -42,6 +45,9 @@ const DEFAULT_SHELL: &str = "/bin/bash";
 pub const ENV_VAR_TRANSCRIPT: &str = "NBP_TRANSCRIPT";
 pub const ENV_VAR_APP: &str = "NBP_APP";
 pub const ENV_VAR_PROCESSING_RESULT: &str = "NBP_PROCESSING_RESULT";
+pub const ENV_VAR_CALENDAR_TITLE: &str = "NBP_CALENDAR_TITLE";
+pub const ENV_VAR_CALENDAR_ATTENDEES: &str = "NBP_CALENDAR_ATTENDEES";
+pub const ENV_VAR_DATE: &str = "NBP_DATE";
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ShellConnectorConfig {
@@ -179,6 +185,9 @@ pub async fn execute(
     transcript: &str,
     app: &str,
     processing_result: &str,
+    calendar_title: &str,
+    calendar_attendees: &str,
+    date: &str,
     config: &serde_json::Value,
     output_dir: &Path,
     step_name: &str,
@@ -195,6 +204,12 @@ pub async fn execute(
         ENV_VAR_PROCESSING_RESULT.to_string(),
         processing_result.to_string(),
     );
+    env_extras.insert(ENV_VAR_CALENDAR_TITLE.to_string(), calendar_title.to_string());
+    env_extras.insert(
+        ENV_VAR_CALENDAR_ATTENDEES.to_string(),
+        calendar_attendees.to_string(),
+    );
+    env_extras.insert(ENV_VAR_DATE.to_string(), date.to_string());
 
     let created_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let outcome = run_shell(&cfg, script, &env_extras).await;
@@ -400,6 +415,9 @@ mod tests {
             "transcript",
             "App",
             "prev",
+            "",
+            "",
+            "",
             &cfg,
             tmp.path(),
             "shell-step",

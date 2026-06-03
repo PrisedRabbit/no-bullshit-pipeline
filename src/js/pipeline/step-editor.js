@@ -39,9 +39,16 @@ const BODY_COPY = {
   shell: {
     label: 'Shell script',
     placeholder: 'echo "$NBP_TRANSCRIPT" | jq -R .   # any bash you like — multi-line ok',
-    hint: 'Runs in the working dir set above (default shell: /bin/bash). Stdout becomes this step\'s output, stderr goes to the run log only. Env vars: $NBP_TRANSCRIPT (full transcript), $NBP_PROCESSING_RESULT (previous step output, empty on step 1), $NBP_APP (Zoom / FaceTime / NBP / …). Read them with $VAR — placeholder substitution is NOT applied to shell scripts.',
+    hint: 'Runs in the working dir set above (default shell: /bin/bash). Stdout becomes this step\'s output, stderr goes to the run log only. Env vars: $NBP_TRANSCRIPT (full transcript), $NBP_PROCESSING_RESULT (previous step output, empty on step 1), $NBP_APP (Zoom / FaceTime / NBP / …), $NBP_CALENDAR_TITLE, $NBP_CALENDAR_ATTENDEES, $NBP_DATE. Read them with $VAR — placeholder substitution is NOT applied to shell scripts.',
     showPlaceholders: false,
     mono: true,
+  },
+  save_local: {
+    label: 'Content to save',
+    placeholder: '{transcript}',
+    hint: 'Written to a file in the folder above. Defaults to the raw transcript — compose your own note with the variables below.',
+    showPlaceholders: true,
+    mono: false,
   },
 };
 
@@ -212,13 +219,13 @@ function renderShellBody(step) {
 
 // --- Save-to-folder body --------------------------------------------------
 // Compact: the auto file-name shown as text above the folder, then Folder
-// (one line + Browse) and What-to-save (one-line dropdown). No Name input —
-// the output file is auto-named from the recording, so a user name would
-// mislead. WHAT is materialised into step.template (`{processing_result}` /
-// `{transcript}`) on Done, so the engine's render path stays identical.
+// (one line + Browse) and a single free-form Content template (no toggles) —
+// defaults to `{transcript}`, the user tunes it with the same placeholders as a
+// CLI prompt. The engine renders step.template like any other step, so the
+// content is whatever the user composed. No Name input — the file is
+// auto-named from the recording.
 function renderSaveBody(step) {
   const cfg = step.config || {};
-  const isTranscript = (step.template || '').trim() === '{transcript}';
   const rowLabel = 'font-size:0.85rem;color:var(--text-secondary);min-width:52px;';
   return `
     <div class="step-section" style="border-top:1px solid var(--border-color);padding-top:12px;display:flex;flex-direction:column;gap:12px;">
@@ -232,14 +239,8 @@ function renderSaveBody(step) {
         <input class="step-cfg-folder" type="text" value="${escapeHtml(cfg.folder_path || '')}" placeholder="~/Documents/Meetings" style="flex:1;min-width:0;" />
         <button type="button" class="js-folder-browse" data-input=".step-cfg-folder" style="white-space:nowrap;padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-input);color:var(--text-primary);cursor:pointer;font-size:0.82rem;">Browse…</button>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <span style="${rowLabel}">Save</span>
-        <select class="step-save-what" style="flex:1;min-width:0;">
-          <option value="processing_result" ${!isTranscript ? 'selected' : ''}>Result of the previous step</option>
-          <option value="transcript" ${isTranscript ? 'selected' : ''}>Original transcript</option>
-        </select>
-      </div>
     </div>
+    ${renderTemplateField('save_local', step, BODY_COPY.save_local)}
   `;
 }
 
@@ -255,6 +256,9 @@ function renderTemplateField(typeKey, step, copy) {
            <li><code>{transcript}</code> — the full recording transcript</li>
            <li><code>{processing_result}</code> — the previous step's output (empty on the first step)</li>
            <li><code>{app}</code> — the app name (Zoom / FaceTime / NBP)</li>
+           <li><code>{calendar_title}</code> — matched calendar event title (empty if none)</li>
+           <li><code>{calendar_attendees}</code> — attendees of the matched event</li>
+           <li><code>{date}</code> — recording date (YYYY-MM-DD)</li>
          </ul>
        </div>`
     : `<div style="font-size:0.72rem;color:var(--text-secondary);opacity:0.85;margin-top:6px;line-height:1.5;">${escapeHtml(copy.hint)}</div>`;
@@ -347,7 +351,7 @@ function wireFormEvents(editorEl, step, index) {
   // Per-type body widgets (re-wired after every body re-render).
   wireBodyExtras(editorEl);
 
-  // Live preview: any field change (CLI dropdown, folder, model, save-what,
+  // Live preview: any field change (CLI dropdown, folder, model, template,
   // type, …) writes the current form state into the step and re-renders the
   // chips, so the chip label tracks the selected CLI immediately instead of
   // only on Done. `change` bubbles from the inner inputs/selects to here.
@@ -372,11 +376,8 @@ function wireFormEvents(editorEl, step, index) {
 // handler and Done so they can't drift.
 function syncStepFromForm(editorEl, step, index) {
   const typeKey = editorEl.querySelector('.step-type-select')?.value || step.step_type;
-  // Save steps have no freeform textarea — the WHAT dropdown materialises into
-  // a canonical placeholder so the engine renders it like any other step.
-  const template = (typeKey === 'save_local')
-    ? `{${editorEl.querySelector('.step-save-what')?.value || 'processing_result'}}`
-    : (editorEl.querySelector('.step-template-textarea')?.value ?? '');
+  // Every type now uses the same freeform template textarea (save included).
+  const template = editorEl.querySelector('.step-template-textarea')?.value ?? '';
   const config = collectConfig(editorEl, typeKey);
   step.step_type = typeKey;
   step.config = config;
@@ -448,9 +449,9 @@ function defaultTemplateFor(typeKey) {
     return '# Whatever bash you want. Available env vars:\n#   $NBP_TRANSCRIPT, $NBP_PROCESSING_RESULT, $NBP_APP\n# stdout becomes this step\'s output.\n\necho "$NBP_PROCESSING_RESULT"';
   }
   if (typeKey === 'save_local') {
-    // Save defaults to the previous step's output (the common "process then
-    // save" shape); the WHAT radio lets the user switch to the transcript.
-    return '{processing_result}';
+    // Save defaults to the raw transcript — the user tunes the template freely
+    // (e.g. prepend {calendar_title} / {calendar_attendees}).
+    return '{transcript}';
   }
   // CLI agent: first-step heuristic — transcript on step 1, else previous result.
   return pipelineState.pipelineEditorSteps.length <= 1

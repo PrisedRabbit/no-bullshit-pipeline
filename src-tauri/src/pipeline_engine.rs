@@ -164,15 +164,45 @@ fn resolve_app_name(recording_id: &str) -> String {
         .unwrap_or_else(|| DEFAULT_APP_NAME.to_string())
 }
 
-/// Substitute the three template placeholders. Missing keys silently render
-/// as the empty string. `{transcript}` = full recording transcript, `{app}` =
-/// friendly app name, `{processing_result}` = previous step's output (empty on
-/// step 1).
-fn render_template(template: &str, transcript: &str, app: &str, processing_result: &str) -> String {
+/// Substitute the template placeholders. Missing keys silently render as the
+/// empty string. `{transcript}` = full recording transcript, `{app}` = friendly
+/// app name, `{processing_result}` = previous step's output (empty on step 1),
+/// `{calendar_title}` / `{calendar_attendees}` = matched calendar event (empty
+/// when unmatched / no calendar access), `{date}` = recording date (YYYY-MM-DD).
+#[allow(clippy::too_many_arguments)]
+fn render_template(
+    template: &str,
+    transcript: &str,
+    app: &str,
+    processing_result: &str,
+    calendar_title: &str,
+    calendar_attendees: &str,
+    date: &str,
+) -> String {
     template
         .replace("{transcript}", transcript)
         .replace("{app}", app)
         .replace("{processing_result}", processing_result)
+        .replace("{calendar_title}", calendar_title)
+        .replace("{calendar_attendees}", calendar_attendees)
+        .replace("{date}", date)
+}
+
+/// Format a recording's attendees for the `{calendar_attendees}` placeholder:
+/// names (email as fallback), comma-separated. Empty when there are none.
+fn format_attendees(meta: &crate::storage::RecordingMetadata) -> String {
+    meta.attendees
+        .iter()
+        .filter_map(|a| a.name.clone().or_else(|| a.email.clone()))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Recording date as local `YYYY-MM-DD` for the `{date}` placeholder.
+fn format_date(rfc3339: &str) -> String {
+    chrono::DateTime::parse_from_rfc3339(rfc3339)
+        .map(|dt| dt.with_timezone(&chrono::Local).format("%Y-%m-%d").to_string())
+        .unwrap_or_default()
 }
 
 /// Result of a single dispatched step.
@@ -195,6 +225,12 @@ pub(crate) struct StepContext<'a> {
     /// RFC3339 start time — feeds the save connector's filename.
     pub started_at: &'a str,
     pub output_dir: &'a Path,
+    /// Matched calendar event title (empty if unmatched). `{calendar_title}`.
+    pub calendar_title: &'a str,
+    /// Matched event attendees, comma-separated. `{calendar_attendees}`.
+    pub calendar_attendees: &'a str,
+    /// Recording date, local `YYYY-MM-DD`. `{date}`.
+    pub date: &'a str,
 }
 
 /// Render + dispatch a single step, returning the body that feeds the next
@@ -206,13 +242,24 @@ pub(crate) async fn run_one_step(
     processing_result: &str,
     ctx: &StepContext<'_>,
 ) -> Result<String, String> {
-    let rendered = render_template(&step.template, ctx.transcript, ctx.app, processing_result);
+    let rendered = render_template(
+        &step.template,
+        ctx.transcript,
+        ctx.app,
+        processing_result,
+        ctx.calendar_title,
+        ctx.calendar_attendees,
+        ctx.date,
+    );
     let outcome = dispatch_step(
         step,
         &rendered,
         ctx.transcript,
         ctx.app,
         processing_result,
+        ctx.calendar_title,
+        ctx.calendar_attendees,
+        ctx.date,
         ctx.started_at,
         ctx.output_dir,
     )
@@ -238,6 +285,9 @@ async fn dispatch_step(
     transcript: &str,
     app: &str,
     processing_result: &str,
+    calendar_title: &str,
+    calendar_attendees: &str,
+    date: &str,
     // Recording's RFC3339 start time — used by the save connector to name the
     // output file after the meeting (`<app> <date> <time>.md`).
     started_at: &str,
@@ -284,6 +334,9 @@ async fn dispatch_step(
                 transcript,
                 app,
                 processing_result,
+                calendar_title,
+                calendar_attendees,
+                date,
                 &step.config,
                 output_dir,
                 &step.name,
@@ -417,10 +470,17 @@ pub async fn execute_pipeline_internal(
     // Load transcript into memory — fail fast if absent.
     let transcript = load_transcript_text(recording_id)?;
     let app_name = resolve_app_name(recording_id);
-    // Recording start time (RFC3339) — feeds the save connector's filename.
-    let started_at = crate::storage::read_metadata(recording_id)
-        .map(|m| m.created_at)
+    // Recording start time (RFC3339) — feeds the save connector's filename —
+    // plus the calendar-match placeholders, all from the one metadata read.
+    let meta = crate::storage::read_metadata(recording_id).ok();
+    let started_at = meta.as_ref().map(|m| m.created_at.clone()).unwrap_or_default();
+    let calendar_title = meta
+        .as_ref()
+        .filter(|m| m.calendar_matched)
+        .map(|m| m.title.clone())
         .unwrap_or_default();
+    let calendar_attendees = meta.as_ref().map(format_attendees).unwrap_or_default();
+    let date = format_date(&started_at);
 
     // Resolve run_index from the active (waiting/running) pipeline state.
     let run_index = {
@@ -444,6 +504,9 @@ pub async fn execute_pipeline_internal(
         app: &app_name,
         started_at: &started_at,
         output_dir: &output_dir,
+        calendar_title: &calendar_title,
+        calendar_attendees: &calendar_attendees,
+        date: &date,
     };
 
     // Threaded state across the step loop.
@@ -1045,6 +1108,9 @@ mod tests {
             "hello world",
             "Zoom",
             "summary v1",
+            "",
+            "",
+            "",
         );
         assert!(out.contains("Hi Zoom"));
         assert!(out.contains("hello world"));
@@ -1054,13 +1120,32 @@ mod tests {
     #[test]
     fn test_render_template_missing_keys_render_as_empty() {
         // No-placeholder template — passes through verbatim.
-        assert_eq!(render_template("static text", "T", "A", "P"), "static text");
+        assert_eq!(
+            render_template("static text", "T", "A", "P", "CT", "CA", "D"),
+            "static text"
+        );
     }
 
     #[test]
     fn test_render_template_empty_processing_result_for_first_step() {
-        let out = render_template("[{processing_result}]", "T", "A", "");
+        let out = render_template("[{processing_result}]", "T", "A", "", "", "", "");
         assert_eq!(out, "[]");
+    }
+
+    #[test]
+    fn test_render_template_calendar_and_date_placeholders() {
+        let out = render_template(
+            "{calendar_title} on {date}\nWith: {calendar_attendees}\n\n{transcript}",
+            "the words",
+            "Zoom",
+            "",
+            "Q3 Planning",
+            "Alice, Bob",
+            "2026-06-03",
+        );
+        assert!(out.contains("Q3 Planning on 2026-06-03"));
+        assert!(out.contains("With: Alice, Bob"));
+        assert!(out.contains("the words"));
     }
 
     #[test]

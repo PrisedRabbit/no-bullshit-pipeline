@@ -11,6 +11,9 @@
         <key>NSSpeechRecognitionUsageDescription</key>
         <string>NBP uses Apple's on-device SpeechAnalyzer to transcribe your recordings locally
             when the Apple Speech provider is selected.</string>
+        <key>NSCalendarsFullAccessUsageDescription</key>
+        <string>NBP reads your calendar to match recordings to meetings — setting the title and
+            capturing attendees. It never creates or changes events.</string>
         <key>NSAppSleepDisabled</key>
         <true/>
     </dict>

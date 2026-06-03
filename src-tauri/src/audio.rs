@@ -396,6 +396,11 @@ fn finalize_recording(id: &str, duration_sec: f64, save_mix_only: bool) {
                 });
             }
 
+            // Match this recording to a calendar event by span overlap (silent;
+            // no-op without calendar access or an overlapping event). Sets the
+            // title + attendees in place before we persist.
+            crate::calendar::try_match_on_finalize(&mut latest_metadata, duration_sec);
+
             if let Err(e) = storage::write_metadata(&latest_metadata) {
                 eprintln!("Failed to save final metadata for {}: {}", id, e);
             }

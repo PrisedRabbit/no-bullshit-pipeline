@@ -20,7 +20,11 @@ tauri-build = { version = "2.6.2", features = [] }
 [dependencies]
 tauri = { version = "2.11", features = ["tray-icon", "macos-private-api"] }
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSString", "NSError", "NSObject", "NSProcessInfo"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSError", "NSObject", "NSProcessInfo", "NSDate", "NSArray", "NSURL"] }
+# EventKit (read-only calendar matching). 0.3.x pairs with objc2 0.6 /
+# objc2-foundation 0.3; default features expose EKEventStore/EKEvent/
+# EKParticipant/EKCalendar + the request-access completion block.
+objc2-event-kit = "0.3"
 objc2-user-notifications = { version = "0.3", features = ["UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationAction", "UNNotification", "UNNotificationSettings", "block2"] }
 block2 = "0.6"
 tauri-plugin-opener = "2.5.4"

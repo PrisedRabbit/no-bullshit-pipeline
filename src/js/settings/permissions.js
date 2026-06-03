@@ -5,6 +5,7 @@ import { saveSettings } from './settings.js';
 const onboardingOverlay = document.getElementById('onboarding-overlay');
 const requestMicBtn = document.getElementById('request-mic-btn');
 const requestSysBtn = document.getElementById('request-sys-btn');
+const requestCalBtn = document.getElementById('request-cal-btn');
 const onboardingContinueBtn = document.getElementById('onboarding-continue-btn');
 const permissionWarning = document.getElementById('permission-warning');
 const fixPermissionsBtn = document.getElementById('fix-permissions-btn');
@@ -23,6 +24,18 @@ export async function updatePermissionStatus() {
     if (sysItem) {
       sysItem.querySelector('.perm-status').textContent = state.permissions.system_audio ? 'Granted' : 'Not Granted';
       sysItem.querySelector('.perm-status').className = `perm-status ${state.permissions.system_audio ? 'granted' : 'denied'}`;
+    }
+
+    // Calendar (Settings → Recording → Calendar). Optional feature; granting
+    // the permission is the opt-in — matching runs whenever it's granted.
+    const calStatus = document.getElementById('perm-cal-status');
+    if (calStatus) {
+      calStatus.textContent = state.permissions.calendar ? 'Granted' : 'Not Granted';
+      calStatus.className = `perm-status ${state.permissions.calendar ? 'granted' : 'denied'}`;
+    }
+    if (requestCalBtn) {
+      requestCalBtn.textContent = state.permissions.calendar ? 'Granted ✔' : 'Grant';
+      requestCalBtn.disabled = state.permissions.calendar;
     }
 
     // Show warning if mic is not granted (outside onboarding)
@@ -75,6 +88,24 @@ export function initPermissions() {
         requestSysBtn.textContent = 'Grant System Audio';
         requestSysBtn.disabled = false;
       }
+    });
+  }
+
+  if (requestCalBtn) {
+    requestCalBtn.addEventListener('click', async () => {
+      requestCalBtn.disabled = true;
+      requestCalBtn.textContent = 'Requesting...';
+      try {
+        // macOS shows the TCC prompt only the first time; afterwards this
+        // resolves immediately with the current status. If already determined
+        // (and not granted), send the user to System Settings to flip it.
+        const granted = await invoke('request_calendar_permission');
+        if (!granted) await invoke('open_calendar_settings');
+      } catch (err) {
+        console.error('Calendar permission error:', err);
+        await invoke('open_calendar_settings').catch(() => {});
+      }
+      await updatePermissionStatus();
     });
   }
 

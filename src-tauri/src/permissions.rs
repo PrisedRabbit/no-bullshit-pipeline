@@ -6,6 +6,11 @@ use std::sync::{Arc, Mutex};
 pub struct PermissionsState {
     pub mic: bool,
     pub system_audio: bool,
+    /// macOS Calendar (EventKit) full access. Optional feature — gates
+    /// recording↔calendar-event matching. Checked non-prompting on every
+    /// `check_permissions`; the prompt itself is user-initiated.
+    #[serde(default)]
+    pub calendar: bool,
 }
 
 pub struct PermissionsStateCache(pub Arc<Mutex<PermissionsState>>);
@@ -15,11 +20,15 @@ pub async fn check_permissions(
     state: tauri::State<'_, PermissionsStateCache>,
     _onboarding_completed: bool
 ) -> Result<PermissionsState, String> {
-    // Check cache first - if already verified this session, return cached result
+    // Check cache first - if already verified this session, return cached result.
+    // Calendar status is cheap + non-prompting, so refresh it every call (it can
+    // flip in System Settings without going through our request command).
     {
         let cache = state.0.lock().map_err(|e| e.to_string())?;
         if cache.mic && cache.system_audio {
-            return Ok(cache.clone());
+            let mut out = cache.clone();
+            out.calendar = crate::calendar::has_full_access();
+            return Ok(out);
         }
     }
 
@@ -47,15 +56,19 @@ pub async fn check_permissions(
         }
     };
 
-    // Update mic cache
+    let calendar_authorized = crate::calendar::has_full_access();
+
+    // Update mic + calendar cache
     {
         let mut cache = state.0.lock().map_err(|e| e.to_string())?;
         cache.mic = mic_authorized;
+        cache.calendar = calendar_authorized;
     }
 
     Ok(PermissionsState {
         mic: mic_authorized,
         system_audio: system_audio_authorized,
+        calendar: calendar_authorized,
     })
 }
 

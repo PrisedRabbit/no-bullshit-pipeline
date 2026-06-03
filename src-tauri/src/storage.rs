@@ -48,6 +48,32 @@ pub struct RecordingMetadata {
     /// don't bake the default into stored metadata.
     #[serde(default)]
     pub app_friendly_name: Option<String>,
+    /// Attendees of the calendar event this recording was matched to (see
+    /// `calendar.rs`). Populated at finalize when the recording start lines up
+    /// with a calendar event; empty for ad-hoc recordings or when calendar
+    /// access isn't granted. Fuel for "who did I meet with" pipelines.
+    #[serde(default)]
+    pub attendees: Vec<Attendee>,
+    /// EventKit identifier of the matched calendar event, if any. Lets the user
+    /// re-match / clear and keeps the association stable across re-runs.
+    #[serde(default)]
+    pub calendar_event_id: Option<String>,
+    /// Whether calendar matching has already run for this recording. Guards the
+    /// finalize hook from re-matching (and re-overwriting the title) on every
+    /// metadata rewrite. Set true once matching completes, match or no match.
+    #[serde(default)]
+    pub calendar_matched: bool,
+}
+
+/// A participant of a matched calendar event. EventKit exposes no email field
+/// directly — it's parsed out of the participant's `mailto:` URL — so both are
+/// optional (resource/room attendees may have neither a name nor an email).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Attendee {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub email: Option<String>,
 }
 
 fn default_status() -> String {
@@ -183,6 +209,9 @@ pub fn create_recording(title: String, tags: Vec<String>) -> Result<RecordingMet
         app_bundle_id: None,
         source: "manual".to_string(),
         app_friendly_name: None,
+        attendees: vec![],
+        calendar_event_id: None,
+        calendar_matched: false,
     };
 
     // Create the recording directory

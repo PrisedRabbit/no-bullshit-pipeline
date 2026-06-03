@@ -48,6 +48,7 @@ pub mod local_llm;
 pub mod realtime_transcription;
 mod call_detector;
 mod call_session;
+mod calendar;
 mod audio_process_detector;
 pub mod app_icons;
 mod dictation;
@@ -424,6 +425,11 @@ pub fn run() {
             set_hud_clickthrough,
             set_call_popup_clickthrough,
             call_session::ignore_call_recording,
+            // Calendar matching (EventKit, read-only)
+            calendar::request_calendar_permission,
+            calendar::rematch_calendar,
+            calendar::clear_calendar_match,
+            calendar::open_calendar_settings,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
