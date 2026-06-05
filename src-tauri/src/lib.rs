@@ -1347,6 +1347,54 @@ pub(crate) fn stop_tray_pulse() {
     }
 }
 
+/// Reconcile capture state after the machine wakes from sleep.
+///
+/// macOS tears down the audio device during sleep, but our `is_active` /
+/// `is_recording` flags and the tray-pulse thread survive — so on wake the icon
+/// keeps blinking red over a capture that's already dead. This runs once per
+/// `NSWorkspaceDidWakeNotification`:
+///   - a dictation that spanned sleep is garbage (silence gap, dead mic) →
+///     cancel it (drops samples, hides HUD, restores volume);
+///   - a recording is finalized via the normal stop path so whatever was
+///     captured before sleep is saved, not lost;
+///   - the pulse is force-stopped as a belt-and-suspenders catch.
+/// Heavy (thread joins, mixer drain) and the stop paths reacquire the same
+/// locks, so the caller must invoke this OFF the notification thread.
+#[cfg(target_os = "macos")]
+pub(crate) fn reconcile_after_wake(app: &tauri::AppHandle) {
+    use std::sync::atomic::Ordering;
+    use tauri::Manager;
+
+    // Dictation: cancel anything left active — a session can't meaningfully
+    // continue across a sleep, and the capture is already dead.
+    if app
+        .state::<dictation::DictationState>()
+        .is_active
+        .load(Ordering::Relaxed)
+    {
+        log::warn!("wake: dictation was active across sleep — cancelling");
+        dictation::cancel_inner(app);
+    }
+
+    // Recording: finalize instead of dropping. Scope the lock so it's released
+    // before `stop_recording` reacquires it.
+    let was_recording = {
+        let state = app.state::<AudioState>();
+        let g = state.is_recording.lock().unwrap_or_else(|e| e.into_inner());
+        *g
+    };
+    if was_recording {
+        log::warn!("wake: recording was active across sleep — finalizing");
+        let state = app.state::<AudioState>();
+        if let Err(e) = audio::stop_recording(app.clone(), state) {
+            log::warn!("wake: stop_recording after wake failed: {}", e);
+        }
+    }
+
+    // Catch any orphaned pulse the stop paths above didn't already clear.
+    stop_tray_pulse();
+}
+
 /// Periodic safety net: catches orphaning that happens between
 /// activation-policy events (e.g. sleep/wake while window stays closed). 30s
 /// cadence is invisible to the user; the check itself is microseconds.

@@ -65,6 +65,17 @@ pub fn install(app_handle: tauri::AppHandle) {
     // Block-based observer keeps the API surface tiny — no need to
     // `define_class!` an Objective-C delegate for a one-method protocol.
     let block = RcBlock::new(move |_note: *mut AnyObject| {
+        // Reconcile capture state on EVERY wake (not debounced): the audio
+        // device died during sleep, so cancel a stranded dictation, finalize a
+        // stranded recording, and kill the orphaned tray pulse. Runs off the
+        // notification thread — the stop paths join threads and reacquire locks.
+        {
+            let handle = handle_for_block.clone();
+            std::thread::spawn(move || {
+                crate::reconcile_after_wake(&handle);
+            });
+        }
+
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
