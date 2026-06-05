@@ -115,7 +115,7 @@ fn build_cli_command(cli: &str, full_prompt: &str, model: Option<&str>) -> Async
 ///   model         - model id string passed verbatim to the CLI's -m flag
 ///                   (optional; CLI default if omitted). Free-text — we don't
 ///                   maintain a list, the CLI validates at runtime.
-///   timeout_secs  - kills the subprocess if exceeded (optional, default 300)
+///   timeout_secs  - kills the subprocess if exceeded (optional, default 3600)
 ///   working_directory - cwd for the subprocess (optional, default: $HOME)
 pub async fn execute(
     input_path: &Path,
@@ -162,7 +162,7 @@ pub async fn execute(
     let timeout_secs = config
         .get("timeout_secs")
         .and_then(|v| v.as_u64())
-        .unwrap_or(300);
+        .unwrap_or(3600);
 
     let model = config
         .get("model")

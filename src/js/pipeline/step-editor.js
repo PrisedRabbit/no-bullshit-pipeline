@@ -175,7 +175,7 @@ function renderCliBody(step) {
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
         <span style="${rowLabel}">Timeout</span>
-        <input class="step-cfg-timeout" type="number" value="${cfg.timeout_secs == null ? '' : escapeHtml(String(cfg.timeout_secs))}" placeholder="300" style="width:90px;" />
+        <input class="step-cfg-timeout" type="number" value="${cfg.timeout_secs == null ? '' : escapeHtml(String(cfg.timeout_secs))}" placeholder="3600" style="width:90px;" />
         <span style="font-size:0.72rem;color:var(--text-secondary);opacity:0.7;">seconds</span>
       </div>
     </div>
