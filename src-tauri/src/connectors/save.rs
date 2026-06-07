@@ -37,6 +37,30 @@ fn sanitize_name_part(value: &str) -> String {
     if trimmed.is_empty() { "Recording".to_string() } else { trimmed.to_string() }
 }
 
+/// Substitute date/time placeholders in the folder path so a user can route a
+/// save into dated subfolders in any order/format they like — e.g.
+/// `~/output/{YYYY}/{MM}-{DD}` or `~/notes/{DD}-{MM}-{YY}/{HH}`. The instant is
+/// the recording's local start time (same source as the filename), so a save
+/// lands in the folder for when the meeting happened. Note `{mm}` (lowercase) is
+/// minutes — `{MM}` is month. Unparseable timestamps fall back to now, matching
+/// `build_stem`. The rendered values are all zero-padded numbers (no path
+/// separators), so this can only add the folder levels the user explicitly typed.
+fn render_folder_placeholders(folder: &str, started_at: &str) -> String {
+    let when = chrono::DateTime::parse_from_rfc3339(started_at)
+        .map(|dt| dt.with_timezone(&chrono::Local))
+        .unwrap_or_else(|_| chrono::Local::now());
+    folder
+        .replace("{YYYY}", &when.format("%Y").to_string())
+        .replace("{YY}", &when.format("%y").to_string())
+        .replace("{MM}", &when.format("%m").to_string())
+        .replace("{DD}", &when.format("%d").to_string())
+        .replace("{date}", &when.format("%Y-%m-%d").to_string())
+        .replace("{HH}", &when.format("%H").to_string())
+        .replace("{mm}", &when.format("%M").to_string())
+        .replace("{SS}", &when.format("%S").to_string())
+        .replace("{time}", &when.format("%H-%M-%S").to_string())
+}
+
 /// Build the human-readable file stem: `<app> <date> <start-time>`, e.g.
 /// `Zoom 2026-06-01 14-30`. `started_at` is the recording's RFC3339 creation
 /// time; it's shown in local wall-clock so it matches when the meeting
@@ -84,8 +108,9 @@ pub fn save_to_folder(
         .filter(|s| !s.is_empty())
         .ok_or("Save step needs a folder — set 'Folder' in the step editor.")?;
 
+    let folder_path = render_folder_placeholders(folder_path, started_at);
     let stem = build_stem(app, started_at);
-    let target = uniquify(expand_tilde(folder_path).join(format!("{}.md", stem)));
+    let target = uniquify(expand_tilde(&folder_path).join(format!("{}.md", stem)));
 
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent)
@@ -165,6 +190,56 @@ mod tests {
         assert!(stem.contains("2026-0"), "got: {stem}");
         // Unparseable timestamp falls back to now (still app-prefixed).
         assert!(build_stem("NBP", "not-a-date").starts_with("NBP "));
+    }
+
+    #[test]
+    fn test_render_folder_placeholders() {
+        // Compute expectations via the same local-tz conversion so the test is
+        // timezone-independent (the rendered day depends on the runner's tz).
+        let at = "2026-06-07T14:30:00Z";
+        let when = chrono::DateTime::parse_from_rfc3339(at)
+            .unwrap()
+            .with_timezone(&chrono::Local);
+        let (y, yy, m, d, hh, mi, ss) = (
+            when.format("%Y").to_string(),
+            when.format("%y").to_string(),
+            when.format("%m").to_string(),
+            when.format("%d").to_string(),
+            when.format("%H").to_string(),
+            when.format("%M").to_string(),
+            when.format("%S").to_string(),
+        );
+
+        // Components substitute independently, so any order/format works.
+        assert_eq!(
+            render_folder_placeholders("~/out/{YYYY}/{MM}-{DD}", at),
+            format!("~/out/{y}/{m}-{d}")
+        );
+        assert_eq!(
+            render_folder_placeholders("~/out/{DD}-{MM}-{YY}", at),
+            format!("~/out/{d}-{m}-{yy}")
+        );
+        assert_eq!(
+            render_folder_placeholders("~/out/{date}/nbp", at),
+            format!("~/out/{y}-{m}-{d}/nbp")
+        );
+        // Time components: {mm} is minutes, distinct from {MM} (month).
+        assert_eq!(
+            render_folder_placeholders("~/out/{HH}-{mm}-{SS}", at),
+            format!("~/out/{hh}-{mi}-{ss}")
+        );
+        assert_eq!(
+            render_folder_placeholders("~/out/{MM}/{mm}", at),
+            format!("~/out/{m}/{mi}")
+        );
+        assert_eq!(
+            render_folder_placeholders("~/out/{date}/{time}", at),
+            format!("~/out/{y}-{m}-{d}/{hh}-{mi}-{ss}")
+        );
+        // No placeholders → unchanged.
+        assert_eq!(render_folder_placeholders("~/Documents/Meetings", at), "~/Documents/Meetings");
+        // Unparseable timestamp falls back to today (4-digit year).
+        assert_eq!(render_folder_placeholders("{YYYY}", "nope").len(), 4);
     }
 
     #[test]

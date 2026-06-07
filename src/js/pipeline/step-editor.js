@@ -239,6 +239,14 @@ function renderSaveBody(step) {
         <input class="step-cfg-folder" type="text" value="${escapeHtml(cfg.folder_path || '')}" placeholder="~/Documents/Meetings" style="flex:1;min-width:0;" />
         <button type="button" class="js-folder-browse" data-input=".step-cfg-folder" style="white-space:nowrap;padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-input);color:var(--text-primary);cursor:pointer;font-size:0.82rem;">Browse…</button>
       </div>
+      <div style="font-size:0.72rem;color:var(--text-secondary);opacity:0.85;margin-top:-4px;line-height:1.5;">
+        Date/time placeholders route into dated subfolders, in any order/format —
+        <code>{YYYY}</code> (year), <code>{YY}</code> (2-digit year),
+        <code>{MM}</code> (month), <code>{DD}</code> (day), <code>{date}</code> (YYYY-MM-DD),
+        <code>{HH}</code> (hour), <code>{mm}</code> (minute), <code>{SS}</code> (second),
+        <code>{time}</code> (HH-MM-SS). Note <code>{mm}</code> is minutes, <code>{MM}</code> is month.
+        E.g. <code>~/output/{YYYY}/{MM}-{DD}</code> or <code>~/notes/{DD}-{MM}-{YY}/{HH}-{mm}</code>.
+      </div>
     </div>
     ${renderTemplateField('save_local', step, BODY_COPY.save_local)}
   `;
