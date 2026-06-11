@@ -5,7 +5,7 @@
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -174,6 +174,189 @@ fn find_shortcut(shortcut_id: &str) -> Option<DictationShortcut> {
         .find(|s| s.id == shortcut_id)
 }
 
+/// Update the live mic level meter from a callback buffer. AGC + dB mapping so
+/// every syllable moves the bar regardless of mic sensitivity. Module-level so
+/// the cpal callbacks built in `open_mic_stream` (off the async worker) can call
+/// it. Reads/writes the `PEAK_TRACKER` static; reset per session at start.
+fn push_level(samples: &[f32]) {
+    if samples.is_empty() {
+        return;
+    }
+    let sum_sq: f32 = samples.iter().map(|s| s * s).sum();
+    let rms = (sum_sq / samples.len() as f32).sqrt();
+    let peak = samples.iter().fold(0.0f32, |acc, &s| acc.max(s.abs()));
+    let signal = rms * 0.6 + peak * 0.4;
+
+    // AGC: slowly-decaying running peak compensates for mic sensitivity.
+    // Decay is intentionally slow (~10s window) so it learns the user's loud
+    // syllables and treats them as 0 dB — quieter parts of speech then show as
+    // -10..-30 dB below, giving natural dynamics instead of pegging at 100%.
+    const FLOOR: f32 = 0.005;
+    const DECAY: f32 = 0.9995;
+    let prev = f32::from_bits(PEAK_TRACKER.load(Ordering::Relaxed));
+    let agc_max = (prev * DECAY).max(signal).max(FLOOR);
+    PEAK_TRACKER.store(agc_max.to_bits(), Ordering::Relaxed);
+
+    let gained = (signal / agc_max).max(1e-5);
+    let db = 20.0 * gained.log10();
+    let level = ((db + 40.0) / 40.0).clamp(0.0, 1.0);
+    crate::mic_audio::set_audio_level(level);
+}
+
+/// Carries a freshly-opened cpal input stream back from the blocking thread it
+/// was created on. SAFETY: same rationale as `unsafe impl Send for Session` —
+/// the AudioUnit operations cpal performs are valid from any thread; cpal only
+/// marks `Stream` `!Send` via `PhantomData`. The stream is created once on a
+/// blocking worker, handed back here, then lives in the Session Mutex; it is
+/// never touched concurrently from two threads.
+struct SendStream(cpal::Stream);
+unsafe impl Send for SendStream {}
+
+/// Everything `start_inner` needs back from opening the mic: the live stream
+/// plus metadata (rate/channels for the Session, device names for the duck
+/// decision) — gathered on the blocking thread so the async side never touches
+/// Core Audio.
+struct MicSetup {
+    stream: SendStream,
+    sample_rate: u32,
+    channels: u16,
+    input_name: Option<String>,
+    output_name: Option<String>,
+}
+
+/// Open + start the mic input stream and start metering.
+///
+/// BLOCKING: `build_input_stream` and `play()` are synchronous Core Audio
+/// calls. On a Bluetooth input they trigger the ~1-2s A2DP→HFP profile switch.
+/// ALWAYS call this from `spawn_blocking`, never the async runtime, or the
+/// hotkey press freezes the whole UI for that switch.
+fn open_mic_stream(
+    device_name: Option<String>,
+    samples: Arc<Mutex<Vec<f32>>>,
+) -> Result<MicSetup, String> {
+    let host = cpal::default_host();
+    let device = if let Some(name) = device_name.as_deref() {
+        crate::devices::get_device_by_name(name).or_else(|| host.default_input_device())
+    } else {
+        host.default_input_device()
+    }
+    .ok_or("No input device available")?;
+
+    let config = pick_input_config(&device)?;
+    let sample_rate = config.sample_rate();
+    let channels = config.channels();
+    log::info!(
+        "dictation: chose input config — rate={}, channels={}, format={:?}",
+        sample_rate,
+        channels,
+        config.sample_format()
+    );
+
+    let err_fn = |err| log::error!("dictation cpal stream error: {}", err);
+
+    let stream = match config.sample_format() {
+        cpal::SampleFormat::F32 => device.build_input_stream(
+            &config.into(),
+            move |data: &[f32], _: &_| {
+                push_level(data);
+                if let Ok(mut buf) = samples.lock() {
+                    append_capped(&mut buf, data);
+                }
+            },
+            err_fn,
+            None,
+        ),
+        cpal::SampleFormat::I16 => device.build_input_stream(
+            &config.into(),
+            move |data: &[i16], _: &_| {
+                let f: Vec<f32> = data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
+                push_level(&f);
+                if let Ok(mut buf) = samples.lock() {
+                    append_capped(&mut buf, &f);
+                }
+            },
+            err_fn,
+            None,
+        ),
+        cpal::SampleFormat::U16 => device.build_input_stream(
+            &config.into(),
+            move |data: &[u16], _: &_| {
+                let f: Vec<f32> = data
+                    .iter()
+                    .map(|&s| (s as f32 - u16::MAX as f32 / 2.0) / (u16::MAX as f32 / 2.0))
+                    .collect();
+                push_level(&f);
+                if let Ok(mut buf) = samples.lock() {
+                    append_capped(&mut buf, &f);
+                }
+            },
+            err_fn,
+            None,
+        ),
+        _ => return Err("Unsupported sample format".into()),
+    }
+    .map_err(|e| format!("build_input_stream: {}", e))?;
+
+    stream
+        .play()
+        .map_err(|e| format!("stream.play: {}", e))?;
+
+    // cpal `DeviceTrait::name` is deprecated in 0.17 but kept here: we only
+    // compare input vs output device labels for the duck decision, and name()
+    // is the stable shape. Grabbed here so the async side never touches cpal.
+    #[allow(deprecated)]
+    let input_name = device.name().ok();
+    #[allow(deprecated)]
+    let output_name = host.default_output_device().and_then(|d| d.name().ok());
+
+    Ok(MicSetup {
+        stream: SendStream(stream),
+        sample_rate,
+        channels,
+        input_name,
+        output_name,
+    })
+}
+
+/// Decide whether to duck system output for this session, snapshot the pre-duck
+/// volume, and kick off the fade. Returns the volume to restore on stop (`None`
+/// when we didn't duck — e.g. input == output device).
+///
+/// BLOCKING: `get_system_output_volume` shells out to `osascript` (~80-150ms).
+/// Call from `spawn_blocking`, never the async runtime. The mic is already live
+/// by the time this runs, so the cost never delays capture.
+fn duck_system_output(input_name: Option<String>, output_name: Option<String>) -> Option<u32> {
+    // Duck ONLY when the input device differs from the output device. When
+    // they're the same physical thing (typical BT case, AirPods → AirPods),
+    // macOS forces an HFP profile switch and the music already drops on its
+    // own — touching the slider then is unreliable (HFP decouples the slider
+    // from real playback level, ends up at zero).
+    match (&input_name, &output_name) {
+        (Some(i), Some(o)) if i == o => {
+            log::info!(
+                "dictation: input=output ({}) — letting macOS handle audio routing, skipping fade",
+                i
+            );
+            None
+        }
+        _ => {
+            let snap = get_system_output_volume();
+            if let Some(now) = snap {
+                let target = ((now as f32) * VOLUME_DUCK_RATIO).round().max(1.0) as u32;
+                log::info!(
+                    "dictation: input={:?}, output={:?} — ducking {} → {}",
+                    input_name,
+                    output_name,
+                    now,
+                    target
+                );
+                fade_system_volume(now, target, 750);
+            }
+            snap
+        }
+    }
+}
+
 pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), String> {
     let state = app.state::<DictationState>();
 
@@ -208,23 +391,20 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
     let shortcut = find_shortcut(shortcut_id)
         .ok_or_else(|| format!("Shortcut '{}' not found", shortcut_id))?;
 
-    let host = cpal::default_host();
-    let device = if let Some(name) = shortcut.device_name.as_deref() {
-        crate::devices::get_device_by_name(name).or_else(|| host.default_input_device())
-    } else {
-        host.default_input_device()
-    }
-    .ok_or("No input device available")?;
+    // #2 — Instant start. Opening the mic below can block ~1-2s on Bluetooth
+    // (the A2DP→HFP profile switch), so fire the live "recording" HUD NOW,
+    // before the stream is even open. No intermediate "starting" screen — the
+    // user sees the listening UI the instant they press the key. Land it on the
+    // active monitor first.
+    crate::reposition_dictation_hud(app);
+    emit_status(app, "recording", Some(&shortcut.id), None);
 
-    let config = pick_input_config(&device)?;
-    let sample_rate = config.sample_rate();
-    let channels = config.channels();
-    log::info!(
-        "dictation: chose input config — rate={}, channels={}, format={:?}",
-        sample_rate,
-        channels,
-        config.sample_format()
-    );
+    // Fresh meter state per session — last shortcut's mic/level shouldn't bias
+    // the adaptive gain of the next one.
+    PEAK_TRACKER.store(0, Ordering::Relaxed);
+
+    // Worst-case headroom (48 kHz × 30 s); the buffer grows past this if needed.
+    let samples: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::with_capacity(48_000 * 30)));
 
     // Bring up the system-audio tap in the background. Creating the
     // AggregateDevice + ProcessTap pokes Core Audio's engine and on a cold
@@ -258,164 +438,60 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
         None
     };
 
-    // Streaming setup. Three tiers:
-    //   1) Warm pool — sidecar pre-spawned at app startup, model already
-    //      loaded. Instant: just claim it.
-    //   2) Fresh inline spawn — fallback when the warm slot is empty (first
-    //      press before warm-up finished, or shortcut uses an exotic rate).
-    //   3) Batch path — for non-streaming engines.
-    // Streaming is DISABLED — Parakeet EOU 120M (the streaming model) is
-    // English-biased and butchers non-English speech. Always taking the
-    // batch path (Parakeet TDT v3, multilingual) until we get an equally
-    // good streaming model. Code path kept above as dormant scaffolding.
-    let _ = sample_rate; // silence unused warnings for streaming-only refs
-    let _ = channels;
-    let streaming: Option<crate::dictation_streaming::StreamingSession> = None;
-    let streaming_tx: Option<tokio::sync::mpsc::UnboundedSender<Vec<f32>>> =
-        streaming.as_ref().map(|s| s.samples_tx.clone());
-
-    // Fresh meter state per session — last shortcut's mic/level shouldn't
-    // bias the adaptive gain of the next one.
-    PEAK_TRACKER.store(0, Ordering::Relaxed);
-
-    let samples: Arc<Mutex<Vec<f32>>> =
-        Arc::new(Mutex::new(Vec::with_capacity((sample_rate as usize) * 30)));
-    let samples_cb = samples.clone();
-
-    let err_fn = |err| log::error!("dictation cpal stream error: {}", err);
-
-    fn push_level(samples: &[f32]) {
-        if samples.is_empty() {
-            return;
+    // #1/#3 — Open the mic OFF the async worker. build_input_stream + play()
+    // are synchronous Core Audio calls; on Bluetooth they trigger the ~1-2s
+    // A2DP→HFP switch. Running them on a blocking thread keeps the async
+    // runtime (and the HUD shown above) responsive throughout. On failure we
+    // surface an error to the HUD so it doesn't sit on "starting" forever.
+    let device_name = shortcut.device_name.clone();
+    let samples_for_cb = samples.clone();
+    let MicSetup {
+        stream,
+        sample_rate,
+        channels,
+        input_name,
+        output_name,
+    } = match tauri::async_runtime::spawn_blocking(move || {
+        open_mic_stream(device_name, samples_for_cb)
+    })
+    .await
+    {
+        Ok(Ok(setup)) => setup,
+        Ok(Err(e)) => {
+            emit_status(app, "error", Some(&shortcut.id), Some(e.clone()));
+            return Err(e);
         }
-        let sum_sq: f32 = samples.iter().map(|s| s * s).sum();
-        let rms = (sum_sq / samples.len() as f32).sqrt();
-        let peak = samples.iter().fold(0.0f32, |acc, &s| acc.max(s.abs()));
-        let signal = rms * 0.6 + peak * 0.4;
+        Err(e) => {
+            let msg = format!("mic setup task: {}", e);
+            emit_status(app, "error", Some(&shortcut.id), Some(msg.clone()));
+            return Err(msg);
+        }
+    };
+    let stream = stream.0;
 
-        // AGC: slowly-decaying running peak compensates for mic sensitivity.
-        // Decay is intentionally slow (~10s window) so it learns the user's
-        // loud syllables and treats them as 0 dB — quieter parts of speech
-        // then show as -10..-30 dB below, giving the meter natural dynamics
-        // between syllables instead of pegging at 100% during speech.
-        const FLOOR: f32 = 0.005;
-        const DECAY: f32 = 0.9995;
-        let prev = f32::from_bits(PEAK_TRACKER.load(Ordering::Relaxed));
-        let agc_max = (prev * DECAY).max(signal).max(FLOOR);
-        PEAK_TRACKER.store(agc_max.to_bits(), Ordering::Relaxed);
+    // Streaming is DISABLED — Parakeet EOU 120M (the streaming model) is
+    // English-biased and butchers non-English speech. Always the batch path
+    // (Parakeet TDT v3, multilingual) until we get an equally good streaming
+    // model.
+    let streaming: Option<crate::dictation_streaming::StreamingSession> = None;
 
-        // Convert to dB relative to AGC max (0 dB = current loudness ceiling)
-        // and map a 40 dB range to the 0..1 meter. Speech phonemes naturally
-        // span 20-30 dB → every syllable visibly moves the bar.
-        let gained = (signal / agc_max).max(1e-5);
-        let db = 20.0 * gained.log10();
-        let level = ((db + 40.0) / 40.0).clamp(0.0, 1.0);
-        crate::mic_audio::set_audio_level(level);
-    }
-
-    // When streaming is active, samples go straight to the sidecar — no need
-    // to also hoard them in `samples`. When streaming is None we still need
-    // the in-memory buffer for the batch fallback.
-    let streaming_tx_f32 = streaming_tx.clone();
-    let streaming_tx_i16 = streaming_tx.clone();
-    let streaming_tx_u16 = streaming_tx.clone();
-    let stream = match config.sample_format() {
-        cpal::SampleFormat::F32 => device.build_input_stream(
-            &config.into(),
-            move |data: &[f32], _: &_| {
-                push_level(data);
-                if let Some(tx) = &streaming_tx_f32 {
-                    let _ = tx.send(data.to_vec());
-                } else if let Ok(mut buf) = samples_cb.lock() {
-                    append_capped(&mut buf, data);
-                }
-            },
-            err_fn,
-            None,
-        ),
-        cpal::SampleFormat::I16 => device.build_input_stream(
-            &config.into(),
-            move |data: &[i16], _: &_| {
-                let f: Vec<f32> = data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
-                push_level(&f);
-                if let Some(tx) = &streaming_tx_i16 {
-                    let _ = tx.send(f);
-                } else if let Ok(mut buf) = samples_cb.lock() {
-                    append_capped(&mut buf, &f);
-                }
-            },
-            err_fn,
-            None,
-        ),
-        cpal::SampleFormat::U16 => device.build_input_stream(
-            &config.into(),
-            move |data: &[u16], _: &_| {
-                let f: Vec<f32> = data
-                    .iter()
-                    .map(|&s| (s as f32 - u16::MAX as f32 / 2.0) / (u16::MAX as f32 / 2.0))
-                    .collect();
-                push_level(&f);
-                if let Some(tx) = &streaming_tx_u16 {
-                    let _ = tx.send(f);
-                } else if let Ok(mut buf) = samples_cb.lock() {
-                    append_capped(&mut buf, &f);
-                }
-            },
-            err_fn,
-            None,
-        ),
-        _ => return Err("Unsupported sample format".into()),
-    }
-    .map_err(|e| format!("build_input_stream: {}", e))?;
-
-    stream
-        .play()
-        .map_err(|e| format!("stream.play: {}", e))?;
-
-    // Duck system output volume. Snapshot the pre-duck level so stop_inner
-    // can restore to the exact original — bypasses rounding drift from the
-    // old "divide by ratio" math.
-    // Duck system output volume ONLY when the input device differs from the
-    // output device. When they're the same physical thing (typical BT case,
-    // AirPods → AirPods), macOS forces an HFP profile switch and the music
-    // already drops on its own — touching the slider then is unreliable
-    // (HFP decouples the slider from real playback level, ends up at zero).
-    // cpal `DeviceTrait::name` is deprecated in 0.17 but kept here: we only
-    // compare input vs output device labels, and name() is the stable shape.
-    #[allow(deprecated)]
-    let input_name = device.name().ok();
-    #[allow(deprecated)]
-    let output_name = host.default_output_device().and_then(|d| d.name().ok());
+    // #4 — Duck system output OFF the async worker too. get_system_output_volume
+    // shells out to osascript (~80-150ms); inline it blocked the runtime. The
+    // mic is already live here, so this never delays capture — only the cosmetic
+    // volume dip. Device names came back from open_mic_stream, so this thread
+    // never re-touches Core Audio. We still fold back the pre-duck snapshot so
+    // stop_inner can restore the exact original level.
     let pre_duck_volume = if shortcut.capture_system_audio {
         // Don't duck — we're recording whatever is playing, so killing the
         // output volume would also wipe the very signal the user wants
         // captured (call, video, music).
         log::info!("dictation: capture_system_audio=true — skipping output duck");
         None
-    } else { match (&input_name, &output_name) {
-        (Some(i), Some(o)) if i == o => {
-            log::info!(
-                "dictation: input=output ({}) — letting macOS handle audio routing, skipping fade",
-                i
-            );
-            None
-        }
-        _ => {
-            let snap = get_system_output_volume();
-            if let Some(now) = snap {
-                let target = ((now as f32) * VOLUME_DUCK_RATIO).round().max(1.0) as u32;
-                log::info!(
-                    "dictation: input={:?}, output={:?} — ducking {} → {}",
-                    input_name,
-                    output_name,
-                    now,
-                    target
-                );
-                fade_system_volume(now, target, 750);
-            }
-            snap
-        }
-    } };
+    } else {
+        tauri::async_runtime::spawn_blocking(move || duck_system_output(input_name, output_name))
+            .await
+            .unwrap_or(None)
+    };
 
     // While dictation is live, hijack Escape to cancel the session — the user
     // can wave it off without their text leaking out as a paste. The shortcut
@@ -441,10 +517,7 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
     // guard so it doesn't clear it on drop. Stays true until stop/cancel.
     active_guard.commit = true;
 
-    // Land the HUD on the monitor the user is actually looking at.
-    crate::reposition_dictation_hud(app);
-
-    emit_status(app, "recording", Some(&shortcut.id), None);
+    // "recording" HUD was already emitted up-front (instant start); just log + pulse.
     log::info!(
         "dictation: '{}' recording started (rate={}, channels={})",
         shortcut.name,
@@ -1401,7 +1474,7 @@ fn pick_input_config(device: &cpal::Device) -> Result<cpal::SupportedStreamConfi
         .unwrap_or_default();
 
     for c in &configs {
-        log::info!(
+        log::debug!(
             "dictation: cpal advertises — channels={}, rate_range={}..={}, format={:?}",
             c.channels(),
             c.min_sample_rate(),
@@ -1436,63 +1509,162 @@ fn restore_system_volume_to(target: u32) {
 }
 
 fn get_system_output_volume() -> Option<u32> {
-    let out = std::process::Command::new("osascript")
-        .arg("-e")
-        .arg("output volume of (get volume settings)")
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    String::from_utf8_lossy(&out.stdout).trim().parse::<u32>().ok()
+    // Native CoreAudio read (replaces the old `osascript` fork). Master output
+    // volume comes back as 0.0..=1.0; expose 0..=100 to keep the duck/restore
+    // contract used by the rest of this module unchanged.
+    coreaudio_volume::get_scalar().map(|v| (v * 100.0).round() as u32)
 }
 
-// Tracks the previously-spawned fade osascript so we can kill it when a new
-// fade starts — otherwise an in-flight down-fade keeps clobbering the up-fade.
-static ACTIVE_FADE: std::sync::OnceLock<std::sync::Mutex<Option<u32>>> =
-    std::sync::OnceLock::new();
-
-fn active_fade_slot() -> &'static std::sync::Mutex<Option<u32>> {
-    ACTIVE_FADE.get_or_init(|| std::sync::Mutex::new(None))
-}
+// Generation counter so a freshly-started fade supersedes an in-flight one.
+// Replaces the old "kill the previous osascript pid" trick: each fade claims a
+// generation and the worker thread bails the instant a newer one starts — so a
+// down-fade can't keep clobbering a later up-fade.
+static FADE_GEN: AtomicU64 = AtomicU64::new(0);
 
 fn fade_system_volume(from: u32, to: u32, duration_ms: u64) {
-    if let Ok(mut guard) = active_fade_slot().lock() {
-        if let Some(prev_pid) = guard.take() {
-            unsafe {
-                let _ = libc::kill(prev_pid as libc::pid_t, libc::SIGKILL);
+    let generation = FADE_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+
+    // Native set is cheap (no process fork), so we can afford smooth steps.
+    const STEPS: u64 = 12;
+    let step_delay = std::time::Duration::from_millis((duration_ms / STEPS).max(1));
+    let from = from as f32;
+    let to = to as f32;
+
+    std::thread::spawn(move || {
+        for i in 1..=STEPS {
+            if FADE_GEN.load(Ordering::SeqCst) != generation {
+                return; // a newer fade started — abandon this one mid-flight
             }
+            let v = from + (to - from) * (i as f32 / STEPS as f32);
+            coreaudio_volume::set_scalar(v / 100.0);
+            std::thread::sleep(step_delay);
+        }
+    });
+}
+
+/// Native master output-volume control via CoreAudio's
+/// `kAudioHardwareServiceDeviceProperty_VirtualMainVolume` (Float32 0.0..=1.0).
+/// Replaces shelling out to `osascript` for the dictation duck: no process
+/// fork, instant, and it links against the CoreAudio framework already pulled
+/// in by the system-audio capture path.
+#[allow(non_upper_case_globals, non_snake_case)]
+mod coreaudio_volume {
+    use std::os::raw::c_void;
+
+    type AudioObjectID = u32;
+    type OSStatus = i32;
+
+    #[repr(C)]
+    struct AudioObjectPropertyAddress {
+        selector: u32,
+        scope: u32,
+        element: u32,
+    }
+
+    const kAudioObjectSystemObject: AudioObjectID = 1;
+    const kAudioHardwarePropertyDefaultOutputDevice: u32 = 0x644F_7574; // 'dOut'
+    const kAudioHardwareServiceDeviceProperty_VirtualMainVolume: u32 = 0x766D_7663; // 'vmvc'
+    const kAudioObjectPropertyScopeGlobal: u32 = 0x676C_6F62; // 'glob'
+    const kAudioObjectPropertyScopeOutput: u32 = 0x6F75_7470; // 'outp'
+    const kAudioObjectPropertyElementMain: u32 = 0;
+
+    #[link(name = "CoreAudio", kind = "framework")]
+    unsafe extern "C" {
+        fn AudioObjectGetPropertyData(
+            in_object_id: AudioObjectID,
+            in_address: *const AudioObjectPropertyAddress,
+            in_qualifier_data_size: u32,
+            in_qualifier_data: *const c_void,
+            io_data_size: *mut u32,
+            out_data: *mut c_void,
+        ) -> OSStatus;
+
+        fn AudioObjectSetPropertyData(
+            in_object_id: AudioObjectID,
+            in_address: *const AudioObjectPropertyAddress,
+            in_qualifier_data_size: u32,
+            in_qualifier_data: *const c_void,
+            in_data_size: u32,
+            in_data: *const c_void,
+        ) -> OSStatus;
+    }
+
+    fn default_output_device() -> Option<AudioObjectID> {
+        let addr = AudioObjectPropertyAddress {
+            selector: kAudioHardwarePropertyDefaultOutputDevice,
+            scope: kAudioObjectPropertyScopeGlobal,
+            element: kAudioObjectPropertyElementMain,
+        };
+        let mut dev: AudioObjectID = 0;
+        let mut size = std::mem::size_of::<AudioObjectID>() as u32;
+        let st = unsafe {
+            AudioObjectGetPropertyData(
+                kAudioObjectSystemObject,
+                &addr,
+                0,
+                std::ptr::null(),
+                &mut size,
+                &mut dev as *mut _ as *mut c_void,
+            )
+        };
+        if st == 0 && dev != 0 {
+            Some(dev)
+        } else {
+            None
         }
     }
 
-    // Each AppleScript iteration carries ~20-30ms unavoidable overhead
-    // (set volume + delay + Core Audio round-trip). With many steps the
-    // wall-clock drifts way past the requested duration. Use a small fixed
-    // step count so the perceived fade matches `duration_ms`.
-    const STEPS: u64 = 6;
-    let step_delay = (duration_ms as f64) / (STEPS as f64) / 1000.0;
-    let steps = STEPS;
-    let script = format!(
-        "set startV to {}\nset endV to {}\nset steps to {}\nrepeat with i from 1 to steps\n  set v to startV + ((endV - startV) * i / steps)\n  set volume output volume v\n  delay {:.4}\nend repeat",
-        from, to, steps, step_delay
-    );
-    if let Ok(mut child) = std::process::Command::new("osascript")
-        .arg("-e")
-        .arg(&script)
-        .spawn()
-    {
-        let pid = child.id();
-        if let Ok(mut guard) = active_fade_slot().lock() {
-            *guard = Some(pid);
+    fn volume_address() -> AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress {
+            selector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+            scope: kAudioObjectPropertyScopeOutput,
+            element: kAudioObjectPropertyElementMain,
         }
-        std::thread::spawn(move || {
-            let _ = child.wait();
-            if let Ok(mut guard) = active_fade_slot().lock() {
-                if *guard == Some(pid) {
-                    *guard = None;
-                }
-            }
-        });
+    }
+
+    /// Master output volume as 0.0..=1.0, or None if the current default output
+    /// device exposes no settable main volume (some aggregate/virtual devices).
+    pub fn get_scalar() -> Option<f32> {
+        let dev = default_output_device()?;
+        let addr = volume_address();
+        let mut vol: f32 = 0.0;
+        let mut size = std::mem::size_of::<f32>() as u32;
+        let st = unsafe {
+            AudioObjectGetPropertyData(
+                dev,
+                &addr,
+                0,
+                std::ptr::null(),
+                &mut size,
+                &mut vol as *mut _ as *mut c_void,
+            )
+        };
+        if st == 0 {
+            Some(vol.clamp(0.0, 1.0))
+        } else {
+            None
+        }
+    }
+
+    /// Set master output volume from a 0.0..=1.0 scalar. Returns false if the
+    /// device rejected it (e.g. no main volume control).
+    pub fn set_scalar(v: f32) -> bool {
+        let Some(dev) = default_output_device() else {
+            return false;
+        };
+        let addr = volume_address();
+        let vol = v.clamp(0.0, 1.0);
+        let st = unsafe {
+            AudioObjectSetPropertyData(
+                dev,
+                &addr,
+                0,
+                std::ptr::null(),
+                std::mem::size_of::<f32>() as u32,
+                &vol as *const _ as *const c_void,
+            )
+        };
+        st == 0
     }
 }
 
