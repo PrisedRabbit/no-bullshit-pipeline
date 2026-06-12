@@ -4,45 +4,27 @@
 // `prefers-color-scheme`. Legacy values are normalized on apply so old
 // stored settings ("neon-purple", "deep-blue", "deep-obsidian",
 // "light-pastel") just work without a one-shot migration.
+//
+// The normalize + auto-follow logic lives in `theme-core.js` so the dictation
+// HUD (a separate window/bundle) can share it instead of duplicating it.
 
 import * as state from '../core/state.js';
+import { normalizeTheme, watchEffectiveTheme } from './theme-core.js';
 
-let mediaQuery = null;
-let mediaListener = null;
-
-function normalize(theme) {
-  if (theme === 'neon-purple' || theme === 'deep-obsidian' || theme === 'deep-blue') return 'dark';
-  if (theme === 'light-pastel') return 'light';
-  if (theme === 'auto' || theme === 'light' || theme === 'dark') return theme;
-  return 'auto';
-}
+let detachTheme = null;
 
 function setBodyClass(effective) {
   document.body.classList.remove('dark', 'light');
   document.body.classList.add(effective);
 }
 
-function detachAutoListener() {
-  if (mediaQuery && mediaListener) {
-    mediaQuery.removeEventListener('change', mediaListener);
-  }
-  mediaQuery = null;
-  mediaListener = null;
-}
-
 export function applyTheme(theme) {
-  const normalized = normalize(theme);
-  detachAutoListener();
+  const normalized = normalizeTheme(theme);
 
-  if (normalized === 'auto') {
-    mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const apply = (matches) => setBodyClass(matches ? 'dark' : 'light');
-    apply(mediaQuery.matches);
-    mediaListener = (e) => apply(e.matches);
-    mediaQuery.addEventListener('change', mediaListener);
-  } else {
-    setBodyClass(normalized);
-  }
+  // (Re)bind the effective-theme watcher — applies now and, for 'auto', tracks
+  // the system appearance until the next applyTheme call.
+  if (detachTheme) detachTheme();
+  detachTheme = watchEffectiveTheme(theme, setBodyClass);
 
   // Mirror the chosen value back into shared state so saveSettings picks up
   // "auto"/"light"/"dark" instead of an outdated stored legacy name.

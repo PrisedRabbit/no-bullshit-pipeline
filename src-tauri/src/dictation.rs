@@ -509,10 +509,33 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
         system_setup,
     };
 
-    *state
-        .inner
-        .lock()
-        .map_err(|e| format!("state lock: {}", e))? = Some(session);
+    {
+        let mut guard = state
+            .inner
+            .lock()
+            .map_err(|e| format!("state lock: {}", e))?;
+        // A sleep/wake reconcile or a cancel can fire during the mic-open await
+        // above (up to ~1-2s on Bluetooth), flipping is_active back to false and
+        // taking the still-empty session slot. If that happened, DON'T install an
+        // orphaned session and start a tray pulse that no stop path will ever
+        // clear — that's the "blinking red after wake" bug. Tear down instead.
+        if !state.is_active.load(Ordering::Relaxed) {
+            drop(guard);
+            log::warn!(
+                "dictation: '{}' startup aborted — cancelled while opening mic",
+                shortcut.name
+            );
+            if let Some(v) = pre_duck_volume {
+                restore_system_volume_to(v);
+            }
+            unregister_escape_cancel(app);
+            // Leave is_active as-is (cancel owns it now); the session drops here,
+            // closing the mic. Commit so the guard's Drop doesn't touch the flag.
+            active_guard.commit = true;
+            return Ok(());
+        }
+        *guard = Some(session);
+    }
     // is_active was claimed at the top via compare_exchange — commit the
     // guard so it doesn't clear it on drop. Stays true until stop/cancel.
     active_guard.commit = true;
@@ -526,6 +549,11 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
     );
     // Blink the tray icon while the dictation mic is live (same as recordings).
     crate::start_tray_pulse(app);
+    // Belt for the tiny install→pulse window: if a cancel slipped in just now,
+    // its stop_tray_pulse ran before ours started — undo our orphan blink.
+    if !state.is_active.load(Ordering::Relaxed) {
+        crate::stop_tray_pulse();
+    }
     Ok(())
 }
 
@@ -1800,3 +1828,6 @@ fn paste_text(text: &str) -> Result<(), PasteError> {
     post_cmd_v();
     Ok(())
 }
+
+// Caret/Accessibility positioning was removed — the HUD now anchors to the
+// mouse cursor instead, which is always available in every app.

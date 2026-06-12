@@ -5,6 +5,8 @@
 // controlled here via a CSS class on <body>. When idle, body.hidden gives
 // opacity: 0 + pointer-events: none → window is invisible and click-through.
 
+import { watchEffectiveTheme } from './ui/theme-core.js';
+
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 // Native Window handle — used for startDragging() which talks straight to
@@ -91,8 +93,12 @@ function scheduleHide(delayMs) {
     // never keep a timer running or leave a bar stuck (e.g. the centre bar
     // frozen at max from the last level/wave frame on some race path).
     stopAllMeters();
+    // Start the CSS opacity fade (body.hidden → opacity 0 over 300ms)...
     body.classList.add('hidden');
-    setHudActive(false);
+    // ...and only hide the NSWindow once the fade has played out — otherwise
+    // window.hide() yanks it instantly and the fade is never seen. showHud()
+    // clears hideTimer, so a new session mid-fade cancels this cleanly.
+    hideTimer = setTimeout(() => setHudActive(false), 300);
   }, delayMs);
 }
 
@@ -241,6 +247,30 @@ function setDot(kind) {
   dot.className = `dot ${kind || ''}`;
 }
 
+// --- Theme: match the app's auto/light/dark setting --------------------------
+// The HUD is a separate window, so it reads the theme from settings.json (same
+// `load_settings` it already uses for hotkeys) and applies it via the SHARED
+// theme-core helper (no duplicated normalize/media logic — same code the main
+// window uses). `auto` follows the macOS appearance via prefers-color-scheme.
+let detachHudTheme = null;
+
+function setHudThemeClass(effective) {
+  body.classList.remove('dark', 'light');
+  body.classList.add(effective);
+}
+
+async function applyHudTheme() {
+  let theme = 'auto';
+  try {
+    const settings = await invoke('load_settings');
+    theme = settings?.theme;
+  } catch (_e) {
+    /* fall back to default (dark) styling */
+  }
+  if (detachHudTheme) detachHudTheme();
+  detachHudTheme = watchEffectiveTheme(theme, setHudThemeClass);
+}
+
 async function fetchShortcutMeta(shortcutId) {
   try {
     const settings = await invoke('load_settings');
@@ -287,6 +317,11 @@ async function onStatus(payload) {
   if (!payload) return;
   const { state, message, shortcut_id } = payload;
   console.log('dictation-hud: state →', state, shortcut_id || '');
+
+  // Refresh the theme at the start of a session in case it changed in Settings.
+  if (state === 'recording' || state === 'reading_clipboard') {
+    applyHudTheme();
+  }
 
   switch (state) {
     case 'recording':
@@ -381,13 +416,19 @@ async function onStatus(payload) {
     case 'idle':
     default:
       stopAllMeters();
-      setDot('done');
       if (partialEl) { partialEl.textContent = ''; partialEl.classList.remove('visible'); }
-      statusEl.textContent = message || 'Done';
-      hint.textContent = '';
-      // Cancellation is a user-initiated dismissal — hide instantly instead
-      // of the soft 500ms fade used after a normal "Done" completion.
-      scheduleHide(message === 'Cancelled' ? 0 : 500);
+      if (message) {
+        // Informative end states ("No speech detected", "No audio captured", …).
+        // Cancellation is a user-initiated dismissal — fade out instantly.
+        setDot('done');
+        statusEl.textContent = message;
+        hint.textContent = '';
+        scheduleHide(message === 'Cancelled' ? 0 : 1400);
+      } else {
+        // Successful completion — no "Done" flash, just fade the HUD out from
+        // whatever it was last showing.
+        scheduleHide(0);
+      }
       break;
   }
 }
@@ -406,6 +447,10 @@ listen('dictation_status', (event) => {
 })
   .then(() => console.log('dictation-hud: subscribed to dictation_status'))
   .catch((e) => console.error('dictation-hud: subscribe failed', e));
+
+// Apply the saved theme on load so the HUD already matches light/dark the first
+// time it shows (refreshed on each recording start in case it changed).
+applyHudTheme();
 
 // Streaming partials emitted by dictation_streaming.rs as the user talks.
 // We render them inline so the user sees their words land in real time.

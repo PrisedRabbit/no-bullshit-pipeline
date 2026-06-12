@@ -818,6 +818,13 @@ fn set_call_popup_clickthrough(app: tauri::AppHandle, clickthrough: bool) {
 /// the screen they're working on, not on the primary monitor by default.
 /// Called by dictation.rs just before emitting the first `recording` /
 /// `reading_clipboard` event each session.
+/// Fixed HUD window size in logical points — single source of truth for both the
+/// window builder and the centring math. The window is transparent and larger
+/// than the visible card on purpose: the extra margin is room for the card's
+/// CSS drop shadow (the native window shadow is off), so it isn't clipped.
+const HUD_W: f64 = 320.0;
+const HUD_H: f64 = 140.0;
+
 pub fn reposition_dictation_hud(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("dictation-hud") else {
         return;
@@ -828,46 +835,36 @@ pub fn reposition_dictation_hud(app: &tauri::AppHandle) {
     if monitors.is_empty() {
         return;
     }
-    // Cursor returns a PhysicalPosition in global (multi-monitor) coords.
+
+    // Land the HUD on the monitor that hosts the mouse cursor, near the top
+    // centre — multi-display users expect the overlay on the screen they're on.
     let cursor = window.cursor_position().ok();
-
-    let active = cursor.and_then(|c| {
-        monitors.iter().find(|m| {
-            let pos = m.position();
-            let size = m.size();
-            let x0 = pos.x as f64;
-            let y0 = pos.y as f64;
-            let x1 = x0 + size.width as f64;
-            let y1 = y0 + size.height as f64;
-            c.x >= x0 && c.x < x1 && c.y >= y0 && c.y < y1
+    let monitor = cursor
+        .and_then(|c| {
+            monitors.iter().find(|m| {
+                let p = m.position();
+                let s = m.size();
+                c.x >= p.x as f64
+                    && c.x < p.x as f64 + s.width as f64
+                    && c.y >= p.y as f64
+                    && c.y < p.y as f64 + s.height as f64
+            })
         })
-    });
-
-    let monitor = match active {
-        Some(m) => m,
-        None => match monitors.first() {
-            Some(m) => m,
-            None => return,
-        },
+        .or_else(|| monitors.first());
+    let Some(monitor) = monitor else {
+        return;
     };
 
     let scale = monitor.scale_factor();
-    let m_pos = monitor.position();
-    let m_size = monitor.size();
-    let hud_w = 340.0_f64;
-    // Convert physical monitor origin + size into logical coords so
-    // set_position(LogicalPosition) lands consistently across HiDPI displays.
-    let mx = m_pos.x as f64 / scale;
-    let my = m_pos.y as f64 / scale;
-    let mw = m_size.width as f64 / scale;
-    let mh = m_size.height as f64 / scale;
-    let x = mx + (mw - hud_w) / 2.0;
+    let mx = monitor.position().x as f64 / scale;
+    let my = monitor.position().y as f64 / scale;
+    let mw = monitor.size().width as f64 / scale;
+    let mh = monitor.size().height as f64 / scale;
+    let x = mx + (mw - HUD_W) / 2.0;
     let y = my + mh * 0.12;
     let _ = window.set_position(tauri::LogicalPosition::new(x, y));
-    // First call after app launch — the window was built off-screen + hidden
-    // to dodge the transparent-WebView-paints-black startup flash. Reveal it
-    // now that we have a real on-screen target. Subsequent calls hit show()
-    // again as a no-op.
+    // First call after launch reveals the window (built hidden off-screen to
+    // dodge the transparent-WebView startup flash); later calls no-op.
     let _ = window.show();
 }
 
@@ -888,7 +885,7 @@ fn build_dictation_hud(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error:
         WebviewUrl::App("dictation-hud.html".into()),
     )
     .title("")
-    .inner_size(340.0, 96.0)
+    .inner_size(HUD_W, HUD_H)
     .position(0.0, 0.0)
     .decorations(false)
     .transparent(true)
@@ -1347,6 +1344,30 @@ pub(crate) fn stop_tray_pulse() {
     }
 }
 
+/// True while the tray pulse thread is live (icon is blinking).
+fn tray_pulse_active() -> bool {
+    TRAY_PULSE.lock().map(|g| g.is_some()).unwrap_or(false)
+}
+
+/// True while a recording or dictation is actually capturing. The tray
+/// heartbeat uses this to detect an orphaned pulse — icon blinking with nothing
+/// live — and stop it.
+#[cfg(target_os = "macos")]
+fn capture_active(app: &tauri::AppHandle) -> bool {
+    use std::sync::atomic::Ordering;
+    use tauri::Manager;
+    let dictating = app
+        .state::<dictation::DictationState>()
+        .is_active
+        .load(Ordering::Relaxed);
+    let recording = {
+        let st = app.state::<AudioState>();
+        let g = st.is_recording.lock().unwrap_or_else(|e| e.into_inner());
+        *g
+    };
+    dictating || recording
+}
+
 /// Reconcile capture state after the machine wakes from sleep.
 ///
 /// macOS tears down the audio device during sleep, but our `is_active` /
@@ -1404,6 +1425,15 @@ fn schedule_tray_heartbeat(app: &tauri::AppHandle) {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             ensure_tray_alive(&app);
+            // Orphan-pulse self-heal: the icon is blinking but nothing is
+            // capturing. Shouldn't happen once the start/stop races are closed,
+            // but sleep/wake has historically stranded the pulse (stuck blinking
+            // red after wake) — this is the catch-all that always recovers it.
+            #[cfg(target_os = "macos")]
+            if tray_pulse_active() && !capture_active(&app) {
+                log::warn!("[tray-recovery] pulse running with no active capture — stopping");
+                stop_tray_pulse();
+            }
         }
     });
 }

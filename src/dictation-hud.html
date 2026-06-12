@@ -5,14 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>NBP Dictation</title>
   <style>
-    :root {
-      --bg: rgba(18, 18, 22, 0.65);
-      --bg-card: rgba(28, 28, 34, 0.9);
-      --text: #f5f5f7;
-      --text-dim: rgba(245, 245, 247, 0.6);
-      --accent: #a78bfa;
+    /* Defaults = dark; body.dark / body.light are set from JS to match the app
+       theme (auto/light/dark). Accent tracks the main window: purple on dark,
+       blue on light. */
+    :root, body.dark {
+      --bg: rgba(20, 16, 34, 0.72);
+      --text: #ffffff;
+      --text-dim: rgba(255, 255, 255, 0.55);
+      --accent: #a855f7;
+      --on-accent: #0b0614;
       --danger: #f87171;
       --ok: #4ade80;
+      --stroke: rgba(255, 255, 255, 0.10);
+      --shadow: rgba(0, 0, 0, 0.30);
+    }
+    body.light {
+      --bg: rgba(255, 255, 255, 0.86);
+      --text: #0f172a;
+      --text-dim: rgba(15, 23, 42, 0.55);
+      --accent: #3b82f6;
+      --on-accent: #ffffff;
+      --danger: #dc2626;
+      --ok: #16a34a;
+      --stroke: rgba(15, 23, 42, 0.12);
+      --shadow: rgba(15, 23, 42, 0.18);
     }
     html, body {
       margin: 0;
@@ -33,21 +49,30 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 10px;
+      padding: 8px;
       box-sizing: border-box;
     }
     .card {
       width: 100%;
-      max-width: 320px;
+      max-width: 272px;
+      box-sizing: border-box;
+      /* Fixed height so the card doesn't shrink on the short idle states
+         ("No audio detected" etc.) — keeps the HUD a stable size. */
+      min-height: 84px;
       background: var(--bg);
       backdrop-filter: blur(20px) saturate(180%);
       -webkit-backdrop-filter: blur(20px) saturate(180%);
-      border-radius: 14px;
-      padding: 12px 14px;
+      border-radius: 13px;
+      /* Clip the backdrop-filter to the rounded corners — without overflow the
+         blur paints a square, leaving a grey rectangle behind the rounded card
+         (WebKit doesn't clip backdrop-filter to border-radius on its own). */
+      overflow: hidden;
+      padding: 10px 12px;
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      box-shadow: 0 0 0 1px rgba(255,255,255,0.08) inset;
+      justify-content: center;
+      gap: 7px;
+      box-shadow: 0 0 0 1px var(--stroke) inset, 0 8px 24px var(--shadow);
       /* Whole card is grab-and-drag; interactive bits opt out via no-drag */
       -webkit-app-region: drag;
       cursor: grab;
@@ -103,7 +128,7 @@
     }
     .partial {
       font-size: 12px;
-      color: var(--text-secondary, #c8c8d0);
+      color: var(--text-dim);
       font-style: italic;
       line-height: 1.35;
       max-height: 4.05em; /* 3 lines */
@@ -148,7 +173,7 @@
     .btn {
       -webkit-app-region: no-drag;
       background: var(--accent);
-      color: #0a0a0c;
+      color: var(--on-accent);
       border: none;
       border-radius: 8px;
       padding: 4px 10px;
