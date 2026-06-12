@@ -396,7 +396,7 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
     // before the stream is even open. No intermediate "starting" screen — the
     // user sees the listening UI the instant they press the key. Land it on the
     // active monitor first.
-    crate::reposition_dictation_hud(app);
+    crate::hud::reposition(app);
     emit_status(app, "recording", Some(&shortcut.id), None);
 
     // Fresh meter state per session — last shortcut's mic/level shouldn't bias
@@ -535,25 +535,24 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
             return Ok(());
         }
         *guard = Some(session);
+        // Start the pulse INSIDE the critical section — while is_active is still
+        // true and the session is installed under this same lock. cancel_inner /
+        // stop_inner take this lock to clear is_active and take the session, so
+        // they are serialized strictly after this point and their stop_tray_pulse
+        // always runs after ours. No install→pulse gap to race, no re-check.
+        crate::start_tray_pulse(app);
     }
-    // is_active was claimed at the top via compare_exchange — commit the
-    // guard so it doesn't clear it on drop. Stays true until stop/cancel.
+    // is_active was claimed at the top via compare_exchange — commit the guard
+    // so it doesn't clear it on drop. Stays true until stop/cancel.
     active_guard.commit = true;
 
-    // "recording" HUD was already emitted up-front (instant start); just log + pulse.
+    // "recording" HUD was already emitted up-front (instant start).
     log::info!(
         "dictation: '{}' recording started (rate={}, channels={})",
         shortcut.name,
         sample_rate,
         channels
     );
-    // Blink the tray icon while the dictation mic is live (same as recordings).
-    crate::start_tray_pulse(app);
-    // Belt for the tiny install→pulse window: if a cancel slipped in just now,
-    // its stop_tray_pulse ran before ours started — undo our orphan blink.
-    if !state.is_active.load(Ordering::Relaxed) {
-        crate::stop_tray_pulse();
-    }
     Ok(())
 }
 
@@ -764,7 +763,7 @@ pub async fn run_clipboard_inner(app: &AppHandle, shortcut_id: &str) -> Result<S
     let shortcut = find_shortcut(shortcut_id)
         .ok_or_else(|| format!("Shortcut '{}' not found", shortcut_id))?;
 
-    crate::reposition_dictation_hud(app);
+    crate::hud::reposition(app);
     emit_status(app, "reading_clipboard", Some(&shortcut.id), None);
     let text = read_clipboard().map_err(|e| {
         emit_status(app, "error", Some(&shortcut.id), Some(format!("Clipboard read failed: {}", e)));

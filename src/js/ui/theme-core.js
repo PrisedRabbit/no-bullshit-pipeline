@@ -2,12 +2,10 @@
 // dictation HUD (separate esbuild bundles). No DOM-structure or app-state deps,
 // so either window can import this without dragging in the other's code.
 
-/** Collapse legacy theme names to the current trinary set (auto/light/dark). */
+/** Validate a theme value. Legacy names are migrated to auto/light/dark on disk
+ *  by the Rust `load_settings`, so this only guards against an unexpected value. */
 export function normalizeTheme(theme) {
-  if (theme === 'neon-purple' || theme === 'deep-obsidian' || theme === 'deep-blue') return 'dark';
-  if (theme === 'light-pastel') return 'light';
-  if (theme === 'auto' || theme === 'light' || theme === 'dark') return theme;
-  return 'auto';
+  return theme === 'light' || theme === 'dark' || theme === 'auto' ? theme : 'auto';
 }
 
 /**

@@ -52,6 +52,7 @@ mod calendar;
 mod audio_process_detector;
 pub mod app_icons;
 mod dictation;
+mod hud;
 mod fn_hotkey;
 mod resampler_compat;
 mod dictation_streaming;
@@ -291,7 +292,7 @@ pub fn run() {
             // Quick Dictate floating HUD: small always-on-top overlay window
             // shown during dictation. Repositioned to the cursor's monitor
             // on each session start (see dictation::start_inner).
-            build_dictation_hud(app.handle())?;
+            hud::build(app.handle())?;
 
             // Call detector debug popup: tiny overlay that flashes on each
             // call start/end transition. Auto-hides from JS. See call_detector.
@@ -813,139 +814,6 @@ fn set_call_popup_clickthrough(app: tauri::AppHandle, clickthrough: bool) {
     }
 }
 
-/// Reposition the HUD over the monitor that currently hosts the mouse cursor.
-/// macOS users with multiple displays expect dictation overlays to appear on
-/// the screen they're working on, not on the primary monitor by default.
-/// Called by dictation.rs just before emitting the first `recording` /
-/// `reading_clipboard` event each session.
-/// Fixed HUD window size in logical points — single source of truth for both the
-/// window builder and the centring math. The window is transparent and larger
-/// than the visible card on purpose: the extra margin is room for the card's
-/// CSS drop shadow (the native window shadow is off), so it isn't clipped.
-const HUD_W: f64 = 320.0;
-const HUD_H: f64 = 140.0;
-
-pub fn reposition_dictation_hud(app: &tauri::AppHandle) {
-    let Some(window) = app.get_webview_window("dictation-hud") else {
-        return;
-    };
-    let Ok(monitors) = window.available_monitors() else {
-        return;
-    };
-    if monitors.is_empty() {
-        return;
-    }
-
-    // Land the HUD on the monitor that hosts the mouse cursor, near the top
-    // centre — multi-display users expect the overlay on the screen they're on.
-    let cursor = window.cursor_position().ok();
-    let monitor = cursor
-        .and_then(|c| {
-            monitors.iter().find(|m| {
-                let p = m.position();
-                let s = m.size();
-                c.x >= p.x as f64
-                    && c.x < p.x as f64 + s.width as f64
-                    && c.y >= p.y as f64
-                    && c.y < p.y as f64 + s.height as f64
-            })
-        })
-        .or_else(|| monitors.first());
-    let Some(monitor) = monitor else {
-        return;
-    };
-
-    let scale = monitor.scale_factor();
-    let mx = monitor.position().x as f64 / scale;
-    let my = monitor.position().y as f64 / scale;
-    let mw = monitor.size().width as f64 / scale;
-    let mh = monitor.size().height as f64 / scale;
-    let x = mx + (mw - HUD_W) / 2.0;
-    let y = my + mh * 0.12;
-    let _ = window.set_position(tauri::LogicalPosition::new(x, y));
-    // First call after launch reveals the window (built hidden off-screen to
-    // dodge the transparent-WebView startup flash); later calls no-op.
-    let _ = window.show();
-}
-
-fn build_dictation_hud(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    use tauri::{WebviewUrl, WebviewWindowBuilder};
-    if app.get_webview_window("dictation-hud").is_some() {
-        log::info!("dictation-hud: window already exists, skip");
-        return Ok(());
-    }
-    // HUD lifecycle: built hidden (visible=false) so its transparent WebView
-    // doesn't paint a black rectangle over whatever's on screen during the
-    // initial paint pass. `reposition_dictation_hud` is what positions and
-    // shows it on first dictation start; in-session show/hide is handled
-    // by the CSS `body.hidden` class toggle from JS.
-    let mut builder = WebviewWindowBuilder::new(
-        app,
-        "dictation-hud",
-        WebviewUrl::App("dictation-hud.html".into()),
-    )
-    .title("")
-    .inner_size(HUD_W, HUD_H)
-    .position(0.0, 0.0)
-    .decorations(false)
-    .transparent(true)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .focused(false)
-    .accept_first_mouse(true)
-    .visible(false)
-    .resizable(false)
-    .shadow(false);
-
-    #[cfg(debug_assertions)]
-    {
-        builder = builder.devtools(true);
-    }
-
-    match builder.build()
-    {
-        Ok(_) => log::info!("dictation-hud: window created"),
-        Err(e) => {
-            log::error!("dictation-hud: window build failed: {}", e);
-            return Err(Box::new(e));
-        }
-    }
-
-    if let Some(window) = app.get_webview_window("dictation-hud") {
-        // Float across all macOS Spaces so the HUD stays visible when the
-        // user switches desktops / Mission Control during a dictation session.
-        if let Err(e) = window.set_visible_on_all_workspaces(true) {
-            log::warn!("dictation-hud: set_visible_on_all_workspaces failed: {}", e);
-        }
-
-        // Borderless NSWindows default to isMovable = false on macOS; without
-        // these flags neither CSS `-webkit-app-region: drag` nor JS
-        // startDragging() actually moves the window. Flip them on directly via
-        // the NSWindow handle.
-        //
-        // Also pin ignoresMouseEvents=true at build time so the HUD is born
-        // click-through. JS toggles it false only when entering active states
-        // (recording / error with an action button). This is the OS-level
-        // belt that backstops the CSS body.hidden / window.hide() path —
-        // if either layer races, the NSWindow itself still refuses clicks.
-        #[cfg(target_os = "macos")]
-        unsafe {
-            if let Ok(ns_window_ptr) = window.ns_window() {
-                let ns_window: *mut objc2::runtime::AnyObject =
-                    ns_window_ptr as *mut objc2::runtime::AnyObject;
-                if !ns_window.is_null() {
-                    let _: () = objc2::msg_send![ns_window, setMovable: true];
-                    let _: () = objc2::msg_send![ns_window, setMovableByWindowBackground: true];
-                    let _: () = objc2::msg_send![ns_window, setIgnoresMouseEvents: true];
-                }
-            }
-        }
-
-        // Initial position: cursor monitor, top-center.
-        reposition_dictation_hud(app);
-    }
-    Ok(())
-}
 
 /// Build the call-detector debug popup window. Stays hidden until the
 /// detector emits a `call-event`; JS in `call-popup.js` flips it visible for
@@ -1344,30 +1212,6 @@ pub(crate) fn stop_tray_pulse() {
     }
 }
 
-/// True while the tray pulse thread is live (icon is blinking).
-fn tray_pulse_active() -> bool {
-    TRAY_PULSE.lock().map(|g| g.is_some()).unwrap_or(false)
-}
-
-/// True while a recording or dictation is actually capturing. The tray
-/// heartbeat uses this to detect an orphaned pulse — icon blinking with nothing
-/// live — and stop it.
-#[cfg(target_os = "macos")]
-fn capture_active(app: &tauri::AppHandle) -> bool {
-    use std::sync::atomic::Ordering;
-    use tauri::Manager;
-    let dictating = app
-        .state::<dictation::DictationState>()
-        .is_active
-        .load(Ordering::Relaxed);
-    let recording = {
-        let st = app.state::<AudioState>();
-        let g = st.is_recording.lock().unwrap_or_else(|e| e.into_inner());
-        *g
-    };
-    dictating || recording
-}
-
 /// Reconcile capture state after the machine wakes from sleep.
 ///
 /// macOS tears down the audio device during sleep, but our `is_active` /
@@ -1425,15 +1269,6 @@ fn schedule_tray_heartbeat(app: &tauri::AppHandle) {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             ensure_tray_alive(&app);
-            // Orphan-pulse self-heal: the icon is blinking but nothing is
-            // capturing. Shouldn't happen once the start/stop races are closed,
-            // but sleep/wake has historically stranded the pulse (stuck blinking
-            // red after wake) — this is the catch-all that always recovers it.
-            #[cfg(target_os = "macos")]
-            if tray_pulse_active() && !capture_active(&app) {
-                log::warn!("[tray-recovery] pulse running with no active capture — stopping");
-                stop_tray_pulse();
-            }
         }
     });
 }

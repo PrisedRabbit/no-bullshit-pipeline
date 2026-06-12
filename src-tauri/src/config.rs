@@ -352,6 +352,21 @@ impl Default for LocalLlmConfig {
     }
 }
 
+/// Collapse a theme value to the current trinary set (auto/light/dark). The
+/// single source of truth for the on-disk migration in `load_settings` — once a
+/// settings file is migrated, the rest of the app (and the frontend) only ever
+/// sees auto/light/dark and never has to know the old names existed.
+fn normalize_theme(theme: &str) -> &'static str {
+    match theme {
+        "light" => "light",
+        "dark" => "dark",
+        // Legacy names from the old Neon Purple / Deep Blue / Light split.
+        "neon-purple" | "deep-obsidian" | "deep-blue" => "dark",
+        "light-pastel" => "light",
+        _ => "auto",
+    }
+}
+
 #[tauri::command]
 pub fn load_settings() -> AppSettings {
     let path = get_settings_path();
@@ -359,10 +374,21 @@ pub fn load_settings() -> AppSettings {
         return AppSettings::default();
     }
 
-    match File::open(&path) {
+    let mut settings: AppSettings = match File::open(&path) {
         Ok(file) => serde_json::from_reader(file).unwrap_or_default(),
         Err(_) => AppSettings::default(),
+    };
+
+    // One-shot theme migration: rewrite a legacy theme name to auto/light/dark
+    // on disk, once. After this the value is always current — no normalize
+    // shim lingering in the runtime or the frontend.
+    let normalized = normalize_theme(&settings.theme);
+    if settings.theme != normalized {
+        settings.theme = normalized.to_string();
+        let _ = save_settings_to_disk(&mut settings);
     }
+
+    settings
 }
 
 /// Save settings to disk (internal — no Tauri state required)
