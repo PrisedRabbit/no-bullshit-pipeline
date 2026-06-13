@@ -1,7 +1,9 @@
 //! Quick Dictate: hotkey-driven ephemeral mic capture → transcribe → optional
 //! LLM pipeline → paste. Bypasses the main recording pipeline (no storage, no
-//! system audio, no EBU). Supports N independent shortcuts, each with its own
-//! engine + optional LLM-only pipeline.
+//! system audio, no EBU). Supports N independent shortcuts — each with its own
+//! hotkey, input source, and optional LLM-only pipeline — all transcribed with
+//! the single global ASR engine (there is no per-shortcut engine; see
+//! `transcribe`).
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde::Serialize;

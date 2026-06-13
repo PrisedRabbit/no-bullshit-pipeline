@@ -104,11 +104,15 @@ impl StreamingSession {
                                     );
                                 }
                                 Ok(StreamEvent::Final { text }) => {
-                                    *final_text_r.lock().unwrap() = Some(text);
+                                    // Tolerate lock poisoning: degrade gracefully
+                                    // instead of cascading another thread's panic.
+                                    *final_text_r.lock().unwrap_or_else(|e| e.into_inner()) =
+                                        Some(text);
                                 }
                                 Ok(StreamEvent::Error { message }) => {
                                     log::warn!("dictation streaming sidecar error: {}", message);
-                                    *error_text_r.lock().unwrap() = Some(message);
+                                    *error_text_r.lock().unwrap_or_else(|e| e.into_inner()) =
+                                        Some(message);
                                 }
                                 Err(e) => {
                                     log::warn!(
@@ -211,10 +215,21 @@ impl StreamingSession {
         if self.cancelled.load(Ordering::Relaxed) {
             return Ok(String::new());
         }
-        if let Some(err) = self.error_text.lock().unwrap().clone() {
+        // Tolerate lock poisoning here too (see the reader task above).
+        if let Some(err) = self
+            .error_text
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+        {
             return Err(err);
         }
-        Ok(self.final_text.lock().unwrap().clone().unwrap_or_default())
+        Ok(self
+            .final_text
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .unwrap_or_default())
     }
 
     /// Abort streaming — used when the user hits Escape to cancel.

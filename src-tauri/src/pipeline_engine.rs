@@ -451,7 +451,11 @@ pub async fn execute_pipeline_internal(
 
     // Serialize execution: if the same pipeline is already running on this recording, wait.
     let lock = {
-        let mut locks = PIPELINE_EXEC_LOCKS.lock().unwrap();
+        // Tolerate poisoning — a panic elsewhere shouldn't permanently wedge
+        // every future pipeline run behind a dead lock.
+        let mut locks = PIPELINE_EXEC_LOCKS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         locks
             .entry(key.clone())
             .or_insert_with(|| Arc::new(TokioMutex::new(())))

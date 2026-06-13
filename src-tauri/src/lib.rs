@@ -1293,8 +1293,8 @@ fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .tooltip("NBP")
         .on_menu_event(|app: &tauri::AppHandle, event| {
             let id = event.id.as_ref();
-            if id.starts_with("pipeline:") {
-                let pipeline_name = id.strip_prefix("pipeline:").unwrap().to_string();
+            if let Some(pipeline_name) = id.strip_prefix("pipeline:") {
+                let pipeline_name = pipeline_name.to_string();
                 show_main_window(app);
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.emit("tray-start-pipeline", pipeline_name);
