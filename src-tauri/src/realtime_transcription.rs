@@ -13,8 +13,8 @@ use std::time::Duration;
 
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter};
-use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_shell::process::CommandEvent;
 
 use crate::audio_processing::TRANSCRIPTION_BUFFER;
 
@@ -142,7 +142,8 @@ impl AppleSpeechRealtimeTranscriber {
                                 }
                                 Ok(StreamEvent::Final { text, .. }) => {
                                     let combined = {
-                                        let mut acc = acc_r.lock().unwrap_or_else(|e| e.into_inner());
+                                        let mut acc =
+                                            acc_r.lock().unwrap_or_else(|e| e.into_inner());
                                         if !text.is_empty() {
                                             if !acc.is_empty() {
                                                 acc.push(' ');

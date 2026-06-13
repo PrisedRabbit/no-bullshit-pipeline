@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use cidre::av;
+use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -18,7 +18,7 @@ pub struct PermissionsStateCache(pub Arc<Mutex<PermissionsState>>);
 #[tauri::command]
 pub async fn check_permissions(
     state: tauri::State<'_, PermissionsStateCache>,
-    _onboarding_completed: bool
+    _onboarding_completed: bool,
 ) -> Result<PermissionsState, String> {
     // Check cache first - if already verified this session, return cached result.
     // Calendar status is cheap + non-prompting, so refresh it every call (it can
@@ -73,7 +73,9 @@ pub async fn check_permissions(
 }
 
 #[tauri::command]
-pub async fn request_mic_permission(state: tauri::State<'_, PermissionsStateCache>) -> Result<bool, String> {
+pub async fn request_mic_permission(
+    state: tauri::State<'_, PermissionsStateCache>,
+) -> Result<bool, String> {
     // Proper TCC request: shows the system mic prompt and resolves exactly
     // when the user answers (or immediately, with the cached value, if the
     // status is already determined). The old approach started a real cpal
@@ -119,12 +121,17 @@ pub async fn request_mic_permission(state: tauri::State<'_, PermissionsStateCach
 }
 
 #[tauri::command]
-pub fn request_system_audio_permission(state: tauri::State<'_, PermissionsStateCache>) -> Result<bool, String> {
+pub fn request_system_audio_permission(
+    state: tauri::State<'_, PermissionsStateCache>,
+) -> Result<bool, String> {
     #[cfg(debug_assertions)]
     eprintln!("DEBUG: Triggering System Audio permission via test recording...");
 
     // Create a temporary path for the test recording
-    let temp_path = std::path::PathBuf::from(format!("/tmp/nbp-permission-test-{}.ogg", std::process::id()));
+    let temp_path = std::path::PathBuf::from(format!(
+        "/tmp/nbp-permission-test-{}.ogg",
+        std::process::id()
+    ));
 
     // Start system audio capture (this triggers the permission dialog)
     let mut recorder = match crate::system_audio::start_system_capture(temp_path.clone(), false) {
@@ -160,7 +167,10 @@ pub fn request_system_audio_permission(state: tauri::State<'_, PermissionsStateC
     cache.system_audio = permission_granted;
 
     #[cfg(debug_assertions)]
-    eprintln!("DEBUG: System Audio permission result: {}", permission_granted);
+    eprintln!(
+        "DEBUG: System Audio permission result: {}",
+        permission_granted
+    );
     Ok(permission_granted)
 }
 
@@ -171,7 +181,7 @@ pub async fn open_privacy_settings(pane: String) {
         "system_audio" => "x-apple.systempreferences:com.apple.preference.security",
         _ => "x-apple.systempreferences:com.apple.preference.security",
     };
-    
+
     #[cfg(debug_assertions)]
     eprintln!("DEBUG: Opening Privacy Settings: {}", url);
     let _ = std::process::Command::new("open").arg(url).spawn();

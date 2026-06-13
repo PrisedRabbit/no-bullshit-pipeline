@@ -1,58 +1,62 @@
 use anyhow::Result;
-use std::fs::File;
-use std::path::Path;
 use lewton::inside_ogg::OggStreamReader;
-use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoderBuilder};
-use std::num::{NonZeroU32, NonZeroU8};
 use std::collections::VecDeque;
+use std::fs::File;
+use std::num::{NonZeroU8, NonZeroU32};
+use std::path::Path;
+use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoderBuilder};
 // Note: rubato available for high-quality resampling if needed
-
 
 /// Mix two OGG Vorbis files (mic + system) into a single output OGG file.
 /// Automatically resamples if sample rates don't match.
 /// Uses buffered streaming to keep memory usage low even for large files.
-pub fn mix_audio_files<P: AsRef<Path>>(
-    mic_path: P,
-    system_path: P,
-    output_path: P,
-) -> Result<()> {
+pub fn mix_audio_files<P: AsRef<Path>>(mic_path: P, system_path: P, output_path: P) -> Result<()> {
     // Open both OGG files
     let mic_file = File::open(mic_path.as_ref())?;
     let system_file = File::open(system_path.as_ref())?;
-    
+
     let mut mic_reader = OggStreamReader::new(mic_file)?;
     let mut system_reader = OggStreamReader::new(system_file)?;
-    
+
     // Get specs
     let mic_channels = mic_reader.ident_hdr.audio_channels;
     let mic_sample_rate = mic_reader.ident_hdr.audio_sample_rate;
     let sys_channels = system_reader.ident_hdr.audio_channels;
     let sys_sample_rate = system_reader.ident_hdr.audio_sample_rate;
-    
+
     // Validate channels match (we don't handle channel conversion yet)
     if mic_channels != sys_channels {
-        return Err(anyhow::anyhow!("Channel count mismatch. Mic: {}, Sys: {}", 
-            mic_channels, sys_channels));
+        return Err(anyhow::anyhow!(
+            "Channel count mismatch. Mic: {}, Sys: {}",
+            mic_channels,
+            sys_channels
+        ));
     }
-    
+
     let channels = mic_channels;
-    
+
     // Always output at 48kHz (standard sample rate)
     let output_sample_rate = 48000;
-    
+
     // Check if resampling needed
     let mic_needs_resample = mic_sample_rate != output_sample_rate;
     let sys_needs_resample = sys_sample_rate != output_sample_rate;
-    
+
     #[cfg(debug_assertions)]
     if mic_needs_resample {
-        eprintln!("Will resample mic on-the-fly: {} Hz -> {} Hz", mic_sample_rate, output_sample_rate);
+        eprintln!(
+            "Will resample mic on-the-fly: {} Hz -> {} Hz",
+            mic_sample_rate, output_sample_rate
+        );
     }
     #[cfg(debug_assertions)]
     if sys_needs_resample {
-        eprintln!("Will resample system on-the-fly: {} Hz -> {} Hz", sys_sample_rate, output_sample_rate);
+        eprintln!(
+            "Will resample system on-the-fly: {} Hz -> {} Hz",
+            sys_sample_rate, output_sample_rate
+        );
     }
-    
+
     let output_file = File::create(output_path.as_ref())?;
     let mut encoder = VorbisEncoderBuilder::new_with_serial(
         NonZeroU32::new(output_sample_rate).ok_or(anyhow::anyhow!("Invalid sample rate"))?,
@@ -60,102 +64,111 @@ pub fn mix_audio_files<P: AsRef<Path>>(
         output_file,
         0,
     )
-    .bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr { target_quality: 0.5 })
+    .bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr {
+        target_quality: 0.5,
+    })
     .build()?;
 
     // Buffers for mixing
     let mut mic_buffers: Vec<VecDeque<f32>> = vec![VecDeque::new(); channels as usize];
     let mut sys_buffers: Vec<VecDeque<f32>> = vec![VecDeque::new(); channels as usize];
-    
+
     let mut mic_done = false;
     let mut sys_done = false;
-    
+
     let block_size = 4096;
-    
+
     #[cfg(debug_assertions)]
     eprintln!("Mixing audio...");
-    
+
     loop {
         // 1. REFILL MIC BUFFERS
         while !mic_done && mic_buffers[0].len() < block_size {
             match mic_reader.read_dec_packet_generic::<Vec<Vec<f32>>>() {
                 Ok(Some(packet)) => {
-                    if packet.is_empty() { continue; }
-                    
+                    if packet.is_empty() {
+                        continue;
+                    }
+
                     let processed = if mic_needs_resample {
                         resample_linear(&packet, mic_sample_rate as f64, output_sample_rate as f64)
                     } else {
                         packet
                     };
-                    
+
                     for (ch_idx, samples) in processed.iter().enumerate() {
                         if ch_idx < mic_buffers.len() {
                             mic_buffers[ch_idx].extend(samples.iter().cloned());
                         }
                     }
-                },
+                }
                 Ok(None) => mic_done = true,
                 Err(_) => mic_done = true,
             }
         }
-        
+
         // 2. REFILL SYSTEM BUFFERS
         while !sys_done && sys_buffers[0].len() < block_size {
             match system_reader.read_dec_packet_generic::<Vec<Vec<f32>>>() {
                 Ok(Some(packet)) => {
-                    if packet.is_empty() { continue; }
-                    
+                    if packet.is_empty() {
+                        continue;
+                    }
+
                     let processed = if sys_needs_resample {
                         resample_linear(&packet, sys_sample_rate as f64, output_sample_rate as f64)
                     } else {
                         packet
                     };
-                    
+
                     for (ch_idx, samples) in processed.iter().enumerate() {
                         if ch_idx < sys_buffers.len() {
                             sys_buffers[ch_idx].extend(samples.iter().cloned());
                         }
                     }
-                },
+                }
                 Ok(None) => sys_done = true,
                 Err(_) => sys_done = true,
             }
         }
-        
+
         // 3. DETERMINE PROCESSING AMOUNT
         let mic_avail = mic_buffers[0].len();
         let sys_avail = sys_buffers[0].len();
-        
+
         if mic_avail == 0 && sys_avail == 0 && mic_done && sys_done {
             break; // All done
         }
-        
+
         // Limit based on what is available
         let max_avail = mic_avail.max(sys_avail);
         let process_count = block_size.min(max_avail);
 
-        if process_count == 0 { break; }
+        if process_count == 0 {
+            break;
+        }
 
         // 4. MIX
-        let mut mixed_channels: Vec<Vec<f32>> = vec![Vec::with_capacity(process_count); channels as usize];
-        
+        let mut mixed_channels: Vec<Vec<f32>> =
+            vec![Vec::with_capacity(process_count); channels as usize];
+
         for ch in 0..channels as usize {
             for _ in 0..process_count {
                 let m = mic_buffers[ch].pop_front().unwrap_or(0.0);
                 let s = sys_buffers[ch].pop_front().unwrap_or(0.0);
-                
+
                 let sum = m + s;
                 // Soft clip using tanh - smooth, continuous, no discontinuity
                 let clipped = (sum as f64).tanh() as f32;
                 mixed_channels[ch].push(clipped);
             }
         }
-        
+
         // 5. ENCODE
         let slices: Vec<&[f32]> = mixed_channels.iter().map(|v| v.as_slice()).collect();
         encoder.encode_audio_block(&slices)?;
     }
-    
+
     encoder.finish()?;
     Ok(())
 }
@@ -164,10 +177,10 @@ pub fn mix_audio_files<P: AsRef<Path>>(
 pub fn get_ogg_duration<P: AsRef<Path>>(path: P) -> Result<f64> {
     let file = File::open(path.as_ref())?;
     let mut reader = OggStreamReader::new(file)?;
-    
+
     let sample_rate = reader.ident_hdr.audio_sample_rate;
     let mut total_samples = 0;
-    
+
     loop {
         match reader.read_dec_packet_generic::<Vec<Vec<f32>>>() {
             Ok(Some(samples)) => {
@@ -179,7 +192,7 @@ pub fn get_ogg_duration<P: AsRef<Path>>(path: P) -> Result<f64> {
             Err(_) => break,
         }
     }
-    
+
     Ok(total_samples as f64 / sample_rate as f64)
 }
 
@@ -204,7 +217,9 @@ pub fn mix_audio_files_normalized<P: AsRef<Path>>(
         let mut all_samples: Vec<Vec<f32>> = vec![Vec::new(); channels as usize];
 
         while let Some(packet) = reader.read_dec_packet_generic::<Vec<Vec<f32>>>()? {
-            if packet.is_empty() { continue; }
+            if packet.is_empty() {
+                continue;
+            }
             for (ch, samples) in packet.iter().enumerate() {
                 if ch < all_samples.len() {
                     all_samples[ch].extend(samples);
@@ -231,19 +246,25 @@ pub fn mix_audio_files_normalized<P: AsRef<Path>>(
             }
         }
 
-        if count == 0 { return 0.0; }
+        if count == 0 {
+            return 0.0;
+        }
         (sum_sq / count as f64).sqrt() as f32
     }
 
     // Helper: convert RMS to dB
     fn rms_to_db(rms: f32) -> f32 {
-        if rms <= 0.0 { return -100.0; }
+        if rms <= 0.0 {
+            return -100.0;
+        }
         20.0 * rms.log10()
     }
 
     // Helper: calculate gain to reach target RMS
     fn gain_for_target_rms(current_rms: f32, target_db: f32) -> f32 {
-        if current_rms <= 0.0 { return 1.0; }
+        if current_rms <= 0.0 {
+            return 1.0;
+        }
         let current_db = rms_to_db(current_rms);
         let gain_db = target_db - current_db;
         // Limit gain to reasonable range (-20 to +20 dB)
@@ -265,17 +286,25 @@ pub fn mix_audio_files_normalized<P: AsRef<Path>>(
     let sys_rms = calculate_rms(&sys_samples);
 
     #[cfg(debug_assertions)]
-    eprintln!("Normalizing mix: mic RMS={:.1} dB, system RMS={:.1} dB, target={:.1} dB",
-        rms_to_db(mic_rms), rms_to_db(sys_rms), TARGET_RMS_DB);
+    eprintln!(
+        "Normalizing mix: mic RMS={:.1} dB, system RMS={:.1} dB, target={:.1} dB",
+        rms_to_db(mic_rms),
+        rms_to_db(sys_rms),
+        TARGET_RMS_DB
+    );
 
     // Calculate gains
     let mic_gain = gain_for_target_rms(mic_rms, TARGET_RMS_DB);
     let sys_gain = gain_for_target_rms(sys_rms, TARGET_RMS_DB);
 
     #[cfg(debug_assertions)]
-    eprintln!("Applying gains: mic={:.2}x ({:+.1} dB), system={:.2}x ({:+.1} dB)",
-        mic_gain, 20.0 * mic_gain.log10(),
-        sys_gain, 20.0 * sys_gain.log10());
+    eprintln!(
+        "Applying gains: mic={:.2}x ({:+.1} dB), system={:.2}x ({:+.1} dB)",
+        mic_gain,
+        20.0 * mic_gain.log10(),
+        sys_gain,
+        20.0 * sys_gain.log10()
+    );
 
     // Resample if needed
     let mic_resampled = if mic_rate != OUTPUT_SAMPLE_RATE {
@@ -291,8 +320,8 @@ pub fn mix_audio_files_normalized<P: AsRef<Path>>(
     };
 
     // Determine output length (max of both)
-    let mic_len = mic_resampled.get(0).map(|v| v.len()).unwrap_or(0);
-    let sys_len = sys_resampled.get(0).map(|v| v.len()).unwrap_or(0);
+    let mic_len = mic_resampled.first().map(|v| v.len()).unwrap_or(0);
+    let sys_len = sys_resampled.first().map(|v| v.len()).unwrap_or(0);
     let output_len = mic_len.max(sys_len);
 
     // Create encoder
@@ -303,7 +332,9 @@ pub fn mix_audio_files_normalized<P: AsRef<Path>>(
         output_file,
         0,
     )
-    .bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr { target_quality: 0.5 })
+    .bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr {
+        target_quality: 0.5,
+    })
     .build()?;
 
     // Mix with normalization in blocks
@@ -312,23 +343,28 @@ pub fn mix_audio_files_normalized<P: AsRef<Path>>(
 
     while pos < output_len {
         let end = (pos + block_size).min(output_len);
-        let mut mixed_channels: Vec<Vec<f32>> = vec![Vec::with_capacity(end - pos); channels as usize];
+        let mut mixed_channels: Vec<Vec<f32>> =
+            vec![Vec::with_capacity(end - pos); channels as usize];
 
-        for ch in 0..channels as usize {
+        for (ch, channel) in mixed_channels.iter_mut().enumerate() {
             for i in pos..end {
-                let m = mic_resampled.get(ch)
+                let m = mic_resampled
+                    .get(ch)
                     .and_then(|v| v.get(i))
                     .copied()
-                    .unwrap_or(0.0) * mic_gain;
-                let s = sys_resampled.get(ch)
+                    .unwrap_or(0.0)
+                    * mic_gain;
+                let s = sys_resampled
+                    .get(ch)
                     .and_then(|v| v.get(i))
                     .copied()
-                    .unwrap_or(0.0) * sys_gain;
+                    .unwrap_or(0.0)
+                    * sys_gain;
 
                 // Mix and soft clip
                 let sum = m + s;
                 let clipped = (sum as f64).tanh() as f32;
-                mixed_channels[ch].push(clipped);
+                channel.push(clipped);
             }
         }
 
@@ -340,7 +376,10 @@ pub fn mix_audio_files_normalized<P: AsRef<Path>>(
     encoder.finish()?;
 
     #[cfg(debug_assertions)]
-    eprintln!("Normalized mix created: {} samples @ {} Hz", output_len, OUTPUT_SAMPLE_RATE);
+    eprintln!(
+        "Normalized mix created: {} samples @ {} Hz",
+        output_len, OUTPUT_SAMPLE_RATE
+    );
 
     Ok(())
 }
@@ -351,21 +390,21 @@ fn resample_linear(input: &[Vec<f32>], input_rate: f64, output_rate: f64) -> Vec
     if input.is_empty() || input[0].is_empty() {
         return input.to_vec();
     }
-    
+
     let ratio = output_rate / input_rate;
     let input_len = input[0].len();
     let output_len = (input_len as f64 * ratio).ceil() as usize;
     let channels = input.len();
-    
+
     let mut output = vec![Vec::with_capacity(output_len); channels];
-    
+
     for ch in 0..channels {
         for i in 0..output_len {
             // Map output position to input position
             let src_pos = i as f64 / ratio;
             let src_idx = src_pos.floor() as usize;
             let frac = src_pos - src_idx as f64;
-            
+
             let sample = if src_idx + 1 < input_len {
                 // Linear interpolation between two samples
                 let a = input[ch][src_idx];
@@ -377,10 +416,10 @@ fn resample_linear(input: &[Vec<f32>], input_rate: f64, output_rate: f64) -> Vec
             } else {
                 0.0
             };
-            
+
             output[ch].push(sample);
         }
     }
-    
+
     output
 }

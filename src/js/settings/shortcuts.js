@@ -1,5 +1,5 @@
 // Quick Dictate shortcuts editor — Settings → Shortcuts tab.
-// Manages a list of { id, name, hotkey, engine, pipeline, auto_paste }.
+// Manages a list of { id, name, hotkey, input_source, pipeline, auto_paste }.
 
 import { invoke, listen } from '../core/tauri.js';
 import * as state from '../core/state.js';
@@ -59,7 +59,6 @@ function emptyDraft() {
     name: '',
     hotkey: '',
     input_source: 'Audio',
-    engine: 'FluidAudio',
     device_name: null,
     pipeline: null,
     auto_paste: true,

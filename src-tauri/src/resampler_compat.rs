@@ -16,9 +16,7 @@
 //! the channel count general.
 
 use audioadapter_buffers::direct::SequentialSliceOfVecs;
-use rubato::{
-    Async, Fft, FixedAsync, FixedSync, Indexing,
-};
+use rubato::{Async, Fft, FixedAsync, FixedSync, Indexing};
 
 // Re-export the sinc parameter types unchanged so existing `use` lines keep
 // compiling against this module instead of `rubato`.

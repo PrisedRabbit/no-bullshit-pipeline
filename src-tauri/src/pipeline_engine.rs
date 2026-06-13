@@ -1,18 +1,18 @@
+use chrono::Utc;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::fs;
 use std::path::{Path, PathBuf};
-use chrono::Utc;
+use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 
 use crate::config::StepType;
 use crate::connectors;
 use crate::pipelines::{
-    load_pipelines, validate_pipeline, PipelineProgressPayload, PipelineState, PipelineStatus,
-    PipelineStep, StepStatus,
+    PipelineProgressPayload, PipelineState, PipelineStatus, PipelineStep, StepStatus,
+    load_pipelines, validate_pipeline,
 };
 use crate::storage::get_data_dir;
-use crate::transcription::{render_transcript_from_json, TranscriptJson};
+use crate::transcription::{TranscriptJson, render_transcript_from_json};
 
 lazy_static::lazy_static! {
     /// Per-(recording, pipeline) execution lock.
@@ -27,12 +27,11 @@ struct LockMapGuard {
 
 impl Drop for LockMapGuard {
     fn drop(&mut self) {
-        if let Ok(mut locks) = PIPELINE_EXEC_LOCKS.lock() {
-            if let Some(entry) = locks.get(&self.key) {
-                if Arc::strong_count(entry) <= 2 {
-                    locks.remove(&self.key);
-                }
-            }
+        if let Ok(mut locks) = PIPELINE_EXEC_LOCKS.lock()
+            && let Some(entry) = locks.get(&self.key)
+            && Arc::strong_count(entry) <= 2
+        {
+            locks.remove(&self.key);
         }
     }
 }
@@ -80,8 +79,11 @@ fn extract_title_from_output(content: &str) -> Option<String> {
             // Otherwise take the next non-empty line
             for next_line in lines.iter().skip(i + 1) {
                 let next = next_line.trim();
-                if next.is_empty() || next == "---" { continue; }
-                let title = next.trim_start_matches(|c: char| c == '-' || c == '*' || c == ' ')
+                if next.is_empty() || next == "---" {
+                    continue;
+                }
+                let title = next
+                    .trim_start_matches(['-', '*', ' '])
                     .trim_matches(|c: char| c == '*')
                     .trim();
                 if !title.is_empty() {
@@ -93,10 +95,16 @@ fn extract_title_from_output(content: &str) -> Option<String> {
 
     // Pass 2: First non-generic heading (skip things like "Summary", "Резюме", etc.)
     const SKIP_HEADINGS: &[&str] = &[
-        "summary", "резюме", "краткое резюме", "краткое содержание",
-        "краткое саммари разговора", "краткое резюме разговора",
-        "краткое содержание разговора", "краткое содержание транскрипта",
-        "резюме созвона", "резюме разговора",
+        "summary",
+        "резюме",
+        "краткое резюме",
+        "краткое содержание",
+        "краткое саммари разговора",
+        "краткое резюме разговора",
+        "краткое содержание разговора",
+        "краткое содержание транскрипта",
+        "резюме созвона",
+        "резюме разговора",
     ];
     for line in &lines {
         let trimmed = line.trim();
@@ -201,7 +209,11 @@ fn format_attendees(meta: &crate::storage::RecordingMetadata) -> String {
 /// Recording date as local `YYYY-MM-DD` for the `{date}` placeholder.
 fn format_date(rfc3339: &str) -> String {
     chrono::DateTime::parse_from_rfc3339(rfc3339)
-        .map(|dt| dt.with_timezone(&chrono::Local).format("%Y-%m-%d").to_string())
+        .map(|dt| {
+            dt.with_timezone(&chrono::Local)
+                .format("%Y-%m-%d")
+                .to_string()
+        })
         .unwrap_or_default()
 }
 
@@ -293,8 +305,7 @@ async fn dispatch_step(
     started_at: &str,
     output_dir: &Path,
 ) -> Result<StepOutcome, String> {
-    fs::create_dir_all(output_dir)
-        .map_err(|e| format!("Failed to create output dir: {}", e))?;
+    fs::create_dir_all(output_dir).map_err(|e| format!("Failed to create output dir: {}", e))?;
 
     // Transient input file the CLI connector reads. Hidden (`.<step>.input.txt`)
     // so it doesn't pollute the artifact listing get_step_outputs iterates.
@@ -302,7 +313,11 @@ async fn dispatch_step(
     fs::write(&input_path, rendered_input)
         .map_err(|e| format!("Failed to write step input file: {}", e))?;
 
-    let step_input_label = if rendered_input.is_empty() { "empty" } else { "rendered-template" };
+    let step_input_label = if rendered_input.is_empty() {
+        "empty"
+    } else {
+        "rendered-template"
+    };
 
     let artifact_path = match step.step_type {
         StepType::CliAgent => {
@@ -311,9 +326,10 @@ async fn dispatch_step(
             // the config the connector reads.
             let mut cfg = step.config.clone();
             ensure_object(&mut cfg);
-            cfg.as_object_mut()
-                .expect("ensured above")
-                .insert("prompt".to_string(), serde_json::Value::String(rendered_input.to_string()));
+            cfg.as_object_mut().expect("ensured above").insert(
+                "prompt".to_string(),
+                serde_json::Value::String(rendered_input.to_string()),
+            );
 
             connectors::cli_agent::execute(
                 &input_path,
@@ -390,11 +406,7 @@ fn ensure_object(v: &mut serde_json::Value) {
 
 /// Write a `<step>.md` artifact for a skipped step so `get_step_outputs`
 /// reports the right status without needing the connector to have run.
-fn write_skipped_artifact(
-    output_dir: &Path,
-    step: &PipelineStep,
-    reason: &str,
-) {
+fn write_skipped_artifact(output_dir: &Path, step: &PipelineStep, reason: &str) {
     let _ = fs::create_dir_all(output_dir);
     let output_path = output_dir.join(format!("{}.md", step.name));
     if output_path.exists() {
@@ -406,9 +418,13 @@ fn write_skipped_artifact(
     let content = format!(
         "---\nname: {}\ndescription: \"{}\"\nconnector: {}\nstatus: skipped\ncreated_at: {}\ncompleted_at: {}\nerror: \"{}\"\n---\n\n## Skipped\n{}\n",
         step.name,
-        step.description.as_deref().unwrap_or("").replace('"', "\\\""),
+        step.description
+            .as_deref()
+            .unwrap_or("")
+            .replace('"', "\\\""),
         connector_label,
-        now, now,
+        now,
+        now,
         reason_escaped,
         reason,
     );
@@ -436,7 +452,10 @@ pub async fn execute_pipeline_internal(
     // Serialize execution: if the same pipeline is already running on this recording, wait.
     let lock = {
         let mut locks = PIPELINE_EXEC_LOCKS.lock().unwrap();
-        locks.entry(key.clone()).or_insert_with(|| Arc::new(TokioMutex::new(()))).clone()
+        locks
+            .entry(key.clone())
+            .or_insert_with(|| Arc::new(TokioMutex::new(())))
+            .clone()
     };
     let _map_guard = LockMapGuard { key };
     let _exec_guard = lock.lock().await;
@@ -463,7 +482,13 @@ pub async fn execute_pipeline_internal(
 
     // Zero-step pipeline = label only; skip execution, return Done immediately.
     if pipeline.steps.is_empty() {
-        update_pipeline_state(recording_id, pipeline_name, PipelineStatus::Done, None, None)?;
+        update_pipeline_state(
+            recording_id,
+            pipeline_name,
+            PipelineStatus::Done,
+            None,
+            None,
+        )?;
         return Ok(PipelineStatus::Done);
     }
 
@@ -473,7 +498,10 @@ pub async fn execute_pipeline_internal(
     // Recording start time (RFC3339) — feeds the save connector's filename —
     // plus the calendar-match placeholders, all from the one metadata read.
     let meta = crate::storage::read_metadata(recording_id).ok();
-    let started_at = meta.as_ref().map(|m| m.created_at.clone()).unwrap_or_default();
+    let started_at = meta
+        .as_ref()
+        .map(|m| m.created_at.clone())
+        .unwrap_or_default();
     let calendar_title = meta
         .as_ref()
         .filter(|m| m.calendar_matched)
@@ -485,14 +513,25 @@ pub async fn execute_pipeline_internal(
     // Resolve run_index from the active (waiting/running) pipeline state.
     let run_index = {
         let states = read_pipeline_states(recording_id);
-        states.iter()
-            .filter(|s| s.name == pipeline_name && s.status != PipelineStatus::Done && s.status != PipelineStatus::Partial)
+        states
+            .iter()
+            .filter(|s| {
+                s.name == pipeline_name
+                    && s.status != PipelineStatus::Done
+                    && s.status != PipelineStatus::Partial
+            })
             .map(|s| s.run_index)
-            .last()
+            .next_back()
             .unwrap_or(0)
     };
 
-    update_pipeline_state(recording_id, pipeline_name, PipelineStatus::Running, None, None)?;
+    update_pipeline_state(
+        recording_id,
+        pipeline_name,
+        PipelineStatus::Running,
+        None,
+        None,
+    )?;
 
     let output_dir = get_pipeline_output_dir(recording_id, pipeline_name, run_index);
     let total_steps = pipeline.steps.len();
@@ -517,7 +556,15 @@ pub async fn execute_pipeline_internal(
 
     for (i, step) in pipeline.steps.iter().enumerate() {
         // Emit running event before any work so the UI flips the row state.
-        emit_progress(app_handle, recording_id, pipeline_name, step, i, total_steps, "running");
+        emit_progress(
+            app_handle,
+            recording_id,
+            pipeline_name,
+            step,
+            i,
+            total_steps,
+            "running",
+        );
         update_pipeline_state(
             recording_id,
             pipeline_name,
@@ -528,7 +575,15 @@ pub async fn execute_pipeline_internal(
 
         match run_one_step(step, &prev_processing_output, &ctx).await {
             Ok(body) => {
-                emit_progress(app_handle, recording_id, pipeline_name, step, i, total_steps, "done");
+                emit_progress(
+                    app_handle,
+                    recording_id,
+                    pipeline_name,
+                    step,
+                    i,
+                    total_steps,
+                    "done",
+                );
                 // Every step feeds the next — output becomes {processing_result}.
                 prev_processing_output = body;
             }
@@ -580,22 +635,23 @@ pub async fn execute_pipeline_internal(
 
     // Auto-title: if recording still has default title, extract one from the first
     // processing step's output that succeeded.
-    if final_status == PipelineStatus::Done || final_status == PipelineStatus::Partial {
-        if let Ok(meta) = crate::storage::read_metadata(recording_id) {
-            let needs_title = meta.title.is_empty()
-                || meta.title == "Untitled Recording"
-                || meta.title.starts_with("Recording ");
-            if needs_title {
-                if let Some(step) = pipeline.steps.iter().find(|s| {
-                    !failed_or_skipped.contains(&s.name)
-                }) {
-                    let step_output = output_dir.join(format!("{}.md", step.name));
-                    if let Ok(content) = fs::read_to_string(&step_output) {
-                        if let Some(title) = extract_title_from_output(&content) {
-                            let _ = crate::storage::update_title(recording_id, title);
-                        }
-                    }
-                }
+    if (final_status == PipelineStatus::Done || final_status == PipelineStatus::Partial)
+        && let Ok(meta) = crate::storage::read_metadata(recording_id)
+    {
+        let needs_title = meta.title.is_empty()
+            || meta.title == "Untitled Recording"
+            || meta.title.starts_with("Recording ");
+        if needs_title
+            && let Some(step) = pipeline
+                .steps
+                .iter()
+                .find(|s| !failed_or_skipped.contains(&s.name))
+        {
+            let step_output = output_dir.join(format!("{}.md", step.name));
+            if let Ok(content) = fs::read_to_string(&step_output)
+                && let Some(title) = extract_title_from_output(&content)
+            {
+                let _ = crate::storage::update_title(recording_id, title);
             }
         }
     }
@@ -725,8 +781,8 @@ fn update_pipeline_state(
     // Read current metadata JSON (preserves all fields including unknown ones)
     let content = fs::read_to_string(&metadata_path)
         .map_err(|e| format!("Failed to read metadata: {}", e))?;
-    let mut json: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse metadata: {}", e))?;
+    let mut json: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse metadata: {}", e))?;
 
     // Extract existing pipeline states
     let mut pipeline_states: Vec<PipelineState> = json
@@ -737,7 +793,11 @@ fn update_pipeline_state(
     // Find the active (non-completed) entry for this pipeline, or create a new one.
     // Search from the end so we target the most recently assigned run when multiple
     // active entries exist (e.g. a previous run still Running when a new run starts).
-    if let Some(state) = pipeline_states.iter_mut().rev().find(|s| s.name == pipeline_name && s.status != PipelineStatus::Done && s.status != PipelineStatus::Partial) {
+    if let Some(state) = pipeline_states.iter_mut().rev().find(|s| {
+        s.name == pipeline_name
+            && s.status != PipelineStatus::Done
+            && s.status != PipelineStatus::Partial
+    }) {
         state.status = status.clone();
         state.current_step = current_step;
         if status == PipelineStatus::Running && state.started_at.is_none() {
@@ -768,8 +828,7 @@ fn update_pipeline_state(
     let temp_path = metadata_path.with_extension("json.tmp");
     let updated = serde_json::to_string_pretty(&json)
         .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
-    fs::write(&temp_path, &updated)
-        .map_err(|e| format!("Failed to write temp metadata: {}", e))?;
+    fs::write(&temp_path, &updated).map_err(|e| format!("Failed to write temp metadata: {}", e))?;
     fs::rename(&temp_path, &metadata_path)
         .map_err(|e| format!("Failed to finalize metadata: {}", e))?;
 
@@ -789,47 +848,61 @@ fn read_pipeline_states(recording_id: &str) -> Vec<PipelineState> {
     let recording_dir = get_data_dir().join(recording_id);
     let metadata_path = recording_dir.join("metadata.json");
 
-    let Ok(content) = fs::read_to_string(&metadata_path) else { return Vec::new() };
-    let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) else { return Vec::new() };
-    let Some(pipelines) = json.get("pipelines") else { return Vec::new() };
+    let Ok(content) = fs::read_to_string(&metadata_path) else {
+        return Vec::new();
+    };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return Vec::new();
+    };
+    let Some(pipelines) = json.get("pipelines") else {
+        return Vec::new();
+    };
 
     // Backfill missing `id` fields so serde default doesn't generate a new UUID each read
     if let Some(arr) = pipelines.as_array() {
         let needs_migration = arr.iter().any(|e| {
-            e.get("id").and_then(|v| v.as_str()).map_or(true, |s| s.is_empty())
+            e.get("id")
+                .and_then(|v| v.as_str())
+                .is_none_or(|s| s.is_empty())
         });
         if needs_migration {
             // Acquire lock BEFORE re-reading to avoid overwriting concurrent changes
             let lock_path = recording_dir.join(".metadata.lock");
             if let Ok(_lock) = FileLockGuard::acquire(&lock_path) {
                 // Re-read file under lock to get the latest state
-                if let Ok(locked_content) = fs::read_to_string(&metadata_path) {
-                    if let Ok(mut locked_json) = serde_json::from_str::<serde_json::Value>(&locked_content) {
-                        if let Some(locked_arr) = locked_json.get("pipelines").and_then(|v| v.as_array()) {
-                            let mut migrated = locked_arr.clone();
-                            for entry in &mut migrated {
-                                let missing = entry.get("id").and_then(|v| v.as_str()).map_or(true, |s| s.is_empty());
-                                if missing {
-                                    if let Some(obj) = entry.as_object_mut() {
-                                        obj.insert("id".to_string(), serde_json::Value::String(uuid::Uuid::new_v4().to_string()));
-                                    }
-                                }
-                            }
-                            locked_json["pipelines"] = serde_json::Value::Array(migrated);
-                            if let Ok(updated) = serde_json::to_string_pretty(&locked_json) {
-                                let temp_path = metadata_path.with_extension("json.tmp");
-                                if fs::write(&temp_path, &updated).is_ok()
-                                    && fs::rename(&temp_path, &metadata_path).is_ok()
-                                {
-                                    crate::storage::invalidate_list_cache();
-                                }
-                            }
-                            // Return states from the locked read (authoritative)
-                            return locked_json.get("pipelines")
-                                .and_then(|v| serde_json::from_value::<Vec<PipelineState>>(v.clone()).ok())
-                                .unwrap_or_default();
+                if let Ok(locked_content) = fs::read_to_string(&metadata_path)
+                    && let Ok(mut locked_json) =
+                        serde_json::from_str::<serde_json::Value>(&locked_content)
+                    && let Some(locked_arr) =
+                        locked_json.get("pipelines").and_then(|v| v.as_array())
+                {
+                    let mut migrated = locked_arr.clone();
+                    for entry in &mut migrated {
+                        let missing = entry
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .is_none_or(|s| s.is_empty());
+                        if missing && let Some(obj) = entry.as_object_mut() {
+                            obj.insert(
+                                "id".to_string(),
+                                serde_json::Value::String(uuid::Uuid::new_v4().to_string()),
+                            );
                         }
                     }
+                    locked_json["pipelines"] = serde_json::Value::Array(migrated);
+                    if let Ok(updated) = serde_json::to_string_pretty(&locked_json) {
+                        let temp_path = metadata_path.with_extension("json.tmp");
+                        if fs::write(&temp_path, &updated).is_ok()
+                            && fs::rename(&temp_path, &metadata_path).is_ok()
+                        {
+                            crate::storage::invalidate_list_cache();
+                        }
+                    }
+                    // Return states from the locked read (authoritative)
+                    return locked_json
+                        .get("pipelines")
+                        .and_then(|v| serde_json::from_value::<Vec<PipelineState>>(v.clone()).ok())
+                        .unwrap_or_default();
                 }
             }
         }
@@ -979,7 +1052,11 @@ fn parse_step_status(content: &str) -> (String, Option<String>, Option<f64>, Opt
         // Extract body content after the closing frontmatter delimiter
         let body_start = end_idx + 3; // skip past "---"
         let body = stripped[body_start..].trim();
-        let output = if body.is_empty() { None } else { Some(body.to_string()) };
+        let output = if body.is_empty() {
+            None
+        } else {
+            Some(body.to_string())
+        };
 
         return (status, error, duration_secs, output);
     }
@@ -998,18 +1075,19 @@ pub fn remove_pipeline_run(recording_id: String, run_id: String) -> Result<(), S
 
     let content = fs::read_to_string(&metadata_path)
         .map_err(|e| format!("Failed to read metadata: {}", e))?;
-    let mut json: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse metadata: {}", e))?;
+    let mut json: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse metadata: {}", e))?;
 
     // Work with raw JSON array to avoid serde default generating new random UUIDs
     // for legacy entries without persisted `id` fields (which would never match run_id)
-    let pipelines_arr = json.get("pipelines")
+    let pipelines_arr = json
+        .get("pipelines")
         .and_then(|v| v.as_array())
         .ok_or_else(|| "No pipelines array in metadata".to_string())?;
 
-    let pos = pipelines_arr.iter().position(|entry| {
-        entry.get("id").and_then(|v| v.as_str()) == Some(run_id.as_str())
-    });
+    let pos = pipelines_arr
+        .iter()
+        .position(|entry| entry.get("id").and_then(|v| v.as_str()) == Some(run_id.as_str()));
 
     let idx = match pos {
         Some(i) => i,
@@ -1018,8 +1096,15 @@ pub fn remove_pipeline_run(recording_id: String, run_id: String) -> Result<(), S
 
     // Extract name and run_index for output dir cleanup before removing
     let removed = &pipelines_arr[idx];
-    let removed_name = removed.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let removed_run_index = removed.get("run_index").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    let removed_name = removed
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let removed_run_index = removed
+        .get("run_index")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as usize;
 
     let mut arr = pipelines_arr.clone();
     arr.remove(idx);
@@ -1028,8 +1113,7 @@ pub fn remove_pipeline_run(recording_id: String, run_id: String) -> Result<(), S
     let temp_path = metadata_path.with_extension("json.tmp");
     let updated = serde_json::to_string_pretty(&json)
         .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
-    fs::write(&temp_path, &updated)
-        .map_err(|e| format!("Failed to write temp metadata: {}", e))?;
+    fs::write(&temp_path, &updated).map_err(|e| format!("Failed to write temp metadata: {}", e))?;
     fs::rename(&temp_path, &metadata_path)
         .map_err(|e| format!("Failed to finalize metadata: {}", e))?;
     crate::storage::invalidate_list_cache();
@@ -1060,8 +1144,8 @@ pub fn assign_pipeline(recording_id: String, pipeline_name: String) -> Result<()
 
     let content = fs::read_to_string(&metadata_path)
         .map_err(|e| format!("Failed to read metadata: {}", e))?;
-    let mut json: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse metadata: {}", e))?;
+    let mut json: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse metadata: {}", e))?;
 
     let mut pipeline_states: Vec<PipelineState> = json
         .get("pipelines")
@@ -1069,7 +1153,10 @@ pub fn assign_pipeline(recording_id: String, pipeline_name: String) -> Result<()
         .unwrap_or_default();
 
     // Count existing runs of this pipeline to determine run_index
-    let run_index = pipeline_states.iter().filter(|s| s.name == pipeline_name).count();
+    let run_index = pipeline_states
+        .iter()
+        .filter(|s| s.name == pipeline_name)
+        .count();
 
     pipeline_states.push(PipelineState {
         id: uuid::Uuid::new_v4().to_string(),
@@ -1088,8 +1175,7 @@ pub fn assign_pipeline(recording_id: String, pipeline_name: String) -> Result<()
     let temp_path = metadata_path.with_extension("json.tmp");
     let updated = serde_json::to_string_pretty(&json)
         .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
-    fs::write(&temp_path, &updated)
-        .map_err(|e| format!("Failed to write temp metadata: {}", e))?;
+    fs::write(&temp_path, &updated).map_err(|e| format!("Failed to write temp metadata: {}", e))?;
     fs::rename(&temp_path, &metadata_path)
         .map_err(|e| format!("Failed to finalize metadata: {}", e))?;
     crate::storage::invalidate_list_cache();
@@ -1159,8 +1245,7 @@ mod tests {
 
     #[test]
     fn test_parse_step_status_failed() {
-        let content =
-            "---\nname: test\nstatus: failed\nerror: \"API error: 401\"\n---\n\nFailed";
+        let content = "---\nname: test\nstatus: failed\nerror: \"API error: 401\"\n---\n\nFailed";
         let (status, error, _duration, output) = parse_step_status(content);
         assert_eq!(status, "failed");
         assert_eq!(error.unwrap(), "API error: 401");

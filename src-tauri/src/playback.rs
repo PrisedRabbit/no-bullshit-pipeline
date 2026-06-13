@@ -105,12 +105,10 @@ fn run_playback(audio_path: std::path::PathBuf) -> Result<(), String> {
     let sink = Player::connect_new(stream_handle.mixer());
 
     // Open with larger buffer for smooth playback
-    let file = File::open(&audio_path)
-        .map_err(|e| format!("File error: {}", e))?;
+    let file = File::open(&audio_path).map_err(|e| format!("File error: {}", e))?;
     let reader = BufReader::with_capacity(256 * 1024, file); // 256KB buffer
 
-    let source = Decoder::new(reader)
-        .map_err(|e| format!("Decode error: {}", e))?;
+    let source = Decoder::new(reader).map_err(|e| format!("Decode error: {}", e))?;
 
     sink.append(source);
     sink.play();
@@ -176,7 +174,7 @@ pub fn resume_audio() -> Result<(), String> {
 pub fn stop_audio() -> Result<(), String> {
     STOP_SIGNAL.store(true, Ordering::SeqCst);
     PAUSE_SIGNAL.store(false, Ordering::SeqCst);
-    
+
     // Join the thread to make sure it is completely stopped
     let handle = {
         if let Ok(mut thread_guard) = PLAYBACK_THREAD.lock() {
@@ -215,7 +213,8 @@ pub fn get_playback_state() -> PlaybackState {
         PlaybackStatus::Playing
     };
 
-    let recording_id = CURRENT_RECORDING_ID.lock()
+    let recording_id = CURRENT_RECORDING_ID
+        .lock()
         .map(|id| id.clone())
         .unwrap_or(None);
 

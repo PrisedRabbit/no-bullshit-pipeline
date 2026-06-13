@@ -153,7 +153,15 @@ pub fn match_event_for(rec_start: f64, rec_end: f64) -> Option<MatchedEvent> {
             let title = unsafe { event.title() }.to_string();
             let id = unsafe { event.eventIdentifier() }.map(|s| s.to_string());
             let attendees = attendees_of(&event);
-            best = Some((overlap, diff, MatchedEvent { id, title, attendees }));
+            best = Some((
+                overlap,
+                diff,
+                MatchedEvent {
+                    id,
+                    title,
+                    attendees,
+                },
+            ));
         }
     }
 
@@ -264,7 +272,9 @@ pub fn request_calendar_permission(
 #[tauri::command]
 pub fn rematch_calendar(recording_id: String) -> Result<crate::storage::RecordingMetadata, String> {
     if !has_full_access() {
-        return Err("Calendar access isn't granted. Enable it in Settings → Recording.".to_string());
+        return Err(
+            "Calendar access isn't granted. Enable it in Settings → Recording.".to_string(),
+        );
     }
     let mut meta = crate::storage::read_metadata(&recording_id)?;
     let start = parse_rfc3339_unix(&meta.created_at)
@@ -383,7 +393,10 @@ mod tests {
     #[test]
     fn tiny_recording_inside_event_matches() {
         // 1-min note inside the meeting — bar is capped at 1 min, overlap = 1 min.
-        assert_eq!(qualifying_overlap(m(30.0), m(31.0), m(0.0), m(60.0)), Some(m(1.0)));
+        assert_eq!(
+            qualifying_overlap(m(30.0), m(31.0), m(0.0), m(60.0)),
+            Some(m(1.0))
+        );
     }
 
     #[test]

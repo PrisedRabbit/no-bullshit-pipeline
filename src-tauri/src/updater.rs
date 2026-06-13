@@ -14,8 +14,7 @@ const RELEASES_API: &str =
 /// Where the Download button takes the user. Points at the releases page
 /// (not the specific tag) so the user sees the full changelog and can pick
 /// the right asset.
-const RELEASES_PAGE: &str =
-    "https://github.com/skopanev/no-bullshit-pipeline/releases";
+const RELEASES_PAGE: &str = "https://github.com/skopanev/no-bullshit-pipeline/releases";
 
 #[derive(Deserialize)]
 struct GhRelease {

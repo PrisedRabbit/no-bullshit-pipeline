@@ -1,9 +1,9 @@
+use crate::config::{StepType, get_config_dir};
+use crate::storage::get_data_dir;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use crate::config::{get_config_dir, StepType};
-use crate::storage::get_data_dir;
 
 /// A single step in a pipeline.
 ///
@@ -57,10 +57,10 @@ fn default_now() -> String {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum PipelineStatus {
-    Waiting,  // Assigned but transcript not ready
-    Running,  // Currently executing
-    Done,     // All steps completed successfully
-    Partial,  // Stopped due to step failure
+    Waiting, // Assigned but transcript not ready
+    Running, // Currently executing
+    Done,    // All steps completed successfully
+    Partial, // Stopped due to step failure
 }
 
 /// Pipeline execution state stored in recording metadata
@@ -135,8 +135,10 @@ pub fn validate_pipeline(pipeline: &Pipeline) -> Result<(), String> {
     }
 
     // Pipeline name must be filesystem-safe (no slashes, colons, null bytes)
-    if pipeline.name.contains('/') || pipeline.name.contains('\\')
-        || pipeline.name.contains('\0') || pipeline.name.contains(':')
+    if pipeline.name.contains('/')
+        || pipeline.name.contains('\\')
+        || pipeline.name.contains('\0')
+        || pipeline.name.contains(':')
     {
         return Err("Pipeline name contains invalid characters (/, \\, :, or null)".to_string());
     }
@@ -150,8 +152,10 @@ pub fn validate_pipeline(pipeline: &Pipeline) -> Result<(), String> {
         }
 
         // Step name must be filesystem-safe
-        if step.name.contains('/') || step.name.contains('\\')
-            || step.name.contains('\0') || step.name.contains(':')
+        if step.name.contains('/')
+            || step.name.contains('\\')
+            || step.name.contains('\0')
+            || step.name.contains(':')
         {
             return Err(format!(
                 "Step '{}' name contains invalid characters (/, \\, :, or null)",
@@ -187,14 +191,17 @@ pub fn load_pipelines() -> Result<HashMap<String, Pipeline>, String> {
         return Ok(HashMap::new());
     }
 
-    let raw = fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read pipelines.json: {}", e))?;
+    let raw =
+        fs::read_to_string(&path).map_err(|e| format!("Failed to read pipelines.json: {}", e))?;
 
     // Loose parse so one bad pipeline doesn't take down the rest.
     let map: HashMap<String, serde_json::Value> = match serde_json::from_str(&raw) {
         Ok(m) => m,
         Err(e) => {
-            log::warn!("pipelines.json is not a valid object ({}); starting with an empty list.", e);
+            log::warn!(
+                "pipelines.json is not a valid object ({}); starting with an empty list.",
+                e
+            );
             return Ok(HashMap::new());
         }
     };
@@ -236,12 +243,13 @@ fn prune_and_parse_pipeline(mut value: serde_json::Value) -> Result<Pipeline, se
 pub fn save_pipelines_to_disk(pipelines: &HashMap<String, Pipeline>) -> Result<(), String> {
     let config_dir = get_config_dir();
     if !config_dir.exists() {
-        fs::create_dir_all(&config_dir).map_err(|e| format!("Failed to create config dir: {}", e))?;
+        fs::create_dir_all(&config_dir)
+            .map_err(|e| format!("Failed to create config dir: {}", e))?;
     }
 
     let path = get_pipelines_path();
-    let content =
-        serde_json::to_string_pretty(pipelines).map_err(|e| format!("Failed to serialize pipelines: {}", e))?;
+    let content = serde_json::to_string_pretty(pipelines)
+        .map_err(|e| format!("Failed to serialize pipelines: {}", e))?;
     fs::write(&path, content).map_err(|e| format!("Failed to write pipelines.json: {}", e))?;
 
     Ok(())
@@ -256,7 +264,7 @@ pub fn list_pipelines() -> Result<Vec<Pipeline>, String> {
     // is mutated (e.g. after save_pipeline), which made the list reshuffle on
     // every reload — toggling one pipeline's auto-run looked like it changed a
     // different row. Sort by name for a stable, predictable order.
-    list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    list.sort_by_key(|a| a.name.to_lowercase());
     Ok(list)
 }
 
@@ -354,7 +362,10 @@ mod tests {
         let mut pipeline = make_valid_pipeline();
         pipeline.steps = vec![];
         let result = validate_pipeline(&pipeline);
-        assert!(result.is_ok(), "Zero-step pipelines should be valid (labels)");
+        assert!(
+            result.is_ok(),
+            "Zero-step pipelines should be valid (labels)"
+        );
     }
 
     #[test]

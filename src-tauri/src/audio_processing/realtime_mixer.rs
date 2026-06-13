@@ -1,11 +1,13 @@
+use crate::resampler_compat::{
+    SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
+};
 use anyhow::Result;
-use crate::resampler_compat::{SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 use std::collections::VecDeque;
 use std::fs::File;
-use std::num::{NonZeroU32, NonZeroU8};
+use std::num::{NonZeroU8, NonZeroU32};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoder, VorbisEncoderBuilder};
@@ -58,7 +60,9 @@ impl AdaptiveGain {
                 if let Some(old) = self.rms_window.pop_front() {
                     self.sum_sq -= old as f64;
                     // Prevent negative due to float errors
-                    if self.sum_sq < 0.0 { self.sum_sq = 0.0; }
+                    if self.sum_sq < 0.0 {
+                        self.sum_sq = 0.0;
+                    }
                 }
             }
         }
@@ -79,7 +83,8 @@ impl AdaptiveGain {
         };
 
         // Smooth gain changes to avoid clicks
-        self.current_gain = self.current_gain * self.smoothing + target_gain * (1.0 - self.smoothing);
+        self.current_gain =
+            self.current_gain * self.smoothing + target_gain * (1.0 - self.smoothing);
 
         self.current_gain
     }
@@ -147,7 +152,9 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
         output_file,
         0,
     )
-    .bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr { target_quality: 0.5 })
+    .bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr {
+        target_quality: 0.5,
+    })
     .build()?;
 
     // Adaptive gain controllers for each source
@@ -189,7 +196,8 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
         if total_frames_written < expected_frames {
             // Write up to 100ms at a time to avoid huge blocks
             let catch_up_limit = (sample_rate as f64 * 0.1) as usize;
-            let frames_needed = (expected_frames - total_frames_written).min(catch_up_limit as u64) as usize;
+            let frames_needed =
+                (expected_frames - total_frames_written).min(catch_up_limit as u64) as usize;
 
             let mic_avail = MIC_BUFFER.available();
             let sys_avail = SYSTEM_BUFFER.available();
@@ -211,10 +219,14 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
                 if frame_count > 0 {
                     // Update gain controllers with mono mix of each source
                     let mic_mono: Vec<f32> = (0..mic_left.len())
-                        .map(|i| (mic_left[i] + mic_right.get(i).copied().unwrap_or(mic_left[i])) * 0.5)
+                        .map(|i| {
+                            (mic_left[i] + mic_right.get(i).copied().unwrap_or(mic_left[i])) * 0.5
+                        })
                         .collect();
                     let sys_mono: Vec<f32> = (0..sys_left.len())
-                        .map(|i| (sys_left[i] + sys_right.get(i).copied().unwrap_or(sys_left[i])) * 0.5)
+                        .map(|i| {
+                            (sys_left[i] + sys_right.get(i).copied().unwrap_or(sys_left[i])) * 0.5
+                        })
                         .collect();
 
                     let mg = mic_gain.update(&mic_mono);
@@ -236,7 +248,8 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
 
                     // Tap mixed audio to transcription buffer (48kHz stereo → 16kHz mono)
                     feed_transcription_resampler(
-                        &mixed_left, &mixed_right,
+                        &mixed_left,
+                        &mixed_right,
                         &mut transcription_resampler,
                         &mut transcription_accum,
                         transcription_chunk_size,
@@ -258,7 +271,8 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
             if frames_remaining > 0 {
                 let silence = vec![0.0f32; frames_remaining];
                 feed_transcription_resampler(
-                    &silence, &silence,
+                    &silence,
+                    &silence,
                     &mut transcription_resampler,
                     &mut transcription_accum,
                     transcription_chunk_size,
@@ -280,8 +294,13 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
 
     // Drain remaining samples from buffers (use last known gains)
     drain_and_encode(
-        &mut encoder, 4096, mic_gain.gain(), sys_gain.gain(),
-        &mut transcription_resampler, &mut transcription_accum, transcription_chunk_size,
+        &mut encoder,
+        4096,
+        mic_gain.gain(),
+        sys_gain.gain(),
+        &mut transcription_resampler,
+        &mut transcription_accum,
+        transcription_chunk_size,
     )?;
 
     // Final padding to match wall-clock duration
@@ -297,7 +316,8 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
         while remaining > 0 {
             let chunk = remaining.min(silence_chunk as u64) as usize;
             feed_transcription_resampler(
-                &silence[..chunk], &silence[..chunk],
+                &silence[..chunk],
+                &silence[..chunk],
                 &mut transcription_resampler,
                 &mut transcription_accum,
                 transcription_chunk_size,
@@ -310,14 +330,15 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
 
     // Flush remaining transcription resampler buffer and drain sinc filter delay
     // (must happen after all audio including silence padding has been fed)
-    flush_transcription_resampler(
-        &mut transcription_resampler, &mut transcription_accum,
-    );
+    flush_transcription_resampler(&mut transcription_resampler, &mut transcription_accum);
 
     encoder.finish()?;
     #[cfg(debug_assertions)]
-    eprintln!("Real-time mixer: Finished. Wrote {} frames ({:.2}s)",
-        total_frames_written, total_frames_written as f64 / sample_rate as f64);
+    eprintln!(
+        "Real-time mixer: Finished. Wrote {} frames ({:.2}s)",
+        total_frames_written,
+        total_frames_written as f64 / sample_rate as f64
+    );
     Ok(())
 }
 
@@ -362,8 +383,11 @@ fn drain_and_encode(
         }
 
         feed_transcription_resampler(
-            &mixed_left, &mixed_right,
-            transcription_resampler, transcription_accum, transcription_chunk_size,
+            &mixed_left,
+            &mixed_right,
+            transcription_resampler,
+            transcription_accum,
+            transcription_chunk_size,
         );
 
         let slices: Vec<&[f32]> = vec![&mixed_left, &mixed_right];
@@ -386,28 +410,25 @@ fn feed_transcription_resampler(
     }
     while accum.len() >= chunk_size {
         let chunk: Vec<f32> = accum.drain(..chunk_size).collect();
-        if let Ok(resampled) = resampler.process(&[chunk], None) {
-            if !resampled[0].is_empty() {
-                TRANSCRIPTION_BUFFER.push(&resampled[0]);
-            }
+        if let Ok(resampled) = resampler.process(&[chunk], None)
+            && !resampled[0].is_empty()
+        {
+            TRANSCRIPTION_BUFFER.push(&resampled[0]);
         }
     }
 }
 
 /// Flush remaining samples in the transcription resampler accumulation buffer
 /// and drain the resampler's internal sinc filter delay
-fn flush_transcription_resampler(
-    resampler: &mut SincFixedIn<f32>,
-    accum: &mut Vec<f32>,
-) {
+fn flush_transcription_resampler(resampler: &mut SincFixedIn<f32>, accum: &mut Vec<f32>) {
     // Process any remaining accumulated samples via process_partial which
     // handles zero-padding internally for sub-chunk input
     if !accum.is_empty() {
         let partial: Vec<Vec<f32>> = vec![std::mem::take(accum)];
-        if let Ok(resampled) = resampler.process_partial(Some(&partial), None) {
-            if !resampled[0].is_empty() {
-                TRANSCRIPTION_BUFFER.push(&resampled[0]);
-            }
+        if let Ok(resampled) = resampler.process_partial(Some(&partial), None)
+            && !resampled[0].is_empty()
+        {
+            TRANSCRIPTION_BUFFER.push(&resampled[0]);
         }
     }
 
@@ -415,10 +436,10 @@ fn flush_transcription_resampler(
     // process_partial(None) feeds zero-padded input to push any remaining
     // delayed frames out. One call is sufficient since the delay is bounded
     // by sinc_len and fits within a single output chunk.
-    if let Ok(resampled) = resampler.process_partial(None::<&[Vec<f32>]>, None) {
-        if !resampled[0].is_empty() {
-            TRANSCRIPTION_BUFFER.push(&resampled[0]);
-        }
+    if let Ok(resampled) = resampler.process_partial(None::<&[Vec<f32>]>, None)
+        && !resampled[0].is_empty()
+    {
+        TRANSCRIPTION_BUFFER.push(&resampled[0]);
     }
 }
 

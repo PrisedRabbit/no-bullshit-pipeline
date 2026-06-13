@@ -204,7 +204,10 @@ pub async fn execute(
         ENV_VAR_PROCESSING_RESULT.to_string(),
         processing_result.to_string(),
     );
-    env_extras.insert(ENV_VAR_CALENDAR_TITLE.to_string(), calendar_title.to_string());
+    env_extras.insert(
+        ENV_VAR_CALENDAR_TITLE.to_string(),
+        calendar_title.to_string(),
+    );
     env_extras.insert(
         ENV_VAR_CALENDAR_ATTENDEES.to_string(),
         calendar_attendees.to_string(),
@@ -215,11 +218,13 @@ pub async fn execute(
     let outcome = run_shell(&cfg, script, &env_extras).await;
     let completed_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
 
-    fs::create_dir_all(output_dir)
-        .map_err(|e| format!("Failed to create output dir: {}", e))?;
+    fs::create_dir_all(output_dir).map_err(|e| format!("Failed to create output dir: {}", e))?;
     let output_path = output_dir.join(format!("{}.md", step_name));
 
-    let shell_label = cfg.shell.clone().unwrap_or_else(|| DEFAULT_SHELL.to_string());
+    let shell_label = cfg
+        .shell
+        .clone()
+        .unwrap_or_else(|| DEFAULT_SHELL.to_string());
 
     match outcome {
         Ok(run) if run.exit_code == Some(0) => {
@@ -241,7 +246,9 @@ error: null
 {}
 "#,
                 step_name,
-                step_description.unwrap_or("Run shell script").replace('"', "\\\""),
+                step_description
+                    .unwrap_or("Run shell script")
+                    .replace('"', "\\\""),
                 step_input,
                 created_at,
                 completed_at,
@@ -332,7 +339,9 @@ error: "{}"
 {}{}
 "#,
         step_name,
-        step_description.unwrap_or("Run shell script").replace('"', "\\\""),
+        step_description
+            .unwrap_or("Run shell script")
+            .replace('"', "\\\""),
         step_input,
         created_at,
         completed_at,

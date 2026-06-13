@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::config::{load_settings, DictationShortcut, StepType, TranscriptionProvider};
+use crate::config::{DictationShortcut, StepType, TranscriptionProvider, load_settings};
 use crate::pipelines::load_pipelines;
 
 const TARGET_RATE: u32 = 16_000;
@@ -66,7 +66,8 @@ struct Session {
     /// the inner Option is the produced recorder (or None if Core Audio
     /// errored). On stop we await the handle with a short timeout, on cancel
     /// we just abort. Set only when `capture_system_audio = true`.
-    system_setup: Option<tauri::async_runtime::JoinHandle<Option<crate::system_audio::SystemAudioRecorder>>>,
+    system_setup:
+        Option<tauri::async_runtime::JoinHandle<Option<crate::system_audio::SystemAudioRecorder>>>,
 }
 
 /// Coefficient applied to the current system output volume during a session.
@@ -103,9 +104,10 @@ impl DictationState {
 /// up front, so the user's first real dictation doesn't eat the cold-start
 /// penalty.
 ///
-/// Only engines actually referenced by an Audio shortcut are warmed, run
-/// sequentially so we don't compile multiple models at once. Cloud engines
-/// (OpenAI/Google) have no local model — skipped.
+/// Dictation always transcribes with the single GLOBAL ASR engine (the ASR
+/// settings tab), the same one recordings use — see `transcribe`. So there is
+/// exactly one model to warm; per-shortcut engine selection does not exist.
+/// Cloud / unsupported engines have no local model to compile — skipped.
 pub fn prewarm_models(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -144,7 +146,11 @@ pub fn prewarm_models(app: &AppHandle) {
 pub fn dictation_get_registration_status(
     state: tauri::State<'_, DictationState>,
 ) -> Vec<crate::ShortcutRegistration> {
-    state.last_registration.lock().map(|g| g.clone()).unwrap_or_default()
+    state
+        .last_registration
+        .lock()
+        .map(|g| g.clone())
+        .unwrap_or_default()
 }
 
 #[derive(Clone, Serialize)]
@@ -297,9 +303,7 @@ fn open_mic_stream(
     }
     .map_err(|e| format!("build_input_stream: {}", e))?;
 
-    stream
-        .play()
-        .map_err(|e| format!("stream.play: {}", e))?;
+    stream.play().map_err(|e| format!("stream.play: {}", e))?;
 
     // cpal `DeviceTrait::name` is deprecated in 0.17 but kept here: we only
     // compare input vs output device labels for the duck decision, and name()
@@ -386,7 +390,10 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
             }
         }
     }
-    let mut active_guard = ActiveGuard { flag: active_flag, commit: false };
+    let mut active_guard = ActiveGuard {
+        flag: active_flag,
+        commit: false,
+    };
 
     let shortcut = find_shortcut(shortcut_id)
         .ok_or_else(|| format!("Shortcut '{}' not found", shortcut_id))?;
@@ -612,9 +619,7 @@ pub async fn stop_inner(app: &AppHandle) -> Result<String, String> {
             Ok(Ok(Some(mut rec))) => rec.stop(),
             Ok(Ok(None)) => {}
             Ok(Err(e)) => log::warn!("dictation: system tap setup task failed: {}", e),
-            Err(_) => log::warn!(
-                "dictation: system tap still initializing after 2s — discarding"
-            ),
+            Err(_) => log::warn!("dictation: system tap still initializing after 2s — discarding"),
         }
     }
 
@@ -629,7 +634,12 @@ pub async fn stop_inner(app: &AppHandle) -> Result<String, String> {
     // flush + emit its final transcript. Bypasses the entire batch
     // normalize/resample/transcribe pipeline.
     if let Some(streaming) = session.streaming.take() {
-        emit_status(app, "transcribing", Some(&shortcut_id), Some("Finalizing live transcript".into()));
+        emit_status(
+            app,
+            "transcribing",
+            Some(&shortcut_id),
+            Some("Finalizing live transcript".into()),
+        );
         let t0 = std::time::Instant::now();
         let final_text = match streaming.finish().await {
             Ok(t) => t,
@@ -642,7 +652,12 @@ pub async fn stop_inner(app: &AppHandle) -> Result<String, String> {
         );
         let trimmed = final_text.trim().to_string();
         if trimmed.is_empty() {
-            emit_status(app, "idle", Some(&shortcut_id), Some("No speech detected".into()));
+            emit_status(
+                app,
+                "idle",
+                Some(&shortcut_id),
+                Some("No speech detected".into()),
+            );
             return Ok(String::new());
         }
         // Streaming path has no buffered samples to save — pass None.
@@ -660,7 +675,12 @@ pub async fn stop_inner(app: &AppHandle) -> Result<String, String> {
     };
 
     if raw_samples.is_empty() {
-        emit_status(app, "idle", Some(&shortcut_id), Some("No audio captured".into()));
+        emit_status(
+            app,
+            "idle",
+            Some(&shortcut_id),
+            Some("No audio captured".into()),
+        );
         return Ok(String::new());
     }
 
@@ -721,14 +741,15 @@ pub async fn stop_inner(app: &AppHandle) -> Result<String, String> {
         Ok(t) => t,
         Err(e) => return finish_with_error(app, &shortcut_id, "Transcription failed", e),
     };
-    log::info!(
-        "dictation: transcribe {:?} (engine={:?})",
-        t3.elapsed(),
-        shortcut.engine
-    );
+    log::info!("dictation: transcribe {:?}", t3.elapsed());
     let trimmed = transcript.trim().to_string();
     if trimmed.is_empty() {
-        emit_status(app, "idle", Some(&shortcut_id), Some("No speech detected".into()));
+        emit_status(
+            app,
+            "idle",
+            Some(&shortcut_id),
+            Some("No speech detected".into()),
+        );
         return Ok(String::new());
     }
 
@@ -766,12 +787,22 @@ pub async fn run_clipboard_inner(app: &AppHandle, shortcut_id: &str) -> Result<S
     crate::hud::reposition(app);
     emit_status(app, "reading_clipboard", Some(&shortcut.id), None);
     let text = read_clipboard().map_err(|e| {
-        emit_status(app, "error", Some(&shortcut.id), Some(format!("Clipboard read failed: {}", e)));
+        emit_status(
+            app,
+            "error",
+            Some(&shortcut.id),
+            Some(format!("Clipboard read failed: {}", e)),
+        );
         e
     })?;
     let trimmed = text.trim().to_string();
     if trimmed.is_empty() {
-        emit_status(app, "idle", Some(&shortcut.id), Some("Clipboard is empty".into()));
+        emit_status(
+            app,
+            "idle",
+            Some(&shortcut.id),
+            Some("Clipboard is empty".into()),
+        );
         return Ok(String::new());
     }
 
@@ -795,16 +826,18 @@ async fn process_and_deliver(
     // actually have audio (Audio-input shortcuts only). Failure here is
     // logged but does NOT block the pipeline/paste flow — the dictation
     // itself still works.
-    if let Some(ref samples) = audio_samples_16k {
-        if !samples.is_empty()
-            && matches!(shortcut.input_source, crate::config::DictationInputSource::Audio)
+    if let Some(ref samples) = audio_samples_16k
+        && !samples.is_empty()
+        && matches!(
+            shortcut.input_source,
+            crate::config::DictationInputSource::Audio
+        )
+    {
+        let settings_check = load_settings();
+        if settings_check.dictation.save_dictations
+            && let Err(e) = save_dictation_as_recording(app, samples, &input_text).await
         {
-            let settings_check = load_settings();
-            if settings_check.dictation.save_dictations {
-                if let Err(e) = save_dictation_as_recording(app, samples, &input_text).await {
-                    log::warn!("dictation: save_dictations failed (non-fatal): {}", e);
-                }
-            }
+            log::warn!("dictation: save_dictations failed (non-fatal): {}", e);
         }
     }
 
@@ -842,9 +875,7 @@ async fn process_and_deliver(
         match paste_text(&final_trimmed) {
             Ok(()) => {}
             Err(PasteError::AccessibilityDenied) => {
-                log::warn!(
-                    "dictation: Accessibility permission missing — text in clipboard only"
-                );
+                log::warn!("dictation: Accessibility permission missing — text in clipboard only");
                 emit_status(app, "accessibility_needed", Some(&shortcut_id), None);
                 return Ok(final_trimmed);
             }
@@ -864,7 +895,11 @@ async fn process_and_deliver(
     }
 
     emit_status(app, "idle", Some(&shortcut_id), None);
-    log::info!("dictation: '{}' done ({} chars)", shortcut.name, final_trimmed.len());
+    log::info!(
+        "dictation: '{}' done ({} chars)",
+        shortcut.name,
+        final_trimmed.len()
+    );
     Ok(final_trimmed)
 }
 
@@ -889,9 +924,8 @@ async fn save_dictation_as_recording(
     // Audio: encode the 16 kHz mono buffer as audio_mix.ogg — same filename
     // convention the player + finalize path use for meeting recordings.
     let audio_path = recording_dir.join("audio_mix.ogg");
-    encode_mono_16k_to_ogg(&audio_path, samples_16k).map_err(|e| {
-        format!("encode dictation audio: {}", e)
-    })?;
+    encode_mono_16k_to_ogg(&audio_path, samples_16k)
+        .map_err(|e| format!("encode dictation audio: {}", e))?;
     let duration_sec = samples_16k.len() as f64 / TARGET_RATE as f64;
 
     // Transcript: same frontmatter format as meeting recordings, written via
@@ -929,7 +963,11 @@ async fn save_dictation_as_recording(
     latest.status = "ready".to_string();
     latest.source = "dictation".to_string();
     let preview: String = transcript.chars().take(200).collect();
-    latest.transcript_preview = if preview.is_empty() { None } else { Some(preview) };
+    latest.transcript_preview = if preview.is_empty() {
+        None
+    } else {
+        Some(preview)
+    };
     crate::storage::write_metadata(&latest)?;
 
     // Nudge the frontend to refresh the recordings list immediately — reuse
@@ -948,7 +986,7 @@ async fn save_dictation_as_recording(
 /// quality/format profile of the meeting-recording encoder (QualityVbr 0.4),
 /// just mono+16k instead of stereo+48k.
 fn encode_mono_16k_to_ogg(path: &std::path::Path, samples: &[f32]) -> Result<(), String> {
-    use std::num::{NonZeroU32, NonZeroU8};
+    use std::num::{NonZeroU8, NonZeroU32};
     use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoderBuilder};
     let file = std::fs::File::create(path).map_err(|e| format!("create: {}", e))?;
     let mut enc = VorbisEncoderBuilder::new_with_serial(
@@ -963,7 +1001,7 @@ fn encode_mono_16k_to_ogg(path: &std::path::Path, samples: &[f32]) -> Result<(),
     .build()
     .map_err(|e| format!("build: {}", e))?;
     // vorbis_rs takes planar slices — single channel = one slice.
-    enc.encode_audio_block(&[samples])
+    enc.encode_audio_block([samples])
         .map_err(|e| format!("encode: {}", e))?;
     enc.finish().map_err(|e| format!("finish: {}", e))?;
     Ok(())
@@ -989,10 +1027,10 @@ async fn transcribe(app: &AppHandle, mono_16k: &[f32]) -> Result<String, String>
 /// Runs `pipeline_name` against the dictation `text` and returns the text to
 /// paste. Mirrors the recording pipeline — every step type runs (the user owns
 /// what they put in the pipeline):
-///   - CliAgent / Shell : transforms; their stdout becomes the running text.
-///   - SaveLocal        : side-effect; writes to the configured folder and
-///                        leaves the running text unchanged, so the transform
-///                        result is still what gets pasted.
+/// - CliAgent / Shell : transforms; their stdout becomes the running text.
+/// - SaveLocal        : side-effect; writes to the configured folder and
+///   leaves the running text unchanged, so the transform result is still what
+///   gets pasted.
 ///
 /// Placeholders match the engine: `{transcript}` = the original transcript,
 /// `{processing_result}` = the running text (empty-effectively on step 1),
@@ -1040,7 +1078,9 @@ async fn run_text_pipeline(text: &str, pipeline_name: &str) -> Result<String, St
                 chained = body;
                 log::info!(
                     "dictation pipeline '{}': step '{}' ({:?}) ok",
-                    pipeline_name, step.name, step.step_type
+                    pipeline_name,
+                    step.name,
+                    step.step_type
                 );
             }
             Err(e) => {
@@ -1050,7 +1090,9 @@ async fn run_text_pipeline(text: &str, pipeline_name: &str) -> Result<String, St
                 if matches!(step.step_type, StepType::SaveLocal) {
                     log::warn!(
                         "dictation pipeline '{}': save step '{}' failed (non-fatal): {}",
-                        pipeline_name, step.name, e
+                        pipeline_name,
+                        step.name,
+                        e
                     );
                 } else {
                     let _ = std::fs::remove_dir_all(&tmp_dir);
@@ -1246,7 +1288,10 @@ fn normalize_loudness(interleaved: &[f32], _channels: u16, _sample_rate: u32) ->
     if gain <= 1.0 {
         return interleaved.to_vec();
     }
-    interleaved.iter().map(|&s| (s * gain).clamp(-1.0, 1.0)).collect()
+    interleaved
+        .iter()
+        .map(|&s| (s * gain).clamp(-1.0, 1.0))
+        .collect()
 }
 
 fn downmix_to_mono(interleaved: &[f32], channels: u16) -> Vec<f32> {
@@ -1266,13 +1311,8 @@ fn resample_mono(input: &[f32], src_rate: u32, dst_rate: u32) -> Result<Vec<f32>
     // FFT-based resampler — orders of magnitude faster than the polyphase
     // Sinc path for integer ratios like 48k→16k (gcd=16k, ratio 3:1). Quality
     // is more than adequate for speech-to-text.
-    let mut resampler = FftFixedInOut::<f32>::new(
-        src_rate as usize,
-        dst_rate as usize,
-        1024,
-        1,
-    )
-    .map_err(|e| format!("resampler init: {}", e))?;
+    let mut resampler = FftFixedInOut::<f32>::new(src_rate as usize, dst_rate as usize, 1024, 1)
+        .map_err(|e| format!("resampler init: {}", e))?;
 
     let chunk_in = resampler.input_frames_next();
     let mut output =
@@ -1332,11 +1372,7 @@ fn mix_in_system_audio(mic: Vec<f32>) -> Result<Vec<f32>, String> {
     Ok(out)
 }
 
-fn write_mono_wav(
-    path: &std::path::Path,
-    samples: &[f32],
-    sample_rate: u32,
-) -> Result<(), String> {
+fn write_mono_wav(path: &std::path::Path, samples: &[f32], sample_rate: u32) -> Result<(), String> {
     use hound::{SampleFormat, WavSpec, WavWriter};
     let spec = WavSpec {
         channels: 1,
@@ -1367,10 +1403,7 @@ async fn run_fluidaudio(
 ) -> Result<String, String> {
     use tauri_plugin_shell::ShellExt;
 
-    let tmp = std::env::temp_dir().join(format!(
-        "nbp-dict-{}.wav",
-        uuid::Uuid::new_v4().simple()
-    ));
+    let tmp = std::env::temp_dir().join(format!("nbp-dict-{}.wav", uuid::Uuid::new_v4().simple()));
     write_mono_wav(&tmp, samples_16k, TARGET_RATE)?;
 
     // Quick Dictate is single-speaker — always skip diarization (saves the
@@ -1387,9 +1420,7 @@ async fn run_fluidaudio(
     for a in crate::transcription::fluidaudio_engine_args(settings) {
         cmd = cmd.arg(a);
     }
-    let (mut rx, _child) = cmd
-        .spawn()
-        .map_err(|e| format!("sidecar spawn: {}", e))?;
+    let (mut rx, _child) = cmd.spawn().map_err(|e| format!("sidecar spawn: {}", e))?;
 
     let mut stdout_buf: Vec<u8> = Vec::new();
     let mut stderr_buf = String::new();
@@ -1447,10 +1478,7 @@ async fn run_apple_speech(
 ) -> Result<String, String> {
     use tauri_plugin_shell::ShellExt;
 
-    let tmp = std::env::temp_dir().join(format!(
-        "nbp-dict-{}.wav",
-        uuid::Uuid::new_v4().simple()
-    ));
+    let tmp = std::env::temp_dir().join(format!("nbp-dict-{}.wav", uuid::Uuid::new_v4().simple()));
     write_mono_wav(&tmp, samples_16k, TARGET_RATE)?;
 
     let mut cmd = app
@@ -1464,9 +1492,7 @@ async fn run_apple_speech(
     if let Some(lang) = language.filter(|s| !s.is_empty()) {
         cmd = cmd.arg("--lang").arg(lang);
     }
-    let (mut rx, _child) = cmd
-        .spawn()
-        .map_err(|e| format!("sidecar spawn: {}", e))?;
+    let (mut rx, _child) = cmd.spawn().map_err(|e| format!("sidecar spawn: {}", e))?;
 
     let mut stdout_buf: Vec<u8> = Vec::new();
     let mut stderr_buf = String::new();
@@ -1476,7 +1502,10 @@ async fn run_apple_speech(
         match event {
             CommandEvent::Stdout(data) => stdout_buf.extend_from_slice(&data),
             CommandEvent::Stderr(data) => stderr_buf.push_str(&String::from_utf8_lossy(&data)),
-            CommandEvent::Terminated(p) => { exit_code = p.code; break; }
+            CommandEvent::Terminated(p) => {
+                exit_code = p.code;
+                break;
+            }
             _ => {}
         }
     }
@@ -1515,10 +1544,10 @@ fn pick_input_config(device: &cpal::Device) -> Result<cpal::SupportedStreamConfi
     };
 
     if let Some(cfg) = configs.iter().find(|c| c.channels() == 1 && rate_ok(c)) {
-        return Ok(cfg.clone().with_sample_rate(PREFERRED_RATE));
+        return Ok((*cfg).with_sample_rate(PREFERRED_RATE));
     }
     if let Some(cfg) = configs.iter().find(|c| rate_ok(c)) {
-        return Ok(cfg.clone().with_sample_rate(PREFERRED_RATE));
+        return Ok((*cfg).with_sample_rate(PREFERRED_RATE));
     }
     device
         .default_input_config()
@@ -1527,11 +1556,15 @@ fn pick_input_config(device: &cpal::Device) -> Result<cpal::SupportedStreamConfi
 
 fn restore_system_volume_to(target: u32) {
     let now = get_system_output_volume();
-    log::info!("dictation: restoring volume — current={:?}, target={}", now, target);
-    if let Some(now) = now {
-        if target != now {
-            fade_system_volume(now, target, 750);
-        }
+    log::info!(
+        "dictation: restoring volume — current={:?}, target={}",
+        now,
+        target
+    );
+    if let Some(now) = now
+        && target != now
+    {
+        fade_system_volume(now, target, 750);
     }
 }
 
@@ -1634,11 +1667,7 @@ mod coreaudio_volume {
                 &mut dev as *mut _ as *mut c_void,
             )
         };
-        if st == 0 && dev != 0 {
-            Some(dev)
-        } else {
-            None
-        }
+        if st == 0 && dev != 0 { Some(dev) } else { None }
     }
 
     fn volume_address() -> AudioObjectPropertyAddress {
@@ -1781,10 +1810,10 @@ pub fn is_ax_trusted() -> bool {
 /// current trusted state. macOS displays the dialog only the first time;
 /// subsequent calls just return the current state.
 pub fn request_ax_prompt() -> bool {
+    use objc2::ClassType;
     use objc2::msg_send;
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;
-    use objc2::ClassType;
     use objc2_foundation::{NSDictionary, NSNumber, NSString};
 
     let key = NSString::from_str("AXTrustedCheckOptionPrompt");

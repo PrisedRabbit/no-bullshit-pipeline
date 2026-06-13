@@ -29,42 +29,42 @@
 //! - [`config`] - App settings, API key management
 //! - [`permissions`] - macOS permission checks (microphone, screen recording)
 
+pub mod app_icons;
+mod asr_models;
 mod audio;
+mod audio_process_detector;
 pub mod audio_processing;
-pub mod storage;
-mod system_audio;
-mod mic_audio;
-mod permissions;
-pub mod config;
-pub mod transcription;
-pub mod playback;
-mod waveform;
-mod devices;
-pub mod pipelines;
-mod connectors;
-mod pipeline_engine;
-mod transcript_migration;
-pub mod local_llm;
-pub mod realtime_transcription;
+mod calendar;
 mod call_detector;
 mod call_session;
-mod calendar;
-mod audio_process_detector;
-pub mod app_icons;
+pub mod config;
+mod connectors;
+mod devices;
 mod dictation;
-mod hud;
-mod fn_hotkey;
-mod resampler_compat;
 mod dictation_streaming;
-mod wake_observer;
+mod fn_hotkey;
+mod hud;
+pub mod local_llm;
+mod mic_audio;
+mod permissions;
+mod pipeline_engine;
+pub mod pipelines;
+pub mod playback;
+pub mod realtime_transcription;
+mod resampler_compat;
+pub mod storage;
+mod system_audio;
+mod transcript_migration;
+pub mod transcription;
 mod updater;
 mod vocab;
-mod asr_models;
+mod wake_observer;
+mod waveform;
 use audio::AudioState;
-use transcription::TranscriptionState;
 use tauri::menu::{AboutMetadataBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
+use transcription::TranscriptionState;
 
 #[tauri::command]
 fn get_app_version() -> String {
@@ -86,14 +86,12 @@ fn has_apple_speech() -> bool {
         let out = std::process::Command::new("sw_vers")
             .arg("-productVersion")
             .output();
-        if let Ok(o) = out {
-            if let Ok(s) = String::from_utf8(o.stdout) {
-                if let Some(major) = s.trim().split('.').next() {
-                    if let Ok(n) = major.parse::<u32>() {
-                        return n >= 26;
-                    }
-                }
-            }
+        if let Ok(o) = out
+            && let Ok(s) = String::from_utf8(o.stdout)
+            && let Some(major) = s.trim().split('.').next()
+            && let Ok(n) = major.parse::<u32>()
+        {
+            return n >= 26;
         }
         false
     }
@@ -127,8 +125,7 @@ fn get_audio_levels() -> AudioLevels {
 
 pub fn run() {
     // Init logging so log::info!/error! prints to stderr
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("nbp=debug"))
-        .init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("nbp=debug")).init();
 
     // Disable App Nap. Without this macOS throttles backgrounded tray apps
     // and Carbon HotKey events get queued for tens of seconds (or minutes)
@@ -141,10 +138,7 @@ pub fn run() {
         use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
         let info = NSProcessInfo::processInfo();
         let reason = NSString::from_str("Global hotkey listener — Quick Dictate");
-        let token = info.beginActivityWithOptions_reason(
-            NSActivityOptions::UserInitiated,
-            &reason,
-        );
+        let token = info.beginActivityWithOptions_reason(NSActivityOptions::UserInitiated, &reason);
         std::mem::forget(token);
     }
 
@@ -170,21 +164,23 @@ pub fn run() {
         .manage(AudioState::new())
         .manage(TranscriptionState::new())
         .manage(dictation::DictationState::new())
-        .manage(permissions::PermissionsStateCache(std::sync::Arc::new(std::sync::Mutex::new(
-            permissions::PermissionsState::default()
-        ))))
+        .manage(permissions::PermissionsStateCache(std::sync::Arc::new(
+            std::sync::Mutex::new(permissions::PermissionsState::default()),
+        )))
         .manage(settings)
         .setup(|app| {
             // Ensure the app appears in Dock and Cmd+Tab
             #[cfg(target_os = "macos")]
-            let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+            app.set_activation_policy(tauri::ActivationPolicy::Regular);
 
             // Create custom menu with only NBP submenu (no File, Edit, etc.)
             let about_metadata = AboutMetadataBuilder::new()
                 .name(Some("NBP"))
                 .version(Some(env!("CARGO_PKG_VERSION")))
                 .copyright(Some("© 2024-2026"))
-                .comments(Some("No Bullshit Pipeline - Audio recording and transcription"))
+                .comments(Some(
+                    "No Bullshit Pipeline - Audio recording and transcription",
+                ))
                 .build();
 
             let app_submenu = SubmenuBuilder::new(app, "NBP")
@@ -228,10 +224,13 @@ pub fn run() {
             // Request notification permission if auto-record is enabled
             let settings = config::load_settings();
             if settings.auto_record_meetings {
-                use tauri_plugin_notification::NotificationExt;
                 use tauri::plugin::PermissionState;
-                if app.notification().permission_state()
-                    .unwrap_or(PermissionState::Prompt) != PermissionState::Granted
+                use tauri_plugin_notification::NotificationExt;
+                if app
+                    .notification()
+                    .permission_state()
+                    .unwrap_or(PermissionState::Prompt)
+                    != PermissionState::Granted
                 {
                     let _ = app.notification().request_permission();
                 }
@@ -246,7 +245,9 @@ pub fn run() {
             } else {
                 None
             };
-            app.manage(call_detector::CallDetectorState(std::sync::Mutex::new(detector)));
+            app.manage(call_detector::CallDetectorState(std::sync::Mutex::new(
+                detector,
+            )));
             app.manage(call_session::CallSessionState::new());
             call_session::install(app.handle());
 
@@ -302,9 +303,9 @@ pub fn run() {
             // at runtime without restart). Shortcuts are then registered if enabled.
             #[cfg(desktop)]
             {
-                let init = app.handle().plugin(
-                    tauri_plugin_global_shortcut::Builder::new().build(),
-                );
+                let init = app
+                    .handle()
+                    .plugin(tauri_plugin_global_shortcut::Builder::new().build());
                 if let Err(e) = init {
                     log::warn!("global-shortcut plugin init failed: {}", e);
                 } else if settings.dictation.enabled {
@@ -485,15 +486,24 @@ fn graceful_audio_shutdown(app: &tauri::AppHandle) {
             if let Some(mut r) = mic.take() {
                 r.stop();
             }
-            let mut sys = state.system_recorder.lock().unwrap_or_else(|e| e.into_inner());
+            let mut sys = state
+                .system_recorder
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             if let Some(mut r) = sys.take() {
                 r.stop();
             }
-            let mut rt = state.realtime_transcriber.lock().unwrap_or_else(|e| e.into_inner());
+            let mut rt = state
+                .realtime_transcriber
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             if let Some(mut h) = rt.take() {
                 h.stop();
             }
-            let mut mix = state.realtime_mixer.lock().unwrap_or_else(|e| e.into_inner());
+            let mut mix = state
+                .realtime_mixer
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             if let Some(mut m) = mix.take() {
                 m.stop();
             }
@@ -529,7 +539,8 @@ pub fn reload_dictation_shortcuts(
     fn_hotkey::unregister_all();
 
     let settings = config::load_settings();
-    let mut results: Vec<ShortcutRegistration> = Vec::with_capacity(settings.dictation.shortcuts.len());
+    let mut results: Vec<ShortcutRegistration> =
+        Vec::with_capacity(settings.dictation.shortcuts.len());
     // Cache the result so the frontend can poll status without re-registering
     let cache_arc = app.state::<dictation::DictationState>();
 
@@ -626,10 +637,11 @@ pub fn reload_dictation_shortcuts(
                             if let Err(e) = dictation::start_inner(&app, &sid).await {
                                 log::warn!("dictation PTT start '{}' failed: {}", sid, e);
                             }
-                        } else if released && active {
-                            if let Err(e) = dictation::stop_inner(&app).await {
-                                log::warn!("dictation PTT stop '{}' failed: {}", sid, e);
-                            }
+                        } else if released
+                            && active
+                            && let Err(e) = dictation::stop_inner(&app).await
+                        {
+                            log::warn!("dictation PTT stop '{}' failed: {}", sid, e);
                         }
                     });
                 }
@@ -647,7 +659,12 @@ pub fn reload_dictation_shortcuts(
             }
             Err(e) => {
                 let msg = e.to_string();
-                log::warn!("dictation: failed to register '{}' ({}): {}", name, hotkey, msg);
+                log::warn!(
+                    "dictation: failed to register '{}' ({}): {}",
+                    name,
+                    hotkey,
+                    msg
+                );
                 results.push(ShortcutRegistration {
                     id: sc.id.clone(),
                     hotkey: hotkey.clone(),
@@ -814,7 +831,6 @@ fn set_call_popup_clickthrough(app: tauri::AppHandle, clickthrough: bool) {
     }
 }
 
-
 /// Build the call-detector debug popup window. Stays hidden until the
 /// detector emits a `call-event`; JS in `call-popup.js` flips it visible for
 /// ~3s and then hides it again. Will be replaced by a real popup later.
@@ -824,28 +840,25 @@ fn build_call_popup(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Er
         return Ok(());
     }
 
-    let mut builder = WebviewWindowBuilder::new(
-        app,
-        "call-popup",
-        WebviewUrl::App("call-popup.html".into()),
-    )
-    .title("")
-    // 120px tall to fit info row + [Record this meeting] [Ignore] buttons
-    // on prompt; the "saved" mode shows only the info row and pads vertically.
-    // accept_first_mouse(true) so the first click after the popup appears
-    // (when it's not the focused window) still hits Record/Ignore — without
-    // it, that first click only activates the window and is consumed.
-    .inner_size(340.0, 120.0)
-    .position(0.0, 0.0)
-    .decorations(false)
-    .transparent(true)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .focused(false)
-    .accept_first_mouse(true)
-    .visible(false)
-    .resizable(false)
-    .shadow(false);
+    let mut builder =
+        WebviewWindowBuilder::new(app, "call-popup", WebviewUrl::App("call-popup.html".into()))
+            .title("")
+            // 120px tall to fit info row + [Record this meeting] [Ignore] buttons
+            // on prompt; the "saved" mode shows only the info row and pads vertically.
+            // accept_first_mouse(true) so the first click after the popup appears
+            // (when it's not the focused window) still hits Record/Ignore — without
+            // it, that first click only activates the window and is consumed.
+            .inner_size(340.0, 120.0)
+            .position(0.0, 0.0)
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .focused(false)
+            .accept_first_mouse(true)
+            .visible(false)
+            .resizable(false)
+            .shadow(false);
 
     #[cfg(debug_assertions)]
     {
@@ -951,8 +964,8 @@ pub fn reposition_call_popup(app: &tauri::AppHandle) {
     let m_pos = monitor.position();
     let m_size = monitor.size();
     let popup_w = 340.0_f64;
-    let right_inset = 16.0_f64;          // matches macOS Notification Center
-    let top_inset = 40.0_f64;            // menubar (~24) + cushion (16)
+    let right_inset = 16.0_f64; // matches macOS Notification Center
+    let top_inset = 40.0_f64; // menubar (~24) + cushion (16)
     let mx = m_pos.x as f64 / scale;
     let my = m_pos.y as f64 / scale;
     let mw = m_size.width as f64 / scale;
@@ -979,16 +992,13 @@ fn show_main_window(app: &tauri::AppHandle) {
 /// Build the system tray icon with menu
 /// Build the tray menu from current pipelines + settings. Extracted so it
 /// can be re-invoked when pipelines change (see `refresh_tray_menu`).
-fn build_tray_menu(
-    app: &tauri::AppHandle,
-) -> Result<tauri::menu::Menu<tauri::Wry>, tauri::Error> {
+fn build_tray_menu(app: &tauri::AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, tauri::Error> {
     use tauri::menu::{Menu, PredefinedMenuItem};
 
     // Record submenu — "New Record" first (no pipeline), then a separator,
     // then a flat list of available pipelines (last-used + default surfaced
     // first, capped at 5 to keep the menu readable).
-    let new_record_item =
-        MenuItemBuilder::with_id("tray-record-new", "New Record").build(app)?;
+    let new_record_item = MenuItemBuilder::with_id("tray-record-new", "New Record").build(app)?;
     let mut record_submenu = SubmenuBuilder::new(app, "Record")
         .item(&new_record_item)
         .separator();
@@ -997,15 +1007,16 @@ fn build_tray_menu(
         Ok(pipeline_list) => {
             let settings = config::load_settings();
             let mut names: Vec<String> = Vec::new();
-            if let Some(ref last) = settings.last_used_pipeline {
-                if pipeline_list.contains_key(last) {
-                    names.push(last.clone());
-                }
+            if let Some(ref last) = settings.last_used_pipeline
+                && pipeline_list.contains_key(last)
+            {
+                names.push(last.clone());
             }
-            if let Some(ref default) = settings.default_pipeline {
-                if pipeline_list.contains_key(default) && !names.contains(default) {
-                    names.push(default.clone());
-                }
+            if let Some(ref default) = settings.default_pipeline
+                && pipeline_list.contains_key(default)
+                && !names.contains(default)
+            {
+                names.push(default.clone());
             }
             for name in pipeline_list.keys() {
                 if !names.contains(name) {
@@ -1016,12 +1027,9 @@ fn build_tray_menu(
             names
                 .iter()
                 .filter_map(|name| {
-                    MenuItemBuilder::with_id(
-                        format!("pipeline:{}", name),
-                        format!("▶ {}", name),
-                    )
-                    .build(app)
-                    .ok()
+                    MenuItemBuilder::with_id(format!("pipeline:{}", name), format!("▶ {}", name))
+                        .build(app)
+                        .ok()
                 })
                 .collect()
         }
@@ -1037,15 +1045,7 @@ fn build_tray_menu(
     let separator = PredefinedMenuItem::separator(app)?;
     let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
 
-    Menu::with_items(
-        app,
-        &[
-            &record_submenu,
-            &home_item,
-            &separator,
-            &quit_item,
-        ],
-    )
+    Menu::with_items(app, &[&record_submenu, &home_item, &separator, &quit_item])
 }
 
 /// Re-fetch pipelines and swap the tray menu live. Called by
@@ -1088,7 +1088,10 @@ const TRAY_ID: &str = "nbp-main";
 #[cfg(target_os = "macos")]
 fn ensure_tray_alive(app: &tauri::AppHandle) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
-        log::warn!("[tray-recovery] tray '{}' not registered yet — skip", TRAY_ID);
+        log::warn!(
+            "[tray-recovery] tray '{}' not registered yet — skip",
+            TRAY_ID
+        );
         return;
     };
     let orphaned = match tray.rect() {
@@ -1195,7 +1198,11 @@ pub(crate) fn start_tray_pulse(app: &tauri::AppHandle) {
         };
         let mut show_border = true;
         while running.load(Ordering::Relaxed) {
-            set_icon(if show_border { rec_icon.clone() } else { normal.clone() });
+            set_icon(if show_border {
+                rec_icon.clone()
+            } else {
+                normal.clone()
+            });
             show_border = !show_border;
             std::thread::sleep(std::time::Duration::from_millis(600));
         }
@@ -1223,6 +1230,7 @@ pub(crate) fn stop_tray_pulse() {
 ///   - a recording is finalized via the normal stop path so whatever was
 ///     captured before sleep is saved, not lost;
 ///   - the pulse is force-stopped as a belt-and-suspenders catch.
+///
 /// Heavy (thread joins, mixer drain) and the stop paths reacquire the same
 /// locks, so the caller must invoke this OFF the notification thread.
 #[cfg(target_os = "macos")]

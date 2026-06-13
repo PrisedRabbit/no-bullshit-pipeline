@@ -1,14 +1,14 @@
 use anyhow::Result;
 use cidre::{cat, cf, core_audio as ca, os};
 use ringbuf::{
-    traits::{Consumer, Producer, Split, Observer},
     HeapProd, HeapRb,
+    traits::{Consumer, Observer, Producer, Split},
 };
 use std::fs::File;
-use std::num::{NonZeroU32, NonZeroU8};
+use std::num::{NonZeroU8, NonZeroU32};
 use std::sync::{
-    atomic::{AtomicBool, AtomicU32, Ordering},
     Arc,
+    atomic::{AtomicBool, AtomicU32, Ordering},
 };
 use std::thread;
 use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoder, VorbisEncoderBuilder};
@@ -92,7 +92,10 @@ impl Drop for SystemAudioRecorder {
     }
 }
 
-pub fn start_system_capture(output_path: std::path::PathBuf, skip_file: bool) -> Result<SystemAudioRecorder> {
+pub fn start_system_capture(
+    output_path: std::path::PathBuf,
+    skip_file: bool,
+) -> Result<SystemAudioRecorder> {
     SystemAudioRecorder::new(output_path, skip_file)
 }
 
@@ -100,14 +103,15 @@ pub fn start_system_capture(output_path: std::path::PathBuf, skip_file: bool) ->
 /// Returns true if permission is granted, false otherwise
 pub fn check_system_audio_permission() -> bool {
     // Try to create a Process Tap - this requires "System Audio Recording Only" permission
-    let tap_desc = ca::TapDesc::with_stereo_global_tap_excluding_processes(&cidre::ns::Array::new());
+    let tap_desc =
+        ca::TapDesc::with_stereo_global_tap_excluding_processes(&cidre::ns::Array::new());
     match tap_desc.create_process_tap() {
         Ok(_tap) => {
             // Tap created successfully - permission granted
             // The tap will be dropped here, releasing resources
             true
         }
-        Err(_) => false
+        Err(_) => false,
     }
 }
 
@@ -148,18 +152,13 @@ impl CaptureSession {
                 // Device is stopped but the aggregate is still alive —
                 // destroy the IO proc before the aggregate drops.
                 unsafe {
-                    let _ = AudioDeviceDestroyIOProcID(
-                        ca::Device(agg.as_ref().0),
-                        Some(self.proc_id),
-                    );
+                    let _ =
+                        AudioDeviceDestroyIOProcID(ca::Device(agg.as_ref().0), Some(self.proc_id));
                 }
                 drop(agg); // AudioHardwareDestroyAggregateDevice
             }
             Err(e) => {
-                log::warn!(
-                    "system_audio: device stop failed during teardown: {:?}",
-                    e
-                );
+                log::warn!("system_audio: device stop failed during teardown: {:?}", e);
             }
         }
     }
@@ -171,7 +170,11 @@ impl Drop for CaptureSession {
     }
 }
 
-fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>, skip_file: bool) -> Result<()> {
+fn run_audio_capture(
+    mut path: std::path::PathBuf,
+    should_stop: Arc<AtomicBool>,
+    skip_file: bool,
+) -> Result<()> {
     // Switch extension to .ogg
     path.set_extension("ogg");
 
@@ -181,7 +184,8 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
 
     // 2. Create Process Tap (Stereo Global Tap)
     // Note: cidre::ns::Array::new() creates an empty array to exclude NO processes (capture all)
-    let tap_desc = ca::TapDesc::with_stereo_global_tap_excluding_processes(&cidre::ns::Array::new());
+    let tap_desc =
+        ca::TapDesc::with_stereo_global_tap_excluding_processes(&cidre::ns::Array::new());
     let tap = tap_desc.create_process_tap()?;
 
     // 3. Create Aggregate Device Descriptor
@@ -216,7 +220,7 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
     // 48kHz Stereo float = 48000 * 2 * 4 bytes/sec = 384KB/sec.
     // 4 seconds buffer = ~1.5MB.
     // HeapRb holds items (f32). 48000 * 2 * 4 = 384000 items.
-    let ring_buffer_size = 48000 * 2 * 4; 
+    let ring_buffer_size = 48000 * 2 * 4;
     let rb = HeapRb::<f32>::new(ring_buffer_size);
     let (producer, mut consumer) = rb.split();
 
@@ -262,13 +266,12 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
                     interleaved.push(samples_r[i]);
                 }
                 // If L has extra samples beyond R, pad R with silence
-                for i in frame_count..len_l {
-                    interleaved.push(samples_l[i]);
+                for &sample in &samples_l[frame_count..len_l] {
+                    interleaved.push(sample);
                     interleaved.push(0.0);
                 }
                 ctx.producer.push_slice(&interleaved);
             }
-
         } else if !buffers.is_empty() {
             let buffer = &buffers[0];
             let ptr = buffer.data as *const f32;
@@ -305,31 +308,34 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
     let mut encoder: Option<VorbisEncoder<File>> = if !skip_file {
         let output_file = File::create(&path)?;
         // Quality 0.4 is variable bitrate (VBR) target quality (~128kbps)
-        Some(VorbisEncoderBuilder::new_with_serial(
-            NonZeroU32::new(sample_rate).ok_or(anyhow::anyhow!("Invalid sample rate"))?,
-            NonZeroU8::new(channels as u8).ok_or(anyhow::anyhow!("Invalid channels"))?,
-            output_file,
-            0,
+        Some(
+            VorbisEncoderBuilder::new_with_serial(
+                NonZeroU32::new(sample_rate).ok_or(anyhow::anyhow!("Invalid sample rate"))?,
+                NonZeroU8::new(channels as u8).ok_or(anyhow::anyhow!("Invalid channels"))?,
+                output_file,
+                0,
+            )
+            .bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr {
+                target_quality: 0.4,
+            })
+            .build()?,
         )
-        .bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr { target_quality: 0.4 })
-        .build()?)
     } else {
         #[cfg(debug_assertions)]
         eprintln!("System: Skipping file output (mix-only mode)");
         None
     };
-    
+
     // 10. Continuous Timeline Loop
     // Write audio at exactly 48kHz regardless of whether audio arrives from tap
     let chunk_size = 4096;
     let mut buffer = vec![0.0f32; chunk_size];
-    
+
     let start_time = std::time::Instant::now();
     let mut total_frames_written: u64 = 0;
-    
+
     // Tick every 10ms to maintain timeline
     let tick_duration = std::time::Duration::from_millis(10);
-
 
     while !should_stop.load(Ordering::Relaxed) {
         // Calculate how many frames SHOULD exist by now
@@ -340,25 +346,28 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
         if total_frames_written < expected_frames {
             // Write UP TO 100ms at a time to avoid huge blocks, but loop fast
             let catch_up_limit = (sample_rate as f64 * 0.1) as usize;
-            let frames_needed = (expected_frames - total_frames_written).min(catch_up_limit as u64) as usize;
+            let frames_needed =
+                (expected_frames - total_frames_written).min(catch_up_limit as u64) as usize;
 
             // Try to get real audio from ring buffer
             let available = consumer.occupied_len();
 
             let mut frames_remaining = frames_needed;
-            
+
             // 1. Consume available audio first
             let audio_frames_available = available / channels as usize;
-            
+
             if audio_frames_available > 0 {
                 // Ensure we don't exceed buffer capacity
                 let max_frames_in_buffer = chunk_size / channels as usize;
                 // Use as much audio as we can, up to what we need, but limited by buffer
-                let frames_to_read = audio_frames_available.min(frames_remaining).min(max_frames_in_buffer);
+                let frames_to_read = audio_frames_available
+                    .min(frames_remaining)
+                    .min(max_frames_in_buffer);
                 let samples_to_read = frames_to_read * channels as usize;
-                
+
                 let n = consumer.pop_slice(&mut buffer[..samples_to_read]);
-                
+
                 if n > 0 {
                     let raw_samples = &buffer[..n];
 
@@ -371,7 +380,7 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
 
                     let normalized_samples = normalizer.normalize_loudness(raw_samples);
                     let frames_encoded = normalized_samples.len() / channels as usize;
-                    
+
                     let planar_samples = if channels == 2 {
                         let mut left = Vec::with_capacity(frames_encoded);
                         let mut right = Vec::with_capacity(frames_encoded);
@@ -385,18 +394,21 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
                     } else {
                         vec![normalized_samples]
                     };
-                    
+
                     // Push to shared buffer for real-time mixing
                     if planar_samples.len() >= 2 {
-                        crate::audio_processing::SYSTEM_BUFFER.push_planar(&planar_samples[0], &planar_samples[1]);
+                        crate::audio_processing::SYSTEM_BUFFER
+                            .push_planar(&planar_samples[0], &planar_samples[1]);
                     } else if planar_samples.len() == 1 {
                         // Mono - push same to both channels
-                        crate::audio_processing::SYSTEM_BUFFER.push_planar(&planar_samples[0], &planar_samples[0]);
+                        crate::audio_processing::SYSTEM_BUFFER
+                            .push_planar(&planar_samples[0], &planar_samples[0]);
                     }
 
                     // Encode to file (if not skipping)
                     if let Some(ref mut enc) = encoder {
-                        let slices_ref: Vec<&[f32]> = planar_samples.iter().map(|v| v.as_slice()).collect();
+                        let slices_ref: Vec<&[f32]> =
+                            planar_samples.iter().map(|v| v.as_slice()).collect();
                         enc.encode_audio_block(&slices_ref)?;
                     }
                     total_frames_written += frames_encoded as u64;
@@ -409,7 +421,7 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
                     }
                 }
             }
-            
+
             // 2. Fill remainder with silence (only if encoding to file)
             if frames_remaining > 0 {
                 if let Some(ref mut enc) = encoder {
@@ -420,48 +432,49 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
                         vec![silence]
                     };
 
-                    let slices_ref: Vec<&[f32]> = silence_planar.iter().map(|v| v.as_slice()).collect();
+                    let slices_ref: Vec<&[f32]> =
+                        silence_planar.iter().map(|v| v.as_slice()).collect();
                     enc.encode_audio_block(&slices_ref)?;
                 }
                 total_frames_written += frames_remaining as u64;
             }
-            
+
             // If we still need to catch up (hit limit), continue loop immediately without sleep
             if total_frames_written < expected_frames {
                 continue;
             }
         }
-        
+
         // Sleep until next tick if we are caught up
         thread::sleep(tick_duration);
     }
-    
+
     // STOP THE STREAM NOW so no new data enters buffer during drain.
     // teardown() is idempotent — the CaptureSession Drop is the safety net
     // for the `?`/panic paths above.
     session.teardown();
-    
+
     // Drain any remaining audio from buffer
     loop {
         let available = consumer.occupied_len();
         if available == 0 {
             break;
         }
-        
+
         let mut to_read = chunk_size.min(available);
         to_read -= to_read % (channels as usize);
-        
+
         if to_read == 0 {
             break;
         }
-        
+
         let n = consumer.pop_slice(&mut buffer[..to_read]);
-        
+
         if n > 0 {
             let raw_samples = &buffer[..n];
             let normalized_samples = normalizer.normalize_loudness(raw_samples);
             let frames = normalized_samples.len() / channels as usize;
-            
+
             let planar_samples = if channels == 2 {
                 let mut left = Vec::with_capacity(frames);
                 let mut right = Vec::with_capacity(frames);
@@ -475,7 +488,7 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
             } else {
                 vec![normalized_samples]
             };
-            
+
             if let Some(ref mut enc) = encoder {
                 let slices_ref: Vec<&[f32]> = planar_samples.iter().map(|v| v.as_slice()).collect();
                 if let Err(e) = enc.encode_audio_block(&slices_ref) {
@@ -486,7 +499,7 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
             total_frames_written += frames as u64;
         }
     }
-    
+
     // FILL SILENCE and finish (only if encoding to file)
     if let Some(mut enc) = encoder {
         let elapsed = start_time.elapsed().as_secs_f64();
@@ -509,7 +522,8 @@ fn run_audio_capture(mut path: std::path::PathBuf, should_stop: Arc<AtomicBool>,
             while remaining > 0 {
                 let chunk = remaining.min(silence_chunk_size as u64);
                 // Slice the silence vectors to match chunk size
-                let partial_refs: Vec<&[f32]> = silence_refs.iter().map(|v| &v[..chunk as usize]).collect();
+                let partial_refs: Vec<&[f32]> =
+                    silence_refs.iter().map(|v| &v[..chunk as usize]).collect();
 
                 if let Err(e) = enc.encode_audio_block(&partial_refs) {
                     eprintln!("Error writing silence padding: {}", e);

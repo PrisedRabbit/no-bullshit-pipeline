@@ -11,7 +11,8 @@ fn main() {
     println!("cargo:rerun-if-changed=binaries/fluidaudio-sidecar-aarch64-apple-darwin");
 
     // Only build if sources exist and binary is missing or REBUILD_SIDECAR is set
-    if sidecar_dir.exists() && (!target_binary.exists() || std::env::var("REBUILD_SIDECAR").is_ok()) {
+    if sidecar_dir.exists() && (!target_binary.exists() || std::env::var("REBUILD_SIDECAR").is_ok())
+    {
         let status = Command::new("swift")
             .args(["build", "-c", "release"])
             .current_dir(&sidecar_dir)

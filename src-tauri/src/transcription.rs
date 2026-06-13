@@ -1,9 +1,9 @@
-use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use std::sync::Mutex;
 use crate::config::{TranscriptionProvider, load_settings};
 use crate::storage::{get_data_dir, read_metadata};
 use crate::transcript_migration::{TranscriptMetadata, TranscriptSource};
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::sync::Mutex;
 use tauri::Emitter;
 use tauri_plugin_shell::ShellExt;
 
@@ -21,6 +21,12 @@ pub struct TranscriptionState {
     pub active_ids: Mutex<HashSet<String>>,
 }
 
+impl Default for TranscriptionState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TranscriptionState {
     pub fn new() -> Self {
         Self {
@@ -30,11 +36,12 @@ impl TranscriptionState {
 }
 
 #[tauri::command]
-pub fn is_transcribing(
-    recording_id: String,
-    state: tauri::State<'_, TranscriptionState>,
-) -> bool {
-    state.active_ids.lock().unwrap_or_else(|e| e.into_inner()).contains(&recording_id)
+pub fn is_transcribing(recording_id: String, state: tauri::State<'_, TranscriptionState>) -> bool {
+    state
+        .active_ids
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .contains(&recording_id)
 }
 
 #[derive(Deserialize, Debug)]
@@ -101,7 +108,10 @@ pub async fn transcribe_recording(
     transcription_state: tauri::State<'_, TranscriptionState>,
 ) -> Result<String, String> {
     {
-        let mut active = transcription_state.active_ids.lock().unwrap_or_else(|e| e.into_inner());
+        let mut active = transcription_state
+            .active_ids
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if active.contains(&recording_id) {
             return Ok("__already_running__".to_string());
         }
@@ -111,7 +121,10 @@ pub async fn transcribe_recording(
     let result = transcribe_recording_inner(&app_handle, &recording_id).await;
 
     {
-        let mut active = transcription_state.active_ids.lock().unwrap_or_else(|e| e.into_inner());
+        let mut active = transcription_state
+            .active_ids
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         active.remove(&recording_id);
     }
 
@@ -155,18 +168,23 @@ async fn transcribe_recording_inner(
         TranscriptionProvider::AppleSpeech => TranscriptSource::Apple,
     };
 
-    let _ = app_handle.emit("transcription_progress", TranscriptionProgress {
-        recording_id: recording_id.clone(),
-        stage: "Starting".to_string(),
-        percent: 0,
-    });
+    let _ = app_handle.emit(
+        "transcription_progress",
+        TranscriptionProgress {
+            recording_id: recording_id.clone(),
+            stage: "Starting".to_string(),
+            percent: 0,
+        },
+    );
 
     let transcript_json = match provider {
         TranscriptionProvider::AppleSpeech => {
             let wav_path = recording_dir.join("temp_transcription.wav");
             convert_ogg_to_wav(&audio_path, &wav_path)?;
 
-            let (mut rx, child) = app_handle.shell().sidecar("apple-speech-sidecar")
+            let (mut rx, child) = app_handle
+                .shell()
+                .sidecar("apple-speech-sidecar")
                 .map_err(|e| format!("Failed to create sidecar command: {}", e))?
                 .arg(wav_path.to_str().ok_or("Invalid WAV path")?)
                 .arg("--lang")
@@ -195,14 +213,17 @@ async fn transcribe_recording_inner(
                         for l in line.lines() {
                             if let Some(rest) = l.strip_prefix("PROGRESS:") {
                                 let parts: Vec<&str> = rest.splitn(2, ':').collect();
-                                if parts.len() == 2 {
-                                    if let Ok(pct) = parts[1].parse::<u32>() {
-                                        let _ = app_handle.emit("transcription_progress", TranscriptionProgress {
+                                if parts.len() == 2
+                                    && let Ok(pct) = parts[1].parse::<u32>()
+                                {
+                                    let _ = app_handle.emit(
+                                        "transcription_progress",
+                                        TranscriptionProgress {
                                             recording_id: recording_id.clone(),
                                             stage: parts[0].to_string(),
                                             percent: pct,
-                                        });
-                                    }
+                                        },
+                                    );
                                 }
                             }
                         }
@@ -244,14 +265,16 @@ async fn transcribe_recording_inner(
                 language: Some("auto".to_string()),
                 text: Some(out.text),
             }
-        },
+        }
         TranscriptionProvider::FluidAudio
         | TranscriptionProvider::Qwen3
         | TranscriptionProvider::Unknown => {
             let wav_path = recording_dir.join("temp_transcription.wav");
             convert_ogg_to_wav(&audio_path, &wav_path)?;
 
-            let mut fa_cmd = app_handle.shell().sidecar("fluidaudio-sidecar")
+            let mut fa_cmd = app_handle
+                .shell()
+                .sidecar("fluidaudio-sidecar")
                 .map_err(|e| format!("Failed to create sidecar command: {}", e))?
                 .arg(wav_path.to_str().ok_or("Invalid WAV path")?);
             // Speaker labels (diarization) are opt-out via settings. Recordings
@@ -294,14 +317,17 @@ async fn transcribe_recording_inner(
                         for l in line.lines() {
                             if let Some(rest) = l.strip_prefix("PROGRESS:") {
                                 let parts: Vec<&str> = rest.splitn(2, ':').collect();
-                                if parts.len() == 2 {
-                                    if let Ok(pct) = parts[1].parse::<u32>() {
-                                        let _ = app_handle.emit("transcription_progress", TranscriptionProgress {
+                                if parts.len() == 2
+                                    && let Ok(pct) = parts[1].parse::<u32>()
+                                {
+                                    let _ = app_handle.emit(
+                                        "transcription_progress",
+                                        TranscriptionProgress {
                                             recording_id: recording_id.clone(),
                                             stage: parts[0].to_string(),
                                             percent: pct,
-                                        });
-                                    }
+                                        },
+                                    );
                                 }
                             }
                         }
@@ -343,7 +369,7 @@ async fn transcribe_recording_inner(
                 language: Some("auto".to_string()),
                 text: Some(fa_output.text),
             }
-        },
+        }
     };
 
     // Save raw JSON as source of truth
@@ -361,28 +387,31 @@ async fn transcribe_recording_inner(
     // transcript on every refresh. ~200 chars, broken at word boundary.
     let preview_text = render_transcript_from_json(&transcript_json);
     let preview = truncate_preview(&preview_text, 200);
-    if let Ok(mut meta) = crate::storage::read_metadata(&recording_id) {
-        if meta.transcript_preview.as_deref() != Some(preview.as_str()) {
-            meta.transcript_preview = if preview.is_empty() {
-                None
-            } else {
-                Some(preview)
-            };
-            if let Err(e) = crate::storage::write_metadata(&meta) {
-                log::warn!(
-                    "transcription: failed to write preview for {}: {}",
-                    recording_id,
-                    e
-                );
-            }
+    if let Ok(mut meta) = crate::storage::read_metadata(&recording_id)
+        && meta.transcript_preview.as_deref() != Some(preview.as_str())
+    {
+        meta.transcript_preview = if preview.is_empty() {
+            None
+        } else {
+            Some(preview)
+        };
+        if let Err(e) = crate::storage::write_metadata(&meta) {
+            log::warn!(
+                "transcription: failed to write preview for {}: {}",
+                recording_id,
+                e
+            );
         }
     }
 
-    let _ = app_handle.emit("transcription_progress", TranscriptionProgress {
-        recording_id: recording_id.clone(),
-        stage: "Done".to_string(),
-        percent: 100,
-    });
+    let _ = app_handle.emit(
+        "transcription_progress",
+        TranscriptionProgress {
+            recording_id: recording_id.clone(),
+            stage: "Done".to_string(),
+            percent: 100,
+        },
+    );
 
     // Return rendered text for immediate UI display
     Ok(preview_text)
@@ -416,26 +445,25 @@ fn render_transcript_text(recording_id: &str) -> Option<String> {
     let recording_dir = get_data_dir().join(recording_id);
     let json_path = recording_dir.join("transcript.json");
 
-    if json_path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&json_path) {
-            if let Ok(tj) = serde_json::from_str::<TranscriptJson>(&content) {
-                return Some(render_transcript_from_json(&tj));
-            }
-        }
+    if json_path.exists()
+        && let Ok(content) = std::fs::read_to_string(&json_path)
+        && let Ok(tj) = serde_json::from_str::<TranscriptJson>(&content)
+    {
+        return Some(render_transcript_from_json(&tj));
     }
 
     // Fallback: legacy transcript.md
     let md_path = recording_dir.join("transcript.md");
-    if md_path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&md_path) {
-            if content.starts_with("---") {
-                let parts: Vec<&str> = content.splitn(3, "---").collect();
-                if parts.len() >= 3 {
-                    return Some(parts[2].trim().to_string());
-                }
+    if md_path.exists()
+        && let Ok(content) = std::fs::read_to_string(&md_path)
+    {
+        if content.starts_with("---") {
+            let parts: Vec<&str> = content.splitn(3, "---").collect();
+            if parts.len() >= 3 {
+                return Some(parts[2].trim().to_string());
             }
-            return Some(content);
         }
+        return Some(content);
     }
 
     None
@@ -487,7 +515,8 @@ pub async fn export_transcript_md(
     // Use Tauri save dialog (async via oneshot channel to avoid blocking tokio worker)
     use tauri_plugin_dialog::DialogExt;
     let (tx, rx) = tokio::sync::oneshot::channel();
-    app_handle.dialog()
+    app_handle
+        .dialog()
         .file()
         .add_filter("Markdown", &["md"])
         .set_file_name("transcript.md")
@@ -498,19 +527,22 @@ pub async fn export_transcript_md(
     let file_path = rx.await.map_err(|_| "Dialog channel closed unexpectedly")?;
 
     if let Some(path) = file_path {
-        let dest = path.as_path()
-            .ok_or("Invalid file path selected")?;
-        std::fs::write(dest, &md_content)
-            .map_err(|e| format!("Failed to save file: {}", e))?;
+        let dest = path.as_path().ok_or("Invalid file path selected")?;
+        std::fs::write(dest, &md_content).map_err(|e| format!("Failed to save file: {}", e))?;
     }
 
     Ok(())
 }
 
-pub fn convert_ogg_to_wav(ogg_path: &std::path::Path, wav_path: &std::path::Path) -> Result<(), String> {
+pub fn convert_ogg_to_wav(
+    ogg_path: &std::path::Path,
+    wav_path: &std::path::Path,
+) -> Result<(), String> {
+    use crate::resampler_compat::{
+        SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
+    };
+    use hound::{WavSpec, WavWriter};
     use lewton::inside_ogg::OggStreamReader;
-    use hound::{WavWriter, WavSpec};
-    use crate::resampler_compat::{SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
     use std::fs::File;
 
     const TARGET_RATE: u32 = 16000;
@@ -532,8 +564,13 @@ pub fn convert_ogg_to_wav(ogg_path: &std::path::Path, wav_path: &std::path::Path
 
     // Collect all decoded mono samples as f32
     let mut all_mono: Vec<f32> = Vec::new();
-    while let Some(packet) = ogg_reader.read_dec_packet_generic::<Vec<Vec<i16>>>().map_err(|e| e.to_string())? {
-        if packet.is_empty() { continue; }
+    while let Some(packet) = ogg_reader
+        .read_dec_packet_generic::<Vec<Vec<i16>>>()
+        .map_err(|e| e.to_string())?
+    {
+        if packet.is_empty() {
+            continue;
+        }
         let frames = packet[0].len();
         for i in 0..frames {
             let mut sum: i32 = 0;
@@ -549,7 +586,8 @@ pub fn convert_ogg_to_wav(ogg_path: &std::path::Path, wav_path: &std::path::Path
     if src_rate == TARGET_RATE {
         // No resampling needed
         for s in &all_mono {
-            wav_writer.write_sample((*s * 32768.0).clamp(-32768.0, 32767.0) as i16)
+            wav_writer
+                .write_sample((*s * 32768.0).clamp(-32768.0, 32767.0) as i16)
                 .map_err(|e| e.to_string())?;
         }
     } else {
@@ -569,15 +607,18 @@ pub fn convert_ogg_to_wav(ogg_path: &std::path::Path, wav_path: &std::path::Path
             params,
             chunk_size,
             1, // mono
-        ).map_err(|e| format!("Failed to create resampler: {}", e))?;
+        )
+        .map_err(|e| format!("Failed to create resampler: {}", e))?;
 
         let mut pos = 0;
         while pos + chunk_size <= all_mono.len() {
             let chunk = vec![&all_mono[pos..pos + chunk_size]];
-            let output = resampler.process(&chunk, None)
+            let output = resampler
+                .process(&chunk, None)
                 .map_err(|e| format!("Resampling error: {}", e))?;
             for s in &output[0] {
-                wav_writer.write_sample((*s * 32768.0).clamp(-32768.0, 32767.0) as i16)
+                wav_writer
+                    .write_sample((*s * 32768.0).clamp(-32768.0, 32767.0) as i16)
                     .map_err(|e| e.to_string())?;
             }
             pos += chunk_size;
@@ -586,10 +627,12 @@ pub fn convert_ogg_to_wav(ogg_path: &std::path::Path, wav_path: &std::path::Path
         // Process remaining frames
         if pos < all_mono.len() {
             let chunk = vec![&all_mono[pos..]];
-            let output = resampler.process_partial(Some(&chunk), None)
+            let output = resampler
+                .process_partial(Some(&chunk), None)
                 .map_err(|e| format!("Resampling error: {}", e))?;
             for s in &output[0] {
-                wav_writer.write_sample((*s * 32768.0).clamp(-32768.0, 32767.0) as i16)
+                wav_writer
+                    .write_sample((*s * 32768.0).clamp(-32768.0, 32767.0) as i16)
                     .map_err(|e| e.to_string())?;
             }
         }
@@ -597,4 +640,3 @@ pub fn convert_ogg_to_wav(ogg_path: &std::path::Path, wav_path: &std::path::Path
 
     Ok(())
 }
-

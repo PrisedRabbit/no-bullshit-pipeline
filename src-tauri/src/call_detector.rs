@@ -1,7 +1,7 @@
 use std::ffi::c_void;
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -29,7 +29,8 @@ pub fn init_notification_delegate(app_handle: &tauri::AppHandle) {
     }
 
     unsafe {
-        let center = objc2_user_notifications::UNUserNotificationCenter::currentNotificationCenter();
+        let center =
+            objc2_user_notifications::UNUserNotificationCenter::currentNotificationCenter();
         let delegate: objc2::rc::Retained<CallNotificationDelegate> =
             objc2::msg_send![CallNotificationDelegate::class(), new];
         center.setDelegate(Some(objc2::runtime::ProtocolObject::from_ref(&*delegate)));
@@ -56,13 +57,17 @@ fn send_un_notification(title: &str, body: &str) {
         // path above runs and clicks land in the real nbp.app.
         if Command::new("terminal-notifier")
             .args([
-                "-title", title,
-                "-message", body,
-                "-sound", "default",
+                "-title",
+                title,
+                "-message",
+                body,
+                "-sound",
+                "default",
                 // Click activates the installed nbp.app (production bundle).
                 // Dev binary in target/debug isn't registered under this id,
                 // so in dev a click will launch the production build instead.
-                "-activate", "one.nbp.skk",
+                "-activate",
+                "one.nbp.skk",
             ])
             .spawn()
             .is_err()
@@ -100,8 +105,8 @@ fn send_un_notification(title: &str, body: &str) {
 
 // --- UNUserNotificationCenterDelegate via define_class! (objc2 0.6) ---
 
-use objc2::{define_class, ClassType};
 use objc2::runtime::NSObjectProtocol;
+use objc2::{ClassType, define_class};
 use objc2_foundation::NSObject;
 use objc2_user_notifications::UNUserNotificationCenterDelegate;
 
@@ -124,7 +129,8 @@ define_class!(
             use objc2_foundation::NSString;
 
             let action = response.actionIdentifier();
-            let default_action = NSString::from_str("com.apple.UNNotificationDefaultActionIdentifier");
+            let default_action =
+                NSString::from_str("com.apple.UNNotificationDefaultActionIdentifier");
 
             if action.isEqualToString(&default_action) {
                 log::info!("User clicked call notification — starting recording");
@@ -175,7 +181,6 @@ pub struct CallDetectorState(pub std::sync::Mutex<Option<CallDetector>>);
 
 /// Start or stop the detector to match the desired enabled state
 pub fn sync_detector(state: &CallDetectorState, enabled: bool, app_handle: &tauri::AppHandle) {
-
     let mut detector = state.0.lock().unwrap_or_else(|e| e.into_inner());
     if enabled {
         // Request notification permission if needed
@@ -419,17 +424,18 @@ fn get_pipeline_names() -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
 
     // Put last-used pipeline first
-    if let Some(ref last) = settings.last_used_pipeline {
-        if pipelines.contains_key(last) {
-            names.push(last.clone());
-        }
+    if let Some(ref last) = settings.last_used_pipeline
+        && pipelines.contains_key(last)
+    {
+        names.push(last.clone());
     }
 
     // Put default pipeline second (if different from last-used)
-    if let Some(ref default) = settings.default_pipeline {
-        if pipelines.contains_key(default) && !names.contains(default) {
-            names.push(default.clone());
-        }
+    if let Some(ref default) = settings.default_pipeline
+        && pipelines.contains_key(default)
+        && !names.contains(default)
+    {
+        names.push(default.clone());
     }
 
     // Add remaining pipelines
@@ -460,7 +466,11 @@ fn emit_call_event(app_handle: &tauri::AppHandle, stage: &str, call_app: Option<
 
 /// Send macOS notification via UNUserNotificationCenter.
 /// Click is handled by the delegate (CallNotificationDelegate) which emits "call-detected".
-fn send_notification(_app_handle: &tauri::AppHandle, call_app: Option<&str>, _pipeline_names: &[String]) {
+fn send_notification(
+    _app_handle: &tauri::AppHandle,
+    call_app: Option<&str>,
+    _pipeline_names: &[String],
+) {
     let title = match call_app {
         Some(app_name) => format!("{app_name} — Call Detected"),
         None => "Call Detected".to_string(),
@@ -476,7 +486,8 @@ pub fn test_call_notification(app_handle: tauri::AppHandle) -> Result<String, St
     let pipeline_names = get_pipeline_names();
     let mic_active = {
         let ids = get_audio_device_ids();
-        ids.iter().any(|&id| device_has_input(id) && device_is_running(id))
+        ids.iter()
+            .any(|&id| device_has_input(id) && device_is_running(id))
     };
 
     let status = format!(
@@ -522,7 +533,10 @@ fn run_detector(should_stop: Arc<AtomicBool>, app_handle: tauri::AppHandle) {
         return;
     }
 
-    log::info!("call_detector: monitoring {} input device(s)", input_devices.len());
+    log::info!(
+        "call_detector: monitoring {} input device(s)",
+        input_devices.len()
+    );
 
     // Install property listeners on all input devices
     let mic_activated = Arc::new(AtomicBool::new(false));
@@ -563,7 +577,10 @@ fn run_detector(should_stop: Arc<AtomicBool>, app_handle: tauri::AppHandle) {
 
     if was_running {
         let call_app = detect_call_app();
-        log::info!("call_detector: mic already active on start, app={:?}", call_app);
+        log::info!(
+            "call_detector: mic already active on start, app={:?}",
+            call_app
+        );
         emit_call_event(&app_handle, "started", call_app.as_deref());
         active_call_app = call_app;
         last_notification = Instant::now();
@@ -588,9 +605,10 @@ fn run_detector(should_stop: Arc<AtomicBool>, app_handle: tauri::AppHandle) {
     was_running = was_running && {
         // Refine the initial-state computation: if NBP-self is already
         // recording at startup, that mic activity isn't a call.
-        let dictation_active = tauri::Manager::state::<crate::dictation::DictationState>(&app_handle)
-            .is_active
-            .load(Ordering::Relaxed);
+        let dictation_active =
+            tauri::Manager::state::<crate::dictation::DictationState>(&app_handle)
+                .is_active
+                .load(Ordering::Relaxed);
         let recording_active = tauri::Manager::state::<crate::audio::AudioState>(&app_handle)
             .is_recording
             .lock()
@@ -613,9 +631,10 @@ fn run_detector(should_stop: Arc<AtomicBool>, app_handle: tauri::AppHandle) {
         let _ = mic_activated.swap(false, Ordering::SeqCst);
 
         let is_running = input_devices.iter().any(|&id| device_is_running(id));
-        let dictation_active = tauri::Manager::state::<crate::dictation::DictationState>(&app_handle)
-            .is_active
-            .load(Ordering::Relaxed);
+        let dictation_active =
+            tauri::Manager::state::<crate::dictation::DictationState>(&app_handle)
+                .is_active
+                .load(Ordering::Relaxed);
         let recording_active = tauri::Manager::state::<crate::audio::AudioState>(&app_handle)
             .is_recording
             .lock()
@@ -630,21 +649,21 @@ fn run_detector(should_stop: Arc<AtomicBool>, app_handle: tauri::AppHandle) {
         // stayed away for END_CONFIRMATION_SECS. Cancellation is now handled
         // by the started transition below — we no longer cancel here
         // because the same cancel logic lived in two places and could race.
-        if let Some(end_start) = end_pending_since {
-            if end_start.elapsed() >= Duration::from_secs(END_CONFIRMATION_SECS) {
-                let app_to_emit = active_call_app.take();
-                log::info!(
-                    "call_detector: call mic released >{}s, app={:?}",
-                    END_CONFIRMATION_SECS,
-                    app_to_emit
-                );
-                emit_call_event(&app_handle, "ended", app_to_emit.as_deref());
-                // Reset the debounce so an immediately-following call (e.g.
-                // Zoom ends, Teams joins within 30s) fires its own started
-                // notification instead of being swallowed.
-                last_notification = Instant::now() - Duration::from_secs(DEBOUNCE_SECS + 1);
-                end_pending_since = None;
-            }
+        if let Some(end_start) = end_pending_since
+            && end_start.elapsed() >= Duration::from_secs(END_CONFIRMATION_SECS)
+        {
+            let app_to_emit = active_call_app.take();
+            log::info!(
+                "call_detector: call mic released >{}s, app={:?}",
+                END_CONFIRMATION_SECS,
+                app_to_emit
+            );
+            emit_call_event(&app_handle, "ended", app_to_emit.as_deref());
+            // Reset the debounce so an immediately-following call (e.g.
+            // Zoom ends, Teams joins within 30s) fires its own started
+            // notification instead of being swallowed.
+            last_notification = Instant::now() - Duration::from_secs(DEBOUNCE_SECS + 1);
+            end_pending_since = None;
         }
 
         // (2) Started transition — call mic went from inactive to active.

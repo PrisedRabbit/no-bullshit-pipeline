@@ -78,10 +78,7 @@ unsafe extern "C" {
         out_data: *mut c_void,
     ) -> i32;
 
-    fn AudioObjectHasProperty(
-        object_id: u32,
-        address: *const AudioObjectPropertyAddress,
-    ) -> bool;
+    fn AudioObjectHasProperty(object_id: u32, address: *const AudioObjectPropertyAddress) -> bool;
 
     fn CFRelease(cf: *const c_void);
     fn CFGetTypeID(cf: *const c_void) -> usize;
@@ -140,10 +137,10 @@ impl AudioProcessDetectorState {
 
     pub fn stop(&self) {
         self.should_stop.store(true, Ordering::SeqCst);
-        if let Ok(mut guard) = self.thread_handle.lock() {
-            if let Some(handle) = guard.take() {
-                let _ = handle.join();
-            }
+        if let Ok(mut guard) = self.thread_handle.lock()
+            && let Some(handle) = guard.take()
+        {
+            let _ = handle.join();
         }
     }
 }
@@ -257,7 +254,12 @@ fn run_detector(app_handle: AppHandle, should_stop: Arc<AtomicBool>) {
                         label,
                         info.bundle_id
                     );
-                    emit_call_event(&app_handle, "started", Some(label), info.bundle_id.as_deref());
+                    emit_call_event(
+                        &app_handle,
+                        "started",
+                        Some(label),
+                        info.bundle_id.as_deref(),
+                    );
                     tracked.insert(*pid, label.clone());
                 }
                 Some(prev_label) if prev_label != label => {
@@ -370,17 +372,17 @@ fn snapshot_input_users(self_pid: i32, self_bundle: Option<&str>) -> HashMap<i32
         let bundle_id = read_process_bundle_id(obj_id);
         // Skip any other NBP instance (same bundle id, different PID) — a stale
         // dev/restart copy must never be mistaken for a third-party call.
-        if let (Some(sb), Some(bid)) = (self_bundle, bundle_id.as_deref()) {
-            if sb == bid {
-                continue;
-            }
+        if let (Some(sb), Some(bid)) = (self_bundle, bundle_id.as_deref())
+            && sb == bid
+        {
+            continue;
         }
         // Skip system UI that opens the input but isn't a call (Sound settings
         // meter, Control Center, …) — otherwise it triggers false auto-record.
-        if let Some(bid) = bundle_id.as_deref() {
-            if IGNORED_INPUT_BUNDLE_IDS.contains(&bid) {
-                continue;
-            }
+        if let Some(bid) = bundle_id.as_deref()
+            && IGNORED_INPUT_BUNDLE_IDS.contains(&bid)
+        {
+            continue;
         }
         if !read_process_is_running_input(obj_id) {
             continue;
@@ -391,7 +393,13 @@ fn snapshot_input_users(self_pid: i32, self_bundle: Option<&str>) -> HashMap<i32
         // (avconferenced for FaceTime), which NSWorkspace can't resolve to an
         // icon, so the known com.apple.* mapping must win over it.
         let resolved_bundle = daemon_bundle_id(pid).or(bundle_id);
-        out.insert(pid, AppInfo { label, bundle_id: resolved_bundle });
+        out.insert(
+            pid,
+            AppInfo {
+                label,
+                bundle_id: resolved_bundle,
+            },
+        );
     }
     out
 }
@@ -470,11 +478,7 @@ fn read_process_pid(obj_id: u32) -> i32 {
             &mut value as *mut i32 as *mut c_void,
         )
     };
-    if status != 0 {
-        -1
-    } else {
-        value
-    }
+    if status != 0 { -1 } else { value }
 }
 
 fn read_process_is_running_input(obj_id: u32) -> bool {
@@ -642,13 +646,7 @@ fn nsrunning_application_localized_name(pid: i32) -> Option<String> {
 
 fn process_short_name(pid: i32) -> Option<String> {
     let mut buf = [0u8; 256];
-    let written = unsafe {
-        proc_name(
-            pid,
-            buf.as_mut_ptr() as *mut c_void,
-            buf.len() as u32,
-        )
-    };
+    let written = unsafe { proc_name(pid, buf.as_mut_ptr() as *mut c_void, buf.len() as u32) };
     if written <= 0 {
         return None;
     }

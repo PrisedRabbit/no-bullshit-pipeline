@@ -54,20 +54,19 @@ pub fn get_app_icon(app: tauri::AppHandle, bundle_id: String) -> Option<String> 
 
     // 2. Disk cache.
     let cache_path = icon_cache_path(&cache_key);
-    if let Some(ref path) = cache_path {
-        if path.exists() {
-            if let Ok(bytes) = std::fs::read(path) {
-                log::info!(
-                    "app_icons: DISK cache hit bundle={:?} ({} bytes) path={}",
-                    bundle_id,
-                    bytes.len(),
-                    path.display()
-                );
-                let url = png_to_data_url(&bytes);
-                store_mem(&cache_key, Some(url.clone()));
-                return Some(url);
-            }
-        }
+    if let Some(ref path) = cache_path
+        && path.exists()
+        && let Ok(bytes) = std::fs::read(path)
+    {
+        log::info!(
+            "app_icons: DISK cache hit bundle={:?} ({} bytes) path={}",
+            bundle_id,
+            bytes.len(),
+            path.display()
+        );
+        let url = png_to_data_url(&bytes);
+        store_mem(&cache_key, Some(url.clone()));
+        return Some(url);
     }
 
     // 3. Resolve from the OS on the MAIN THREAD, render to PNG, persist.
@@ -91,15 +90,17 @@ pub fn get_app_icon(app: tauri::AppHandle, bundle_id: String) -> Option<String> 
     log::info!(
         "app_icons: resolve bundle={:?} -> {}",
         bundle_id,
-        png.as_ref().map(|b| format!("{} bytes", b.len())).unwrap_or_else(|| "UNRESOLVED".to_string())
+        png.as_ref()
+            .map(|b| format!("{} bytes", b.len()))
+            .unwrap_or_else(|| "UNRESOLVED".to_string())
     );
-    if let Some(ref bytes) = png {
-        if let Some(ref path) = cache_path {
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            let _ = std::fs::write(path, bytes);
+    if let Some(ref bytes) = png
+        && let Some(ref path) = cache_path
+    {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
         }
+        let _ = std::fs::write(path, bytes);
     }
     let result = png.map(|b| png_to_data_url(&b));
     store_mem(&cache_key, result.clone());
@@ -137,9 +138,19 @@ const ICON_CACHE_DIR: &str = "app_icons_v2";
 fn icon_cache_path(bundle_id: &str) -> Option<std::path::PathBuf> {
     let safe: String = bundle_id
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
-    Some(crate::storage::get_data_dir().join(ICON_CACHE_DIR).join(format!("{}.png", safe)))
+    Some(
+        crate::storage::get_data_dir()
+            .join(ICON_CACHE_DIR)
+            .join(format!("{}.png", safe)),
+    )
 }
 
 /// Best-effort, once-per-process removal of the pre-v2 cache dir, whose contents
@@ -231,7 +242,10 @@ pub fn render_icon_png(bundle_id: &str) -> Option<Vec<u8>> {
         let path = match path {
             Some(p) => p,
             None => {
-                log::warn!("app_icons[{}]: app URL/path nil (not installed?)", bundle_id);
+                log::warn!(
+                    "app_icons[{}]: app URL/path nil (not installed?)",
+                    bundle_id
+                );
                 return None;
             }
         };
@@ -261,7 +275,10 @@ pub fn render_icon_png(bundle_id: &str) -> Option<Vec<u8>> {
         };
         let zero = CGRect {
             origin: CGPoint { x: 0.0, y: 0.0 },
-            size: CGSize { width: 0.0, height: 0.0 },
+            size: CGSize {
+                width: 0.0,
+                height: 0.0,
+            },
         };
 
         let _: () = objc2::msg_send![icon, setSize: size];
@@ -324,11 +341,7 @@ unsafe fn app_path_for_bundle(
             return None;
         }
         let path: *mut AnyObject = objc2::msg_send![url, path];
-        if path.is_null() {
-            None
-        } else {
-            Some(path)
-        }
+        if path.is_null() { None } else { Some(path) }
     }
 }
 
@@ -338,11 +351,7 @@ unsafe fn nsstring(s: &str) -> Option<*mut objc2::runtime::AnyObject> {
     let cls = AnyClass::get(c"NSString")?;
     let cstr = std::ffi::CString::new(s).ok()?;
     let obj: *mut AnyObject = objc2::msg_send![cls, stringWithUTF8String: cstr.as_ptr()];
-    if obj.is_null() {
-        None
-    } else {
-        Some(obj)
-    }
+    if obj.is_null() { None } else { Some(obj) }
 }
 
 /// Copy the bytes out of an NSData into an owned Vec (before the pool drains).

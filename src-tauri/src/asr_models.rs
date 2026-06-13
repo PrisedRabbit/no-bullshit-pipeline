@@ -10,14 +10,14 @@
 //! shift the sha; acceptable for a personal tool (user sees the offer and can
 //! dismiss). Per-file fingerprinting is a future refinement.
 
-use crate::config::{get_config_dir, load_settings, TranscriptionProvider};
+use crate::config::{TranscriptionProvider, get_config_dir, load_settings};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use tauri::Emitter;
-use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_shell::process::CommandEvent;
 
 /// Persisted per "engine:variant" version state (`~/.nbp/asr-models.json`).
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -236,10 +236,7 @@ pub async fn get_asr_model_state(
 
     // Throttle network checks to once per 24h unless forced.
     let now = chrono::Utc::now().timestamp();
-    let stale = entry
-        .checked_at
-        .map(|t| now - t > 86_400)
-        .unwrap_or(true);
+    let stale = entry.checked_at.map(|t| now - t > 86_400).unwrap_or(true);
 
     if force || stale {
         match fetch_repo_meta(&repo).await {
@@ -353,13 +350,16 @@ pub async fn download_asr_model(app: tauri::AppHandle, force: bool) -> Result<()
                 for l in line.lines() {
                     if let Some(rest) = l.strip_prefix("PROGRESS:") {
                         let parts: Vec<&str> = rest.splitn(2, ':').collect();
-                        if parts.len() == 2 {
-                            if let Ok(pct) = parts[1].parse::<u32>() {
-                                let _ = app.emit(
-                                    "asr-download-progress",
-                                    AsrDownloadProgress { stage: parts[0].to_string(), percent: pct },
-                                );
-                            }
+                        if parts.len() == 2
+                            && let Ok(pct) = parts[1].parse::<u32>()
+                        {
+                            let _ = app.emit(
+                                "asr-download-progress",
+                                AsrDownloadProgress {
+                                    stage: parts[0].to_string(),
+                                    percent: pct,
+                                },
+                            );
                         }
                     }
                 }
@@ -383,24 +383,27 @@ pub async fn download_asr_model(app: tauri::AppHandle, force: bool) -> Result<()
     // Record the freshly-installed sha as authoritative (not inferred). Repo id
     // comes from the sidecar (FluidAudio's Repo enum) — single source of truth,
     // so our version check can't drift from what FluidAudio actually downloads.
-    if let Ok((_, repo)) = sidecar_status(&app, &engine, &variant).await {
-        if let Ok((sha, info)) = fetch_repo_meta(&repo).await {
-            let key = format!("{}:{}", engine, variant);
-            let mut store = load_store();
-            let mut entry = store.get(&key).cloned().unwrap_or_default();
-            entry.installed_sha = Some(sha.clone());
-            entry.latest_sha = Some(sha);
-            entry.info = Some(info);
-            entry.inferred = false;
-            entry.checked_at = Some(chrono::Utc::now().timestamp());
-            store.insert(key, entry);
-            save_store(&store);
-        }
+    if let Ok((_, repo)) = sidecar_status(&app, &engine, &variant).await
+        && let Ok((sha, info)) = fetch_repo_meta(&repo).await
+    {
+        let key = format!("{}:{}", engine, variant);
+        let mut store = load_store();
+        let mut entry = store.get(&key).cloned().unwrap_or_default();
+        entry.installed_sha = Some(sha.clone());
+        entry.latest_sha = Some(sha);
+        entry.info = Some(info);
+        entry.inferred = false;
+        entry.checked_at = Some(chrono::Utc::now().timestamp());
+        store.insert(key, entry);
+        save_store(&store);
     }
 
     let _ = app.emit(
         "asr-download-progress",
-        AsrDownloadProgress { stage: "Complete".into(), percent: 100 },
+        AsrDownloadProgress {
+            stage: "Complete".into(),
+            percent: 100,
+        },
     );
     Ok(())
 }

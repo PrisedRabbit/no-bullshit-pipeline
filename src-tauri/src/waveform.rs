@@ -1,7 +1,7 @@
+use lewton::inside_ogg::OggStreamReader;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::Path;
-use lewton::inside_ogg::OggStreamReader;
 
 const WAVEFORM_SAMPLES: usize = 1000;
 
@@ -14,14 +14,16 @@ pub struct OggFileInfo {
 /// Get actual audio info from OGG file (duration calculated from sample count)
 pub fn get_ogg_file_info(path: &Path) -> Result<OggFileInfo, String> {
     let file = File::open(path).map_err(|e| format!("Failed to open audio: {}", e))?;
-    let mut ogg_reader = OggStreamReader::new(file).map_err(|e| format!("Failed to parse OGG: {}", e))?;
+    let mut ogg_reader =
+        OggStreamReader::new(file).map_err(|e| format!("Failed to parse OGG: {}", e))?;
 
     let sample_rate = ogg_reader.ident_hdr.audio_sample_rate;
 
     // Count total samples by decoding
     let mut total_frames: u64 = 0;
 
-    while let Some(packet) = ogg_reader.read_dec_packet_generic::<Vec<Vec<i16>>>()
+    while let Some(packet) = ogg_reader
+        .read_dec_packet_generic::<Vec<Vec<i16>>>()
         .map_err(|e| format!("Decode error: {}", e))?
     {
         if !packet.is_empty() {
@@ -31,15 +33,13 @@ pub fn get_ogg_file_info(path: &Path) -> Result<OggFileInfo, String> {
 
     let duration_sec = total_frames as f64 / sample_rate as f64;
 
-    Ok(OggFileInfo {
-        duration_sec,
-    })
+    Ok(OggFileInfo { duration_sec })
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct WaveformData {
     pub duration_ms: u64,
-    pub samples: Vec<f32>,  // Normalized 0-1
+    pub samples: Vec<f32>, // Normalized 0-1
     pub sample_count: usize,
 }
 
@@ -59,12 +59,11 @@ pub fn get_waveform_data(recording_id: String) -> Result<WaveformData, String> {
 
     // Check for cached waveform
     let cache_path = recording_dir.join("waveform.json");
-    if cache_path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&cache_path) {
-            if let Ok(data) = serde_json::from_str::<WaveformData>(&content) {
-                return Ok(data);
-            }
-        }
+    if cache_path.exists()
+        && let Ok(content) = std::fs::read_to_string(&cache_path)
+        && let Ok(data) = serde_json::from_str::<WaveformData>(&content)
+    {
+        return Ok(data);
     }
 
     // Generate waveform
@@ -80,7 +79,8 @@ pub fn get_waveform_data(recording_id: String) -> Result<WaveformData, String> {
 
 fn generate_waveform(audio_path: &std::path::Path) -> Result<WaveformData, String> {
     let file = File::open(audio_path).map_err(|e| format!("Failed to open audio: {}", e))?;
-    let mut ogg_reader = OggStreamReader::new(file).map_err(|e| format!("Failed to parse OGG: {}", e))?;
+    let mut ogg_reader =
+        OggStreamReader::new(file).map_err(|e| format!("Failed to parse OGG: {}", e))?;
 
     let sample_rate = ogg_reader.ident_hdr.audio_sample_rate;
     let channels = ogg_reader.ident_hdr.audio_channels as usize;
@@ -88,10 +88,13 @@ fn generate_waveform(audio_path: &std::path::Path) -> Result<WaveformData, Strin
     // Collect all samples and find peaks
     let mut all_samples: Vec<f32> = Vec::new();
 
-    while let Some(packet) = ogg_reader.read_dec_packet_generic::<Vec<Vec<i16>>>()
+    while let Some(packet) = ogg_reader
+        .read_dec_packet_generic::<Vec<Vec<i16>>>()
         .map_err(|e| format!("Decode error: {}", e))?
     {
-        if packet.is_empty() { continue; }
+        if packet.is_empty() {
+            continue;
+        }
 
         let frames = packet[0].len();
         for i in 0..frames {

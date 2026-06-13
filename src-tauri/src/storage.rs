@@ -1,11 +1,11 @@
+use crate::pipelines::PipelineState;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 use uuid::Uuid;
-use chrono::Utc;
-use crate::pipelines::PipelineState;
 
 /// Metadata for a recording session
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -112,7 +112,7 @@ pub struct AudioInfo {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct RecordingIssue {
     #[serde(rename = "type")]
-    pub issue_type: String,  // "drift", "source_lost", "error"
+    pub issue_type: String, // "drift", "source_lost", "error"
     pub timestamp_ms: u64,
     pub message: Option<String>,
 }
@@ -120,7 +120,7 @@ pub struct RecordingIssue {
 /// Recording health status
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct RecordingHealth {
-    pub status: String,  // "ok", "warning", "error"
+    pub status: String, // "ok", "warning", "error"
     #[serde(default)]
     pub issues: Vec<RecordingIssue>,
 }
@@ -130,15 +130,13 @@ pub fn get_data_dir() -> PathBuf {
     // Try to load from settings first
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let settings_path = PathBuf::from(&home).join(".nbp").join("settings.json");
-    
-    if settings_path.exists() {
-        if let Ok(file) = File::open(settings_path) {
-            if let Ok(settings) = serde_json::from_reader::<_, serde_json::Value>(file) {
-                if let Some(path_str) = settings.get("storage_path").and_then(|v| v.as_str()) {
-                    return PathBuf::from(path_str);
-                }
-            }
-        }
+
+    if settings_path.exists()
+        && let Ok(file) = File::open(settings_path)
+        && let Ok(settings) = serde_json::from_reader::<_, serde_json::Value>(file)
+        && let Some(path_str) = settings.get("storage_path").and_then(|v| v.as_str())
+    {
+        return PathBuf::from(path_str);
     }
 
     PathBuf::from(home).join("nbp-data")
@@ -165,7 +163,10 @@ pub(crate) fn invalidate_list_cache() {
     if let Ok(mut guard) = list_cache().lock() {
         let prev_n = guard.as_ref().map(|v| v.len());
         *guard = None;
-        log::info!("[ignore-trace] invalidate_list_cache: prev_cached_n={:?}", prev_n);
+        log::info!(
+            "[ignore-trace] invalidate_list_cache: prev_cached_n={:?}",
+            prev_n
+        );
     }
 }
 
@@ -188,7 +189,7 @@ pub fn _test_invalidate_list_cache() {
 pub fn create_recording(title: String, tags: Vec<String>) -> Result<RecordingMetadata, String> {
     let id = Uuid::new_v4().to_string();
     let created_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-    
+
     let metadata = RecordingMetadata {
         id: id.clone(),
         created_at,
@@ -263,10 +264,7 @@ pub fn write_metadata(metadata: &RecordingMetadata) -> Result<(), String> {
 /// Sanitize a tag string for use as a pipeline name.
 /// Replaces filesystem-unsafe characters (/, \, :, null) with hyphens.
 fn sanitize_pipeline_name(tag: &str) -> String {
-    tag.replace('/', "-")
-       .replace('\\', "-")
-       .replace(':', "-")
-       .replace('\0', "-")
+    tag.replace(['/', '\\', ':', '\0'], "-")
 }
 
 /// Migrate legacy `tags` to zero-step pipeline labels on recording access.
@@ -280,7 +278,9 @@ pub fn migrate_tags_to_pipeline_labels(metadata: &mut RecordingMetadata) -> Resu
     // Check which tags are not yet represented as pipeline states
     let existing_names: std::collections::HashSet<&str> =
         metadata.pipelines.iter().map(|s| s.name.as_str()).collect();
-    let unmigrated_tags: Vec<String> = metadata.tags.iter()
+    let unmigrated_tags: Vec<String> = metadata
+        .tags
+        .iter()
         .map(|t| sanitize_pipeline_name(t))
         .filter(|sanitized| !existing_names.contains(sanitized.as_str()))
         .collect();
@@ -294,14 +294,17 @@ pub fn migrate_tags_to_pipeline_labels(metadata: &mut RecordingMetadata) -> Resu
     for tag_name in &unmigrated_tags {
         if !pipelines.contains_key(tag_name) {
             let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-            pipelines.insert(tag_name.clone(), crate::pipelines::Pipeline {
-                name: tag_name.clone(),
-                description: format!("Label (migrated from tag)"),
-                steps: vec![],
-                auto_run: false,
-                created_at: now.clone(),
-                updated_at: now,
-            });
+            pipelines.insert(
+                tag_name.clone(),
+                crate::pipelines::Pipeline {
+                    name: tag_name.clone(),
+                    description: "Label (migrated from tag)".to_string(),
+                    steps: vec![],
+                    auto_run: false,
+                    created_at: now.clone(),
+                    updated_at: now,
+                },
+            );
         }
     }
     crate::pipelines::save_pipelines_to_disk(&pipelines)?;
@@ -349,10 +352,10 @@ pub fn update_title(recording_id: &str, title: String) -> Result<(), String> {
 #[tauri::command]
 pub fn delete_recording(recording_id: &str) -> Result<(), String> {
     // Prevent deletion while finalization is still running
-    if let Ok(metadata) = read_metadata(recording_id) {
-        if metadata.status == "processing" {
-            return Err("Recording is still being finalized. Please wait.".to_string());
-        }
+    if let Ok(metadata) = read_metadata(recording_id)
+        && metadata.status == "processing"
+    {
+        return Err("Recording is still being finalized. Please wait.".to_string());
     }
 
     let recording_dir = get_recording_dir(recording_id);
@@ -428,10 +431,7 @@ pub fn cleanup_stuck_processing_recordings() -> usize {
         metadata.health = Some(health);
 
         if write_metadata(&metadata).is_ok() {
-            log::info!(
-                "storage: repaired stuck {} recording {}",
-                prev_status, id
-            );
+            log::info!("storage: repaired stuck {} recording {}", prev_status, id);
             repaired += 1;
         }
     }
@@ -447,7 +447,8 @@ pub fn cleanup_stuck_processing_recordings() -> usize {
 pub fn read_metadata(recording_id: &str) -> Result<RecordingMetadata, String> {
     let metadata_path = get_recording_dir(recording_id).join("metadata.json");
     let file = File::open(metadata_path).map_err(|e| e.to_string())?;
-    let mut metadata: RecordingMetadata = serde_json::from_reader(file).map_err(|e| e.to_string())?;
+    let mut metadata: RecordingMetadata =
+        serde_json::from_reader(file).map_err(|e| e.to_string())?;
     let _ = migrate_tags_to_pipeline_labels(&mut metadata);
     Ok(metadata)
 }
@@ -459,20 +460,20 @@ pub fn read_metadata(recording_id: &str) -> Result<RecordingMetadata, String> {
 /// `delete_recording`, so any create/update/delete is reflected on the next call.
 #[tauri::command]
 pub fn list_recordings() -> Result<Vec<RecordingMetadata>, String> {
-    if let Ok(guard) = list_cache().lock() {
-        if let Some(cached) = guard.as_ref() {
-            let active: Vec<String> = cached
-                .iter()
-                .filter(|m| m.status == "recording" || m.status == "processing")
-                .map(|m| format!("{}({})", m.id, m.status))
-                .collect();
-            log::info!(
-                "[ignore-trace] list_recordings: CACHE HIT, n={}, active={:?}",
-                cached.len(),
-                active
-            );
-            return Ok(cached.clone());
-        }
+    if let Ok(guard) = list_cache().lock()
+        && let Some(cached) = guard.as_ref()
+    {
+        let active: Vec<String> = cached
+            .iter()
+            .filter(|m| m.status == "recording" || m.status == "processing")
+            .map(|m| format!("{}({})", m.id, m.status))
+            .collect();
+        log::info!(
+            "[ignore-trace] list_recordings: CACHE HIT, n={}, active={:?}",
+            cached.len(),
+            active
+        );
+        return Ok(cached.clone());
     }
     log::info!("[ignore-trace] list_recordings: CACHE MISS — scanning disk");
 
@@ -497,7 +498,9 @@ pub fn list_recordings() -> Result<Vec<RecordingMetadata>, String> {
                 match File::open(&metadata_path) {
                     Ok(file) => {
                         LIST_METADATA_READS.fetch_add(1, Ordering::Relaxed);
-                        if let Ok(mut metadata) = serde_json::from_reader::<_, RecordingMetadata>(file) {
+                        if let Ok(mut metadata) =
+                            serde_json::from_reader::<_, RecordingMetadata>(file)
+                        {
                             // migrate_tags_to_pipeline_labels may call write_metadata,
                             // which invalidates the cache we are about to populate. That's
                             // fine: the cache is filled at the end of this function and
@@ -578,7 +581,7 @@ mod tests {
     fn test_create_recording() {
         let metadata = create_recording(
             "test recording".to_string(),
-            vec!["test".to_string(), "storage".to_string()]
+            vec!["test".to_string(), "storage".to_string()],
         );
 
         assert!(metadata.is_ok());
@@ -600,10 +603,8 @@ mod tests {
 
     #[test]
     fn test_metadata_roundtrip() {
-        let original = create_recording(
-            "roundtrip test".to_string(),
-            vec!["test".to_string()]
-        ).unwrap();
+        let original =
+            create_recording("roundtrip test".to_string(), vec!["test".to_string()]).unwrap();
 
         // Write is already done by create_recording
 
@@ -626,14 +627,18 @@ mod tests {
         // Create initial recording
         let original = create_recording(
             "original title".to_string(),
-            vec!["original-tag".to_string()]
-        ).unwrap();
+            vec!["original-tag".to_string()],
+        )
+        .unwrap();
 
         let metadata_path = get_recording_dir(&original.id).join("metadata.json");
         let temp_path = metadata_path.with_extension("json.tmp");
 
         // Verify original file exists
-        assert!(metadata_path.exists(), "Original metadata.json should exist");
+        assert!(
+            metadata_path.exists(),
+            "Original metadata.json should exist"
+        );
 
         // Read original content
         let original_content = fs::read_to_string(&metadata_path).unwrap();
@@ -654,14 +659,23 @@ mod tests {
         if write_result.is_ok() {
             // Normal case: write succeeded
             let new_content = fs::read_to_string(&metadata_path).unwrap();
-            assert!(new_content.contains("modified title"), "New content should be written");
+            assert!(
+                new_content.contains("modified title"),
+                "New content should be written"
+            );
 
             // Verify temp file is cleaned up
-            assert!(!temp_path.exists(), "Temp file should not exist after successful write");
+            assert!(
+                !temp_path.exists(),
+                "Temp file should not exist after successful write"
+            );
         } else {
             // Error case: original should be preserved
             let preserved_content = fs::read_to_string(&metadata_path).unwrap();
-            assert_eq!(preserved_content, original_content, "Original content should be preserved on error");
+            assert_eq!(
+                preserved_content, original_content,
+                "Original content should be preserved on error"
+            );
         }
 
         // Cleanup
@@ -672,17 +686,21 @@ mod tests {
     fn test_atomic_write_uses_temp_file() {
         // AC2: Verify atomic rename pattern is used
 
-        let metadata = create_recording(
-            "atomic test".to_string(),
-            vec!["test".to_string()]
-        ).unwrap();
+        let metadata =
+            create_recording("atomic test".to_string(), vec!["test".to_string()]).unwrap();
 
         let metadata_path = get_recording_dir(&metadata.id).join("metadata.json");
         let temp_path = metadata_path.with_extension("json.tmp");
 
         // Verify initial state
-        assert!(metadata_path.exists(), "metadata.json should exist after creation");
-        assert!(!temp_path.exists(), "No temp file should exist after successful write");
+        assert!(
+            metadata_path.exists(),
+            "metadata.json should exist after creation"
+        );
+        assert!(
+            !temp_path.exists(),
+            "No temp file should exist after successful write"
+        );
 
         // Modify and write again
         let mut modified = metadata.clone();
@@ -692,7 +710,10 @@ mod tests {
         assert!(result.is_ok(), "Write should succeed");
 
         // After successful write, temp file should not exist (it was renamed)
-        assert!(!temp_path.exists(), "Temp file should be renamed to metadata.json");
+        assert!(
+            !temp_path.exists(),
+            "Temp file should be renamed to metadata.json"
+        );
         assert!(metadata_path.exists(), "metadata.json should exist");
 
         // Verify content is updated
@@ -707,10 +728,8 @@ mod tests {
     fn test_atomic_write_no_partial_corruption() {
         // Verify that metadata.json is never left in a partially-written state
 
-        let metadata = create_recording(
-            "corruption test".to_string(),
-            vec!["test".to_string()]
-        ).unwrap();
+        let metadata =
+            create_recording("corruption test".to_string(), vec!["test".to_string()]).unwrap();
 
         let metadata_path = get_recording_dir(&metadata.id).join("metadata.json");
 
@@ -728,8 +747,9 @@ mod tests {
 
             // After each write, file should be valid JSON
             let content = fs::read_to_string(&metadata_path).unwrap();
-            let parsed: RecordingMetadata = serde_json::from_str(&content)
-                .expect(&format!("metadata.json should be valid JSON after iteration {}", i));
+            let parsed: RecordingMetadata = serde_json::from_str(&content).unwrap_or_else(|_| {
+                panic!("metadata.json should be valid JSON after iteration {}", i)
+            });
 
             assert_eq!(parsed.title, format!("iteration {}", i));
         }
@@ -743,10 +763,8 @@ mod tests {
         // Verify write_metadata follows the same pattern as pipeline_engine.rs and transcription.rs
         // Pattern: serialize first, write to .tmp, then rename
 
-        let metadata = create_recording(
-            "pattern test".to_string(),
-            vec!["test".to_string()]
-        ).unwrap();
+        let metadata =
+            create_recording("pattern test".to_string(), vec!["test".to_string()]).unwrap();
 
         // Test that serialization is done before any file operations
         // by using a metadata that will serialize successfully
@@ -764,7 +782,10 @@ mod tests {
         let temp_path = metadata_path.with_extension("json.tmp");
 
         // Temp file should not exist after successful write (it was renamed)
-        assert!(!temp_path.exists(), "Temp file should be renamed after write");
+        assert!(
+            !temp_path.exists(),
+            "Temp file should be renamed after write"
+        );
 
         // Cleanup
         let _ = fs::remove_dir_all(get_recording_dir(&metadata.id));
@@ -776,10 +797,7 @@ mod tests {
         // zero metadata.json reads.
 
         // Seed a recording so the data dir is non-empty.
-        let r = create_recording(
-            "list cache seed".to_string(),
-            vec![],
-        ).unwrap();
+        let r = create_recording("list cache seed".to_string(), vec![]).unwrap();
 
         // Reset the cache to a deterministic state.
         _test_invalidate_list_cache();
@@ -833,10 +851,7 @@ mod tests {
         let _ = list_recordings().unwrap();
 
         // Create a fresh recording — write_metadata must invalidate the cache.
-        let r = create_recording(
-            "list cache invalidation".to_string(),
-            vec![],
-        ).unwrap();
+        let r = create_recording("list cache invalidation".to_string(), vec![]).unwrap();
 
         let after_create = list_recordings().expect("list after create");
         assert!(
@@ -847,7 +862,10 @@ mod tests {
         // Update the recording — write_metadata must invalidate the cache.
         update_title(&r.id, "renamed".to_string()).unwrap();
         let after_update = list_recordings().expect("list after update");
-        let updated = after_update.iter().find(|m| m.id == r.id).expect("recording present");
+        let updated = after_update
+            .iter()
+            .find(|m| m.id == r.id)
+            .expect("recording present");
         assert_eq!(
             updated.title, "renamed",
             "updated title must be visible on the next list_recordings call"
@@ -869,10 +887,8 @@ mod tests {
         // Verify that concurrent reads during write see either old or new data,
         // never partial/corrupted data
 
-        let metadata = create_recording(
-            "concurrent test".to_string(),
-            vec!["test".to_string()]
-        ).unwrap();
+        let metadata =
+            create_recording("concurrent test".to_string(), vec!["test".to_string()]).unwrap();
 
         // Perform multiple sequential writes
         for i in 0..10 {
@@ -889,14 +905,15 @@ mod tests {
             assert!(!read_back.title.is_empty(), "Title should not be empty");
             assert!(
                 read_back.title.starts_with("version") || read_back.title == "concurrent test",
-                "Should see complete title, got: {}", read_back.title
+                "Should see complete title, got: {}",
+                read_back.title
             );
 
             // Verify JSON is valid (read_metadata already does this, but explicit check)
             let metadata_path = get_recording_dir(&metadata.id).join("metadata.json");
             let content = fs::read_to_string(&metadata_path).unwrap();
-            let _parsed: RecordingMetadata = serde_json::from_str(&content)
-                .expect("File should always contain valid JSON");
+            let _parsed: RecordingMetadata =
+                serde_json::from_str(&content).expect("File should always contain valid JSON");
         }
 
         // Cleanup

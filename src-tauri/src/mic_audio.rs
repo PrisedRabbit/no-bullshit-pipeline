@@ -1,15 +1,17 @@
+use crate::resampler_compat::{
+    SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
+};
 use anyhow::Result;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ringbuf::{
-    traits::{Consumer, Producer, Split, Observer},
     HeapRb,
+    traits::{Consumer, Observer, Producer, Split},
 };
-use crate::resampler_compat::{SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 use std::fs::File;
-use std::num::{NonZeroU32, NonZeroU8};
+use std::num::{NonZeroU8, NonZeroU32};
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::thread;
 use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoderBuilder};
@@ -78,7 +80,11 @@ unsafe impl Send for MicAudioRecorder {}
 
 impl MicAudioRecorder {
     #[allow(deprecated)] // cpal `DeviceTrait::name` — kept for stable device labels
-    pub fn new(output_path: std::path::PathBuf, device_name: Option<String>, skip_file: bool) -> Result<Self> {
+    pub fn new(
+        output_path: std::path::PathBuf,
+        device_name: Option<String>,
+        skip_file: bool,
+    ) -> Result<Self> {
         let host = cpal::default_host();
 
         // Use selected device if specified, otherwise fall back to default
@@ -93,7 +99,7 @@ impl MicAudioRecorder {
             host.default_input_device()
                 .ok_or(anyhow::anyhow!("No input device available"))?
         };
-        
+
         // Use device's default config (native sample rate)
         let config = device.default_input_config()?;
         let sample_rate = config.sample_rate();
@@ -123,7 +129,7 @@ impl MicAudioRecorder {
                     let _ = producer.push_slice(data);
                 },
                 err_fn,
-                None
+                None,
             )?,
             cpal::SampleFormat::I16 => device.build_input_stream(
                 &config.into(),
@@ -134,7 +140,7 @@ impl MicAudioRecorder {
                     }
                 },
                 err_fn,
-                None
+                None,
             )?,
             cpal::SampleFormat::U16 => device.build_input_stream(
                 &config.into(),
@@ -145,7 +151,7 @@ impl MicAudioRecorder {
                     }
                 },
                 err_fn,
-                None
+                None,
             )?,
             _ => return Err(anyhow::anyhow!("Unsupported sample format")),
         };
@@ -171,8 +177,8 @@ impl MicAudioRecorder {
 
         // Processing Thread
         let should_stop = Arc::new(AtomicBool::new(false));
-         let should_stop_clone = should_stop.clone();
-        
+        let should_stop_clone = should_stop.clone();
+
         let path = output_path.clone();
 
         let handle = thread::spawn(move || {
@@ -182,7 +188,7 @@ impl MicAudioRecorder {
                 consumer,
                 channels as u32,
                 sample_rate,
-                skip_file
+                skip_file,
             ) {
                 eprintln!("Mic audio processing error: {:?}", e);
             }
@@ -211,7 +217,9 @@ impl MicAudioRecorder {
             let remaining = ACTIVE_MIC_STREAMS
                 .fetch_sub(1, Ordering::Relaxed)
                 .saturating_sub(1);
-            log::info!("[mic-debug] STOP + dispose | remaining active_streams={remaining} (expect 0)");
+            log::info!(
+                "[mic-debug] STOP + dispose | remaining active_streams={remaining} (expect 0)"
+            );
         }
     }
 }
@@ -222,8 +230,11 @@ impl Drop for MicAudioRecorder {
     }
 }
 
-
-pub fn start_mic_capture(output_path: std::path::PathBuf, device_name: Option<String>, skip_file: bool) -> Result<MicAudioRecorder> {
+pub fn start_mic_capture(
+    output_path: std::path::PathBuf,
+    device_name: Option<String>,
+    skip_file: bool,
+) -> Result<MicAudioRecorder> {
     MicAudioRecorder::new(output_path, device_name, skip_file)
 }
 
@@ -284,7 +295,10 @@ fn run_audio_processing(
     let resampler_chunk_size = 1024usize;
     let mut resampler: Option<SincFixedIn<f32>> = if needs_resampling {
         #[cfg(debug_assertions)]
-        eprintln!("Mic: Resampling from {}Hz to {}Hz for real-time mixer", sample_rate, MIXER_SAMPLE_RATE);
+        eprintln!(
+            "Mic: Resampling from {}Hz to {}Hz for real-time mixer",
+            sample_rate, MIXER_SAMPLE_RATE
+        );
         let params = SincInterpolationParameters {
             sinc_len: 256,
             f_cutoff: 0.95,
@@ -293,13 +307,16 @@ fn run_audio_processing(
             window: WindowFunction::BlackmanHarris2,
         };
         let resample_ratio = MIXER_SAMPLE_RATE as f64 / sample_rate as f64;
-        Some(SincFixedIn::<f32>::new(
-            resample_ratio,
-            2.0,
-            params,
-            resampler_chunk_size,
-            2,    // stereo output
-        ).map_err(|e| anyhow::anyhow!(e))?)
+        Some(
+            SincFixedIn::<f32>::new(
+                resample_ratio,
+                2.0,
+                params,
+                resampler_chunk_size,
+                2, // stereo output
+            )
+            .map_err(|e| anyhow::anyhow!(e))?,
+        )
     } else {
         None
     };
@@ -311,14 +328,18 @@ fn run_audio_processing(
     // Setup Encoder (only if not skipping file output)
     let mut encoder = if !skip_file {
         let output_file = File::create(&path)?;
-        Some(VorbisEncoderBuilder::new_with_serial(
-            NonZeroU32::new(sample_rate).ok_or(anyhow::anyhow!("Invalid sample rate"))?,
-            NonZeroU8::new(output_channels).ok_or(anyhow::anyhow!("Invalid channels"))?,
-            output_file,
-            0,
+        Some(
+            VorbisEncoderBuilder::new_with_serial(
+                NonZeroU32::new(sample_rate).ok_or(anyhow::anyhow!("Invalid sample rate"))?,
+                NonZeroU8::new(output_channels).ok_or(anyhow::anyhow!("Invalid channels"))?,
+                output_file,
+                0,
+            )
+            .bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr {
+                target_quality: 0.4,
+            })
+            .build()?,
         )
-        .bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr { target_quality: 0.4 })
-        .build()?)
     } else {
         #[cfg(debug_assertions)]
         eprintln!("Mic: Skipping file output (mix-only mode)");
@@ -327,11 +348,11 @@ fn run_audio_processing(
 
     let chunk_size = 4096;
     let mut buffer = vec![0.0f32; chunk_size];
-    
+
     // Continuous Timeline tracking
     let start_time = std::time::Instant::now();
     let mut total_frames_written: u64 = 0;
-    
+
     // Tick every 10ms
     let tick_duration = std::time::Duration::from_millis(10);
 
@@ -339,25 +360,28 @@ fn run_audio_processing(
         // Calculate expected frames
         let elapsed_secs = start_time.elapsed().as_secs_f64();
         let expected_frames = (elapsed_secs * sample_rate as f64) as u64;
-        
+
         if total_frames_written < expected_frames {
             // Write UP TO 100ms to catch up
-            let catch_up_limit = (sample_rate as f64 * 0.1) as usize; 
-            let frames_needed = (expected_frames - total_frames_written).min(catch_up_limit as u64) as usize;
-            
+            let catch_up_limit = (sample_rate as f64 * 0.1) as usize;
+            let frames_needed =
+                (expected_frames - total_frames_written).min(catch_up_limit as u64) as usize;
+
             let available = consumer.occupied_len();
             let mut frames_remaining = frames_needed;
-            
+
             // 1. Consume available audio
             let audio_frames_available = available / input_channels as usize;
-            
+
             if audio_frames_available > 0 {
                 let max_frames_in_buffer = chunk_size / input_channels as usize;
-                let frames_to_read = audio_frames_available.min(frames_remaining).min(max_frames_in_buffer);
+                let frames_to_read = audio_frames_available
+                    .min(frames_remaining)
+                    .min(max_frames_in_buffer);
                 let samples_to_read = frames_to_read * input_channels as usize;
-                
+
                 let n = consumer.pop_slice(&mut buffer[..samples_to_read]);
-                
+
                 if n > 0 {
                     let raw_samples = &buffer[..n];
 
@@ -369,7 +393,7 @@ fn run_audio_processing(
                     set_audio_level(scaled);
 
                     let normalized_samples = normalizer.normalize_loudness(raw_samples);
-                    
+
                     // Convert to planar stereo format
                     let frames_encoded = normalized_samples.len() / input_channels as usize;
                     let planar_slices = to_planar_stereo(&normalized_samples, input_channels);
@@ -383,29 +407,37 @@ fn run_audio_processing(
 
                             // Process complete chunks
                             while resample_buffer_left.len() >= resampler_chunk_size
-                                && resample_buffer_right.len() >= resampler_chunk_size {
-                                let chunk_left: Vec<f32> = resample_buffer_left.drain(..resampler_chunk_size).collect();
-                                let chunk_right: Vec<f32> = resample_buffer_right.drain(..resampler_chunk_size).collect();
+                                && resample_buffer_right.len() >= resampler_chunk_size
+                            {
+                                let chunk_left: Vec<f32> =
+                                    resample_buffer_left.drain(..resampler_chunk_size).collect();
+                                let chunk_right: Vec<f32> = resample_buffer_right
+                                    .drain(..resampler_chunk_size)
+                                    .collect();
                                 let input_frames = vec![chunk_left, chunk_right];
-                                if let Ok(resampled) = rs.process(&input_frames, None) {
-                                    if resampled.len() >= 2 && !resampled[0].is_empty() {
-                                        crate::audio_processing::MIC_BUFFER.push_planar(&resampled[0], &resampled[1]);
-                                    }
+                                if let Ok(resampled) = rs.process(&input_frames, None)
+                                    && resampled.len() >= 2
+                                    && !resampled[0].is_empty()
+                                {
+                                    crate::audio_processing::MIC_BUFFER
+                                        .push_planar(&resampled[0], &resampled[1]);
                                 }
                             }
                         } else {
                             // No resampling needed, push directly
-                            crate::audio_processing::MIC_BUFFER.push_planar(&planar_slices[0], &planar_slices[1]);
+                            crate::audio_processing::MIC_BUFFER
+                                .push_planar(&planar_slices[0], &planar_slices[1]);
                         }
                     }
 
                     // Encode to file (if not skipping)
                     if let Some(ref mut enc) = encoder {
-                        let slices_ref: Vec<&[f32]> = planar_slices.iter().map(|v| v.as_slice()).collect();
+                        let slices_ref: Vec<&[f32]> =
+                            planar_slices.iter().map(|v| v.as_slice()).collect();
                         enc.encode_audio_block(&slices_ref)?;
                     }
                     total_frames_written += frames_encoded as u64;
-                    
+
                     if frames_remaining >= frames_encoded {
                         frames_remaining -= frames_encoded;
                     } else {
@@ -413,15 +445,16 @@ fn run_audio_processing(
                     }
                 }
             }
-            
+
             // 2. Silence Padding if still behind (only if encoding to file)
             if frames_remaining > 0 {
                 if let Some(ref mut enc) = encoder {
                     // Generate silence for remaining frames
                     let silence_vec = vec![0.0f32; frames_remaining];
-                    let silence_planar = vec![silence_vec.clone(), silence_vec]; // Output is always Stereo
+                    let silence_planar = [silence_vec.clone(), silence_vec]; // Output is always Stereo
 
-                    let slices_ref: Vec<&[f32]> = silence_planar.iter().map(|v| v.as_slice()).collect();
+                    let slices_ref: Vec<&[f32]> =
+                        silence_planar.iter().map(|v| v.as_slice()).collect();
                     enc.encode_audio_block(&slices_ref)?;
                 }
                 total_frames_written += frames_remaining as u64;
@@ -432,7 +465,7 @@ fn run_audio_processing(
                 continue;
             }
         } else {
-             thread::sleep(tick_duration);
+            thread::sleep(tick_duration);
         }
     }
 
@@ -448,15 +481,17 @@ fn run_audio_processing(
                 std::mem::take(&mut resample_buffer_left),
                 std::mem::take(&mut resample_buffer_right),
             ];
-            if let Ok(resampled) = rs.process(&input_frames, None) {
-                if resampled.len() >= 2 && !resampled[0].is_empty() {
-                    // Only push the non-padded portion (proportional to original remaining)
-                    let valid_frames = (remaining_left.max(remaining_right) as f64
-                        * (MIXER_SAMPLE_RATE as f64 / sample_rate as f64)) as usize;
-                    let left_to_push = &resampled[0][..valid_frames.min(resampled[0].len())];
-                    let right_to_push = &resampled[1][..valid_frames.min(resampled[1].len())];
-                    crate::audio_processing::MIC_BUFFER.push_planar(left_to_push, right_to_push);
-                }
+            if let Ok(resampled) = rs.process(&input_frames, None)
+                && resampled.len() >= 2
+                && !resampled[0].is_empty()
+            {
+                // Only push the non-padded portion (proportional to original remaining)
+                let valid_frames = (remaining_left.max(remaining_right) as f64
+                    * (MIXER_SAMPLE_RATE as f64 / sample_rate as f64))
+                    as usize;
+                let left_to_push = &resampled[0][..valid_frames.min(resampled[0].len())];
+                let right_to_push = &resampled[1][..valid_frames.min(resampled[1].len())];
+                crate::audio_processing::MIC_BUFFER.push_planar(left_to_push, right_to_push);
             }
         }
     }
@@ -467,27 +502,27 @@ fn run_audio_processing(
         if available == 0 {
             break;
         }
-        
+
         // Read aligned to input channels
         let max_frames_in_buffer = chunk_size / input_channels as usize;
         let audio_frames_available = available / input_channels as usize;
-        
+
         let frames_to_read = audio_frames_available.min(max_frames_in_buffer);
         let samples_to_read = frames_to_read * input_channels as usize;
 
         if samples_to_read == 0 {
-            break; 
+            break;
         }
-        
+
         let n = consumer.pop_slice(&mut buffer[..samples_to_read]);
-        
+
         if n > 0 {
             let raw_samples = &buffer[..n];
             let normalized_samples = normalizer.normalize_loudness(raw_samples);
             let frames_encoded = normalized_samples.len() / input_channels as usize;
-            
+
             let planar_slices = to_planar_stereo(&normalized_samples, input_channels);
-            
+
             if let Some(ref mut enc) = encoder {
                 let slices_ref: Vec<&[f32]> = planar_slices.iter().map(|v| v.as_slice()).collect();
                 if let Err(e) = enc.encode_audio_block(&slices_ref) {
@@ -510,13 +545,14 @@ fn run_audio_processing(
             // Create silence block
             let silence_limit_chunk = 4096;
             let silence_vec = vec![0.0f32; silence_limit_chunk];
-            let silence_planar = vec![silence_vec.clone(), silence_vec];
+            let silence_planar = [silence_vec.clone(), silence_vec];
             let silence_refs: Vec<&[f32]> = silence_planar.iter().map(|v| v.as_slice()).collect();
 
             let mut remaining = missing_frames;
             while remaining > 0 {
                 let chunk = remaining.min(silence_limit_chunk as u64);
-                let partial_refs: Vec<&[f32]> = silence_refs.iter().map(|v| &v[..chunk as usize]).collect();
+                let partial_refs: Vec<&[f32]> =
+                    silence_refs.iter().map(|v| &v[..chunk as usize]).collect();
                 if let Err(e) = enc.encode_audio_block(&partial_refs) {
                     eprintln!("Error writing final mic silence: {}", e);
                     break;

@@ -34,7 +34,11 @@ fn sanitize_name_part(value: &str) -> String {
         })
         .collect();
     let trimmed = mapped.trim();
-    if trimmed.is_empty() { "Recording".to_string() } else { trimmed.to_string() }
+    if trimmed.is_empty() {
+        "Recording".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 /// Substitute date/time placeholders in the folder path so a user can route a
@@ -67,7 +71,11 @@ fn render_folder_placeholders(folder: &str, started_at: &str) -> String {
 /// actually happened. Falls back to "now" if the timestamp can't be parsed.
 fn build_stem(app: &str, started_at: &str) -> String {
     let when = chrono::DateTime::parse_from_rfc3339(started_at)
-        .map(|dt| dt.with_timezone(&chrono::Local).format("%Y-%m-%d %H-%M").to_string())
+        .map(|dt| {
+            dt.with_timezone(&chrono::Local)
+                .format("%Y-%m-%d %H-%M")
+                .to_string()
+        })
         .unwrap_or_else(|_| chrono::Local::now().format("%Y-%m-%d %H-%M").to_string());
     format!("{} {}", sanitize_name_part(app), when)
 }
@@ -79,8 +87,16 @@ fn uniquify(path: PathBuf) -> PathBuf {
         return path;
     }
     let parent = path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("file").to_string();
-    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("md").to_string();
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("file")
+        .to_string();
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("md")
+        .to_string();
     for i in 1..1000 {
         let candidate = parent.join(format!("{}-{:03}.{}", stem, i, ext));
         if !candidate.exists() {
@@ -146,8 +162,7 @@ pub async fn execute(
 
     // Step artifact — same shape the other connectors emit so get_step_outputs
     // reports status; body becomes the chained {processing_result} + run toast.
-    fs::create_dir_all(output_dir)
-        .map_err(|e| format!("Failed to create output dir: {}", e))?;
+    fs::create_dir_all(output_dir).map_err(|e| format!("Failed to create output dir: {}", e))?;
     let completed_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let artifact = output_dir.join(format!("{}.md", step_name));
     let md = format!(
@@ -161,10 +176,8 @@ pub async fn execute(
         target.display(),
     );
     let temp_md = output_dir.join(format!(".{}.md.tmp", step_name));
-    fs::write(&temp_md, &md)
-        .map_err(|e| format!("Failed to write metadata: {}", e))?;
-    fs::rename(&temp_md, &artifact)
-        .map_err(|e| format!("Failed to finalize metadata: {}", e))?;
+    fs::write(&temp_md, &md).map_err(|e| format!("Failed to write metadata: {}", e))?;
+    fs::rename(&temp_md, &artifact).map_err(|e| format!("Failed to finalize metadata: {}", e))?;
 
     Ok(artifact)
 }
@@ -237,7 +250,10 @@ mod tests {
             format!("~/out/{y}-{m}-{d}/{hh}-{mi}-{ss}")
         );
         // No placeholders → unchanged.
-        assert_eq!(render_folder_placeholders("~/Documents/Meetings", at), "~/Documents/Meetings");
+        assert_eq!(
+            render_folder_placeholders("~/Documents/Meetings", at),
+            "~/Documents/Meetings"
+        );
         // Unparseable timestamp falls back to today (4-digit year).
         assert_eq!(render_folder_placeholders("{YYYY}", "nope").len(), 4);
     }

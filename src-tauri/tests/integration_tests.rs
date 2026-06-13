@@ -3,16 +3,21 @@ use std::fs::File;
 use std::path::PathBuf;
 
 // Import shared types from main crate instead of redefining them
-use nbp_lib::storage::{AudioInfo, AudioFiles, RecordingMetadata, RecordingIssue, RecordingHealth};
-use nbp_lib::playback::{PlaybackStatus, PlaybackState};
+use nbp_lib::playback::{PlaybackState, PlaybackStatus};
+use nbp_lib::storage::{AudioFiles, AudioInfo, RecordingHealth, RecordingIssue, RecordingMetadata};
 
 // Test fixture paths
 fn get_project_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf()
 }
 
 fn get_test_audio_path() -> PathBuf {
-    get_project_root().join("test-fixtures").join("test-audio.ogg")
+    get_project_root()
+        .join("test-fixtures")
+        .join("test-audio.ogg")
 }
 
 // ============================================
@@ -27,7 +32,10 @@ fn test_waveform_generation_with_real_audio() {
     // The fixture isn't committed to the repo — skip gracefully in a clean
     // checkout instead of failing `cargo test`. Runs for anyone who has it.
     if !audio_path.exists() {
-        eprintln!("skipping test_waveform_generation_with_real_audio — no fixture at {:?}", audio_path);
+        eprintln!(
+            "skipping test_waveform_generation_with_real_audio — no fixture at {:?}",
+            audio_path
+        );
         return;
     }
 
@@ -43,8 +51,13 @@ fn test_waveform_generation_with_real_audio() {
 
     // Collect samples
     let mut all_samples: Vec<f32> = Vec::new();
-    while let Some(packet) = ogg_reader.read_dec_packet_generic::<Vec<Vec<i16>>>().unwrap() {
-        if packet.is_empty() { continue; }
+    while let Some(packet) = ogg_reader
+        .read_dec_packet_generic::<Vec<Vec<i16>>>()
+        .unwrap()
+    {
+        if packet.is_empty() {
+            continue;
+        }
 
         let frames = packet[0].len();
         for i in 0..frames {
@@ -62,7 +75,11 @@ fn test_waveform_generation_with_real_audio() {
 
     // Calculate duration
     let duration_ms = (all_samples.len() as f64 / sample_rate as f64 * 1000.0) as u64;
-    assert!(duration_ms > 4000 && duration_ms < 6000, "Duration should be ~5 seconds, got {}ms", duration_ms);
+    assert!(
+        duration_ms > 4000 && duration_ms < 6000,
+        "Duration should be ~5 seconds, got {}ms",
+        duration_ms
+    );
 
     // Downsample to 1000 points
     let target_samples = 1000;
@@ -82,7 +99,12 @@ fn test_waveform_generation_with_real_audio() {
         }
     }
 
-    assert_eq!(waveform.len(), target_samples, "Should have {} waveform samples", target_samples);
+    assert_eq!(
+        waveform.len(),
+        target_samples,
+        "Should have {} waveform samples",
+        target_samples
+    );
 
     // Normalize
     let max_val = waveform.iter().cloned().fold(0.0f32, |a, b| a.max(b));
@@ -94,10 +116,17 @@ fn test_waveform_generation_with_real_audio() {
 
     // Check normalized values
     let final_max = waveform.iter().cloned().fold(0.0f32, |a, b| a.max(b));
-    assert!((final_max - 1.0).abs() < 0.001, "Max should be normalized to 1.0");
+    assert!(
+        (final_max - 1.0).abs() < 0.001,
+        "Max should be normalized to 1.0"
+    );
 
-    println!("Waveform test passed: {} samples, {}ms duration, {} sample rate",
-             waveform.len(), duration_ms, sample_rate);
+    println!(
+        "Waveform test passed: {} samples, {}ms duration, {} sample rate",
+        waveform.len(),
+        duration_ms,
+        sample_rate
+    );
 }
 
 // ============================================
@@ -111,12 +140,19 @@ fn test_template_prompt_substitution() {
 Transcript:
 {transcript}"#;
 
-    let transcript = "Alice: Let's discuss the Q1 goals.\nBob: I think we should focus on customer retention.";
+    let transcript =
+        "Alice: Let's discuss the Q1 goals.\nBob: I think we should focus on customer retention.";
 
     let filled = template_prompt.replace("{transcript}", transcript);
 
-    assert!(filled.contains("Alice: Let's discuss"), "Should contain transcript content");
-    assert!(!filled.contains("{transcript}"), "Should have replaced placeholder");
+    assert!(
+        filled.contains("Alice: Let's discuss"),
+        "Should contain transcript content"
+    );
+    assert!(
+        !filled.contains("{transcript}"),
+        "Should have replaced placeholder"
+    );
 }
 
 // ============================================
@@ -166,7 +202,10 @@ fn test_recording_metadata_serialization() {
     let restored: RecordingMetadata = serde_json::from_str(&json).expect("Should deserialize");
 
     assert_eq!(metadata, restored, "Roundtrip should preserve data");
-    assert!(json.contains("\"id\": \"test-123\""), "JSON should contain id");
+    assert!(
+        json.contains("\"id\": \"test-123\""),
+        "JSON should contain id"
+    );
     assert!(json.contains("\"tags\""), "JSON should contain tags");
 }
 
@@ -195,9 +234,18 @@ fn test_recording_health_tracking() {
     };
 
     let json = serde_json::to_string_pretty(&health).unwrap();
-    assert!(json.contains("\"status\": \"warning\""), "Should have warning status");
-    assert!(json.contains("\"type\": \"drift\""), "Should have drift issue");
-    assert!(json.contains("\"type\": \"source_lost\""), "Should have source_lost issue");
+    assert!(
+        json.contains("\"status\": \"warning\""),
+        "Should have warning status"
+    );
+    assert!(
+        json.contains("\"type\": \"drift\""),
+        "Should have drift issue"
+    );
+    assert!(
+        json.contains("\"type\": \"source_lost\""),
+        "Should have source_lost issue"
+    );
 
     // Test deserialization
     let restored: RecordingHealth = serde_json::from_str(&json).unwrap();
@@ -221,7 +269,10 @@ fn test_playback_state_structure() {
 
     let json = serde_json::to_string(&state).unwrap();
     assert!(json.contains("\"Playing\""), "Should have Playing status");
-    assert!(json.contains("\"current_position_ms\":5000"), "Should have position");
+    assert!(
+        json.contains("\"current_position_ms\":5000"),
+        "Should have position"
+    );
 
     // Test stopped state
     let stopped = PlaybackState {
@@ -289,25 +340,36 @@ Transcript:
 
     let filled_prompt = template_prompt.replace("{transcript}", transcript);
 
-    assert!(filled_prompt.contains("Welcome everyone"), "Prompt should contain transcript");
-    assert!(filled_prompt.contains("Action Items"), "Prompt should contain template instructions");
+    assert!(
+        filled_prompt.contains("Welcome everyone"),
+        "Prompt should contain transcript"
+    );
+    assert!(
+        filled_prompt.contains("Action Items"),
+        "Prompt should contain template instructions"
+    );
 
     // 5. Verify waveform would be 1000 samples for 300s audio
     let expected_waveform_samples = 1000;
     let _duration_ms = 300_000u64;
 
     // 6. Verify all pieces connect
-    assert!(!recording_id.is_empty());
     assert!(audio_files["mix"]["duration_sec"].as_f64().unwrap() > 0.0);
     assert!(transcript.len() > 100);
     assert!(filled_prompt.len() > transcript.len());
 
     println!("Complete flow simulation passed:");
     println!("  - Recording ID: {}", recording_id);
-    println!("  - Audio duration: {}s", audio_files["mix"]["duration_sec"]);
+    println!(
+        "  - Audio duration: {}s",
+        audio_files["mix"]["duration_sec"]
+    );
     println!("  - Transcript length: {} chars", transcript.len());
     println!("  - Template prompt length: {} chars", filled_prompt.len());
-    println!("  - Expected waveform samples: {}", expected_waveform_samples);
+    println!(
+        "  - Expected waveform samples: {}",
+        expected_waveform_samples
+    );
 }
 
 // ============================================
@@ -365,7 +427,10 @@ fn test_temp_file_cleanup_removes_existing_file() {
     let _ = fs::remove_file(&rendered_path);
 
     // Verify file is removed
-    assert!(!rendered_path.exists(), "File should be removed after cleanup");
+    assert!(
+        !rendered_path.exists(),
+        "File should be removed after cleanup"
+    );
 
     // Cleanup test directory
     let _ = fs::remove_dir_all(&test_dir);
@@ -406,9 +471,18 @@ fn test_temp_file_cleanup_preserves_other_files() {
 
     // Verify only rendered file is removed
     assert!(!rendered_path.exists(), "Rendered file should be removed");
-    assert!(transcript_json_path.exists(), "transcript.json should NOT be removed");
-    assert!(transcript_md_path.exists(), "transcript.md should NOT be removed");
-    assert!(metadata_path.exists(), "metadata.json should NOT be removed");
+    assert!(
+        transcript_json_path.exists(),
+        "transcript.json should NOT be removed"
+    );
+    assert!(
+        transcript_md_path.exists(),
+        "transcript.md should NOT be removed"
+    );
+    assert!(
+        metadata_path.exists(),
+        "metadata.json should NOT be removed"
+    );
 
     // Cleanup test directory
     let _ = fs::remove_dir_all(&test_dir);
@@ -467,14 +541,27 @@ fn test_pipeline_cleanup_pattern_matches_implementation() {
 
     // Pattern from implementation:
     // let rendered_path = get_data_dir().join(recording_id).join("transcript_rendered.txt");
-    let expected_path = mock_data_dir.join(recording_id).join("transcript_rendered.txt");
+    let expected_path = mock_data_dir
+        .join(recording_id)
+        .join("transcript_rendered.txt");
 
     // Verify path construction
-    assert!(expected_path.to_string_lossy().contains(recording_id), "Path should contain recording ID");
-    assert!(expected_path.to_string_lossy().ends_with("transcript_rendered.txt"), "Path should end with transcript_rendered.txt");
+    assert!(
+        expected_path.to_string_lossy().contains(recording_id),
+        "Path should contain recording ID"
+    );
+    assert!(
+        expected_path
+            .to_string_lossy()
+            .ends_with("transcript_rendered.txt"),
+        "Path should end with transcript_rendered.txt"
+    );
 
     println!("Cleanup pattern test: PASSED");
-    println!("  Expected path pattern: <data_dir>/{}/transcript_rendered.txt", recording_id);
+    println!(
+        "  Expected path pattern: <data_dir>/{}/transcript_rendered.txt",
+        recording_id
+    );
 }
 
 // ============================================
@@ -495,7 +582,7 @@ fn test_xss_common_vectors_data_format() {
         tags: Vec<String>,
     }
 
-    let xss_vectors = vec![
+    let xss_vectors = [
         "<script>alert('XSS')</script>",
         "<img src=x onerror=alert(1)>",
         "<svg onload=alert(1)>",
@@ -517,14 +604,21 @@ fn test_xss_common_vectors_data_format() {
         let json = serde_json::to_string(&recording).expect("Should serialize XSS vector");
 
         // Should deserialize without issues
-        let restored: TestRecording = serde_json::from_str(&json).expect("Should deserialize XSS vector");
+        let restored: TestRecording =
+            serde_json::from_str(&json).expect("Should deserialize XSS vector");
 
         // Data should be preserved exactly (escaping happens in frontend)
-        assert_eq!(restored.title, *vector, "XSS vector should be preserved in data layer");
+        assert_eq!(
+            restored.title, *vector,
+            "XSS vector should be preserved in data layer"
+        );
         assert_eq!(restored.tags[0], *vector);
     }
 
-    println!("XSS vector data format test: PASSED ({} vectors tested)", xss_vectors.len());
+    println!(
+        "XSS vector data format test: PASSED ({} vectors tested)",
+        xss_vectors.len()
+    );
 }
 
 #[test]
@@ -556,7 +650,10 @@ fn test_xss_in_pipeline_step_names() {
         let _restored: TestPipelineStep = serde_json::from_str(&json).expect("Should deserialize");
 
         // JSON should contain the raw payload (escaping is frontend responsibility)
-        assert!(json.contains(payload), "Payload should be preserved in JSON");
+        assert!(
+            json.contains(payload),
+            "Payload should be preserved in JSON"
+        );
     }
 
     println!("XSS in pipeline step names test: PASSED");
@@ -585,7 +682,10 @@ fn test_xss_in_prompt_templates() {
     // XSS payloads should be preserved in data (frontend escapes on render)
     assert_eq!(restored.name, template.name);
     assert_eq!(restored.description, template.description);
-    assert!(json.contains("<script>"), "Should preserve script tags in JSON");
+    assert!(
+        json.contains("<script>"),
+        "Should preserve script tags in JSON"
+    );
 
     println!("XSS in prompt templates test: PASSED");
 }
@@ -623,7 +723,10 @@ fn test_recording_title_with_unicode_and_special_chars() {
         assert_eq!(restored.title, *title, "Title should be preserved exactly");
     }
 
-    println!("Recording title special chars test: PASSED ({} titles tested)", test_titles.len());
+    println!(
+        "Recording title special chars test: PASSED ({} titles tested)",
+        test_titles.len()
+    );
 }
 
 #[test]
@@ -686,7 +789,8 @@ fn test_xss_payloads_do_not_corrupt_json_structure() {
         let json = serde_json::to_string(&data).expect("Should serialize tricky payload");
 
         // Should deserialize correctly
-        let restored: TestData = serde_json::from_str(&json).expect("Should deserialize tricky payload");
+        let restored: TestData =
+            serde_json::from_str(&json).expect("Should deserialize tricky payload");
 
         assert_eq!(restored.field1, payload);
         assert_eq!(restored.field2[0], payload);
@@ -713,11 +817,15 @@ fn test_extremely_long_xss_payload() {
     };
 
     let json = serde_json::to_string(&recording).expect("Should serialize long payload");
-    let restored: TestRecording = serde_json::from_str(&json).expect("Should deserialize long payload");
+    let restored: TestRecording =
+        serde_json::from_str(&json).expect("Should deserialize long payload");
 
     assert_eq!(restored.title.len(), long_payload.len());
     assert!(restored.title.starts_with("<script>"));
     assert!(restored.title.ends_with("</script>"));
 
-    println!("Extremely long XSS payload test: PASSED ({}KB payload)", json.len() / 1024);
+    println!(
+        "Extremely long XSS payload test: PASSED ({}KB payload)",
+        json.len() / 1024
+    );
 }

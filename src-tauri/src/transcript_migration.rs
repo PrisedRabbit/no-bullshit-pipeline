@@ -1,18 +1,18 @@
+use crate::storage::{get_data_dir, read_metadata};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use crate::storage::{get_data_dir, read_metadata};
 
 /// Source of the transcript
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum TranscriptSource {
-    Local,        // Local Whisper
-    Fluidaudio,   // FluidAudio (local ASR + diarization)
-    Openai,       // OpenAI Whisper-1 API
-    Google,       // Google Gemini
-    Anthropic,    // Anthropic Claude
-    Apple,        // Apple SpeechAnalyzer (macOS 26+)
+    Local,      // Local Whisper
+    Fluidaudio, // FluidAudio (local ASR + diarization)
+    Openai,     // OpenAI Whisper-1 API
+    Google,     // Google Gemini
+    Anthropic,  // Anthropic Claude
+    Apple,      // Apple SpeechAnalyzer (macOS 26+)
     #[serde(other)]
     Unknown,
 }
@@ -69,8 +69,8 @@ pub fn write_transcript_with_metadata(
     content: &str,
     metadata: &TranscriptMetadata,
 ) -> Result<(), String> {
-    let frontmatter =
-        serde_yaml::to_string(metadata).map_err(|e| format!("Failed to serialize metadata: {}", e))?;
+    let frontmatter = serde_yaml::to_string(metadata)
+        .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
 
     let file_content = format!("---\n{}---\n\n{}", frontmatter, content);
 
@@ -78,16 +78,15 @@ pub fn write_transcript_with_metadata(
     let temp_path = path.with_extension("tmp");
     fs::write(&temp_path, &file_content)
         .map_err(|e| format!("Failed to write transcript: {}", e))?;
-    fs::rename(&temp_path, path)
-        .map_err(|e| format!("Failed to finalize transcript: {}", e))?;
+    fs::rename(&temp_path, path).map_err(|e| format!("Failed to finalize transcript: {}", e))?;
 
     Ok(())
 }
 
 /// Migrate a single transcript from plain text to frontmatter format
 fn migrate_transcript(path: &Path) -> Result<bool, String> {
-    let content = fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read transcript: {}", e))?;
+    let content =
+        fs::read_to_string(path).map_err(|e| format!("Failed to read transcript: {}", e))?;
 
     // Already has frontmatter - skip
     if content.starts_with("---") {
@@ -95,9 +94,7 @@ fn migrate_transcript(path: &Path) -> Result<bool, String> {
     }
 
     // Try to get metadata from recording metadata
-    let recording_dir = path
-        .parent()
-        .ok_or("Invalid transcript path")?;
+    let recording_dir = path.parent().ok_or("Invalid transcript path")?;
 
     let recording_id = recording_dir
         .file_name()
@@ -116,8 +113,7 @@ fn migrate_transcript(path: &Path) -> Result<bool, String> {
         }
         Err(_) => {
             // Use current time as fallback
-            let now = chrono::Utc::now()
-                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+            let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
             (now, 0.0)
         }
     };
@@ -175,7 +171,9 @@ pub fn is_migration_needed() -> bool {
     let settings_path = crate::config::get_settings_path();
     if let Ok(content) = fs::read_to_string(settings_path)
         && let Ok(json) = serde_json::from_str::<serde_json::Value>(&content)
-        && let Some(migrated) = json.get("transcript_migration_done").and_then(|v| v.as_bool())
+        && let Some(migrated) = json
+            .get("transcript_migration_done")
+            .and_then(|v| v.as_bool())
     {
         return !migrated;
     }
@@ -202,8 +200,7 @@ pub fn mark_migration_done() -> Result<(), String> {
 
     let content =
         serde_json::to_string_pretty(&json).map_err(|e| format!("Failed to serialize: {}", e))?;
-    fs::write(&settings_path, content)
-        .map_err(|e| format!("Failed to write settings: {}", e))?;
+    fs::write(&settings_path, content).map_err(|e| format!("Failed to write settings: {}", e))?;
 
     Ok(())
 }
@@ -258,8 +255,7 @@ mod tests {
 
     #[test]
     fn test_read_transcript_with_frontmatter() {
-        let content =
-            "---\nsource: local\nmodel: whisper-base\ncreated_at: \"2026-02-03T14:30:00Z\"\nduration_sec: 180.5\n---\n\nThis is the transcript content.";
+        let content = "---\nsource: local\nmodel: whisper-base\ncreated_at: \"2026-02-03T14:30:00Z\"\nduration_sec: 180.5\n---\n\nThis is the transcript content.";
 
         let mut temp = NamedTempFile::new().unwrap();
         write!(temp, "{}", content).unwrap();
@@ -306,8 +302,7 @@ mod tests {
 
     #[test]
     fn test_idempotent_migration() {
-        let content =
-            "---\nsource: local\nmodel: whisper-base\ncreated_at: \"2026-02-03T14:30:00Z\"\nduration_sec: 0.0\n---\n\nAlready migrated content";
+        let content = "---\nsource: local\nmodel: whisper-base\ncreated_at: \"2026-02-03T14:30:00Z\"\nduration_sec: 0.0\n---\n\nAlready migrated content";
 
         let mut temp = NamedTempFile::new().unwrap();
         write!(temp, "{}", content).unwrap();
@@ -331,5 +326,4 @@ mod tests {
             assert_eq!(json, format!("\"{}\"", expected_str));
         }
     }
-
 }

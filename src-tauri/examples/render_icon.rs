@@ -40,7 +40,13 @@ fn main() {
             Some(png) => {
                 let safe: String = bid
                     .chars()
-                    .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' })
+                    .map(|c| {
+                        if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                            c
+                        } else {
+                            '_'
+                        }
+                    })
                     .collect();
                 let path = std::env::temp_dir().join(format!("nbp-icon-{safe}.png"));
                 match std::fs::write(&path, &png) {

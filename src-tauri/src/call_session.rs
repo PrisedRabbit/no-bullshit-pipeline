@@ -47,7 +47,9 @@ pub struct CallSessionState {
 
 impl CallSessionState {
     pub fn new() -> Self {
-        Self { active: Mutex::new(None) }
+        Self {
+            active: Mutex::new(None),
+        }
     }
 }
 
@@ -68,8 +70,14 @@ pub fn install(app_handle: &tauri::AppHandle) {
             }
         };
         let stage = payload.get("stage").and_then(|v| v.as_str()).unwrap_or("");
-        let call_app = payload.get("app").and_then(|v| v.as_str()).map(String::from);
-        let bundle_id = payload.get("bundle_id").and_then(|v| v.as_str()).map(String::from);
+        let call_app = payload
+            .get("app")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let bundle_id = payload
+            .get("bundle_id")
+            .and_then(|v| v.as_str())
+            .map(String::from);
 
         match stage {
             "started" => handle_started(&app, call_app, bundle_id),
@@ -80,7 +88,11 @@ pub fn install(app_handle: &tauri::AppHandle) {
 }
 
 fn handle_started(app: &tauri::AppHandle, call_app: Option<String>, bundle_id: Option<String>) {
-    log::info!("[ignore-trace] handle_started: call_app={:?} bundle={:?}", call_app, bundle_id);
+    log::info!(
+        "[ignore-trace] handle_started: call_app={:?} bundle={:?}",
+        call_app,
+        bundle_id
+    );
     // Belt-and-suspenders self-mic guards. call_detector already suppresses
     // call-event(started) when NBP itself just opened the mic, but cover the
     // race window where this listener fires after the flag flipped.
@@ -107,7 +119,9 @@ fn handle_started(app: &tauri::AppHandle, call_app: Option<String>, bundle_id: O
     let session = ActiveCall {
         session_id: session_id.clone(),
         call_app: call_app.clone(),
-        stage: CallStage::Starting { abort_pending: false },
+        stage: CallStage::Starting {
+            abort_pending: false,
+        },
     };
 
     {
@@ -128,11 +142,13 @@ fn handle_started(app: &tauri::AppHandle, call_app: Option<String>, bundle_id: O
         //     permanently locked out of new call detections.
         //   • Anything else → real conflict, drop the new event.
         if let Some(ref existing) = *active {
-            let stale_recording = matches!(existing.stage, CallStage::Recording { .. })
-                && !audio_recording;
+            let stale_recording =
+                matches!(existing.stage, CallStage::Recording { .. }) && !audio_recording;
             let abort_pending = matches!(
                 existing.stage,
-                CallStage::Starting { abort_pending: true }
+                CallStage::Starting {
+                    abort_pending: true
+                }
             );
             if !stale_recording && !abort_pending {
                 log::warn!(
@@ -153,7 +169,11 @@ fn handle_started(app: &tauri::AppHandle, call_app: Option<String>, bundle_id: O
         *active = Some(session);
     }
 
-    log::info!("call_session: starting recording for session {} (app={:?})", session_id, call_app);
+    log::info!(
+        "call_session: starting recording for session {} (app={:?})",
+        session_id,
+        call_app
+    );
 
     // Position the popup on the cursor's monitor before emitting.
     crate::reposition_call_popup(app);
@@ -174,17 +194,21 @@ fn handle_started(app: &tauri::AppHandle, call_app: Option<String>, bundle_id: O
     let call_app_for_start = call_app.clone();
     thread::spawn(move || {
         let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
-            run_start(app_for_start, session_id_for_start.clone(), call_app_for_start, bundle_id);
+            run_start(
+                app_for_start,
+                session_id_for_start.clone(),
+                call_app_for_start,
+                bundle_id,
+            );
         }));
         if res.is_err() {
             log::error!("call_session: run_start thread panicked, resetting active session");
             let state = app_for_recovery.state::<CallSessionState>();
-            if let Ok(mut active) = state.active.lock() {
-                if let Some(ref existing) = *active {
-                    if existing.session_id == session_id {
-                        *active = None;
-                    }
-                }
+            if let Ok(mut active) = state.active.lock()
+                && let Some(ref existing) = *active
+                && existing.session_id == session_id
+            {
+                *active = None;
             }
         }
     });
@@ -219,11 +243,7 @@ fn run_start(
             // something readable: "Zoom · 19 May 14:23". Falls back to "Call"
             // when no app could be identified (rare — daemon-only path).
             let app_label = call_app.as_deref().unwrap_or("Call");
-            let title = format!(
-                "{} · {}",
-                app_label,
-                chrono::Local::now().format("%H:%M")
-            );
+            let title = format!("{} · {}", app_label, chrono::Local::now().format("%H:%M"));
             if let Ok(mut meta) = crate::storage::read_metadata(&recording_id) {
                 meta.title = title;
                 meta.app_bundle_id = bundle_id.clone();
@@ -261,12 +281,18 @@ fn run_start(
                 };
                 match active.as_mut() {
                     Some(s) if s.session_id == session_id => match s.stage {
-                        CallStage::Starting { abort_pending: true } => {
+                        CallStage::Starting {
+                            abort_pending: true,
+                        } => {
                             *active = None;
                             true
                         }
-                        CallStage::Starting { abort_pending: false } => {
-                            s.stage = CallStage::Recording { id: recording_id.clone() };
+                        CallStage::Starting {
+                            abort_pending: false,
+                        } => {
+                            s.stage = CallStage::Recording {
+                                id: recording_id.clone(),
+                            };
                             false
                         }
                         ref other => {
@@ -338,12 +364,11 @@ fn run_start(
             // Clear session and surface the error to the popup.
             {
                 let state = app.state::<CallSessionState>();
-                if let Ok(mut active) = state.active.lock() {
-                    if let Some(ref s) = *active {
-                        if s.session_id == session_id {
-                            *active = None;
-                        }
-                    }
+                if let Ok(mut active) = state.active.lock()
+                    && let Some(ref s) = *active
+                    && s.session_id == session_id
+                {
+                    *active = None;
                 }
             }
             let msg = format!("Recording failed: {}", e);
@@ -377,7 +402,9 @@ fn handle_ended(app: &tauri::AppHandle) {
         );
         match active.as_mut() {
             None => {
-                log::info!("[ignore-trace] handle_ended: active=None (already cleared by ignore?) — returning");
+                log::info!(
+                    "[ignore-trace] handle_ended: active=None (already cleared by ignore?) — returning"
+                );
                 return;
             }
             Some(s) => match s.stage {
@@ -386,21 +413,28 @@ fn handle_ended(app: &tauri::AppHandle) {
                         "[ignore-trace] handle_ended: stage=Starting (session {}) — flagging abort_pending",
                         s.session_id
                     );
-                    s.stage = CallStage::Starting { abort_pending: true };
+                    s.stage = CallStage::Starting {
+                        abort_pending: true,
+                    };
                     return;
                 }
                 CallStage::Recording { ref id } => {
                     let rid = id.clone();
                     let call_app = s.call_app.clone();
                     *active = None;
-                    log::info!("[ignore-trace] handle_ended: stage=Recording id={} — cleared *active", rid);
+                    log::info!(
+                        "[ignore-trace] handle_ended: stage=Recording id={} — cleared *active",
+                        rid
+                    );
                     Some((rid, call_app))
                 }
             },
         }
     };
 
-    let Some((rid, _call_app)) = owned else { return };
+    let Some((rid, _call_app)) = owned else {
+        return;
+    };
 
     // Verify ownership before stopping. If the user manually replaced the
     // recording via main-window stop+start, don't yank the unrelated one.
@@ -472,13 +506,18 @@ pub fn ignore_call_recording(app: tauri::AppHandle) {
                         "[ignore-trace] stage=Starting (session {}) — flagging abort_pending",
                         s.session_id
                     );
-                    s.stage = CallStage::Starting { abort_pending: true };
+                    s.stage = CallStage::Starting {
+                        abort_pending: true,
+                    };
                     return;
                 }
                 CallStage::Recording { ref id } => {
                     let rid = id.clone();
                     *active = None;
-                    log::info!("[ignore-trace] stage=Recording id={} — cleared *active", rid);
+                    log::info!(
+                        "[ignore-trace] stage=Recording id={} — cleared *active",
+                        rid
+                    );
                     Some(rid)
                 }
             },
@@ -525,7 +564,11 @@ pub fn ignore_call_recording(app: tauri::AppHandle) {
     );
     if dir_existed {
         if let Err(e) = std::fs::remove_dir_all(&dir) {
-            log::warn!("[ignore-trace] failed to delete {} after ignore: {}", rid, e);
+            log::warn!(
+                "[ignore-trace] failed to delete {} after ignore: {}",
+                rid,
+                e
+            );
         } else {
             log::info!("[ignore-trace] removed dir {}", dir.display());
         }

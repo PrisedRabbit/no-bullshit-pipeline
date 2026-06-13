@@ -37,11 +37,11 @@ fn main() {
         std::process::exit(1);
     }
     let vocab = args.get(2).map(PathBuf::from);
-    if let Some(v) = &vocab {
-        if !v.exists() {
-            eprintln!("vocab file not found: {}", v.display());
-            std::process::exit(1);
-        }
+    if let Some(v) = &vocab
+        && !v.exists()
+    {
+        eprintln!("vocab file not found: {}", v.display());
+        std::process::exit(1);
     }
 
     let sidecar = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

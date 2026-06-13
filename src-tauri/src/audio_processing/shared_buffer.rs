@@ -3,8 +3,8 @@
 //! Mic and System audio recorders push samples here.
 //! Mixer reads from both and writes directly to output.
 
-use std::sync::{Arc, Mutex};
 use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 
 /// Max buffer capacity: 10 seconds at 48kHz. If mixer falls behind,
 /// oldest samples are dropped to prevent unbounded memory growth.

@@ -1,8 +1,8 @@
-use std::sync::Mutex;
-use std::time::SystemTime;
-use std::thread::JoinHandle;
-use tauri::{Emitter, State};
 use crate::storage::{self, RecordingMetadata};
+use std::sync::Mutex;
+use std::thread::JoinHandle;
+use std::time::SystemTime;
+use tauri::{Emitter, State};
 
 pub struct AudioState {
     pub is_recording: Mutex<bool>,
@@ -13,7 +13,8 @@ pub struct AudioState {
     pub start_timestamp: Mutex<Option<SystemTime>>,
     pub save_mix_only: Mutex<bool>,
     pub finalization_handle: Mutex<Option<JoinHandle<()>>>,
-    pub realtime_transcriber: Mutex<Option<Box<dyn crate::realtime_transcription::RealtimeTranscriberHandle>>>,
+    pub realtime_transcriber:
+        Mutex<Option<Box<dyn crate::realtime_transcription::RealtimeTranscriberHandle>>>,
 }
 
 impl AudioState {
@@ -33,16 +34,20 @@ impl AudioState {
 
     /// Wait for any in-progress finalization to complete (called on shutdown / before new recording)
     pub fn wait_for_finalization(&self) {
-        if let Ok(mut handle_guard) = self.finalization_handle.lock() {
-            if let Some(handle) = handle_guard.take() {
-                let _ = handle.join();
-            }
+        if let Ok(mut handle_guard) = self.finalization_handle.lock()
+            && let Some(handle) = handle_guard.take()
+        {
+            let _ = handle.join();
         }
     }
 }
 
 #[tauri::command]
-pub fn start_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>, save_mix_only: bool) -> Result<storage::RecordingMetadata, String> {
+pub fn start_recording(
+    app_handle: tauri::AppHandle,
+    state: State<'_, AudioState>,
+    save_mix_only: bool,
+) -> Result<storage::RecordingMetadata, String> {
     let mut is_recording = state.is_recording.lock().map_err(|e| e.to_string())?;
     if *is_recording {
         return Err("Already recording".to_string());
@@ -53,7 +58,9 @@ pub fn start_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState
     // stream (the "still recording after restart" symptom).
     let leaked = crate::mic_audio::active_mic_streams();
     if leaked > 0 {
-        log::warn!("[mic-debug] start_recording: {leaked} mic stream(s) already active before start — previous session not disposed");
+        log::warn!(
+            "[mic-debug] start_recording: {leaked} mic stream(s) already active before start — previous session not disposed"
+        );
     } else {
         log::info!("[mic-debug] start_recording: clean (active_mic_streams=0)");
     }
@@ -76,7 +83,7 @@ pub fn start_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState
     match crate::audio_processing::RealtimeMixer::new(mix_path) {
         Ok(mixer) => {
             *state.realtime_mixer.lock().map_err(|e| e.to_string())? = Some(mixer);
-        },
+        }
         Err(e) => {
             eprintln!("WARNING: Real-time mixer failed: {}", e);
         }
@@ -87,7 +94,7 @@ pub fn start_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState
     match crate::mic_audio::start_mic_capture(mic_path, None, save_mix_only) {
         Ok(recorder) => {
             *state.mic_recorder.lock().map_err(|e| e.to_string())? = Some(recorder);
-        },
+        }
         Err(e) => {
             return Err(format!("Microphone capture failed: {}", e));
         }
@@ -98,10 +105,13 @@ pub fn start_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState
     match crate::system_audio::start_system_capture(system_path, save_mix_only) {
         Ok(recorder) => {
             *state.system_recorder.lock().map_err(|e| e.to_string())? = Some(recorder);
-        },
+        }
         Err(e) => {
             eprintln!("ERROR: System audio capture failed: {:?}", e);
-            let _ = app_handle.emit("recording_warning", format!("System audio unavailable: {}", e));
+            let _ = app_handle.emit(
+                "recording_warning",
+                format!("System audio unavailable: {}", e),
+            );
         }
     }
 
@@ -151,7 +161,10 @@ pub fn resume_recording(_state: State<'_, AudioState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn stop_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>) -> Result<(), String> {
+pub fn stop_recording(
+    app_handle: tauri::AppHandle,
+    state: State<'_, AudioState>,
+) -> Result<(), String> {
     log::info!("[ignore-trace] stop_recording entered");
     let mut is_recording = state.is_recording.lock().map_err(|e| e.to_string())?;
     if !*is_recording {
@@ -188,7 +201,10 @@ pub fn stop_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>
 
     // 3. Stop Real-time Transcriber (before mixer, so no more samples are needed)
     {
-        let mut rt_guard = state.realtime_transcriber.lock().map_err(|e| e.to_string())?;
+        let mut rt_guard = state
+            .realtime_transcriber
+            .lock()
+            .map_err(|e| e.to_string())?;
         if let Some(mut handle) = rt_guard.take() {
             handle.stop();
         }
@@ -221,7 +237,11 @@ pub fn stop_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>
         "[ignore-trace] stop_recording: duration={:.2}s, threshold={:.2}s, path={}",
         duration_sec,
         threshold,
-        if duration_sec < threshold { "DISCARD" } else { "FINALIZE" }
+        if duration_sec < threshold {
+            "DISCARD"
+        } else {
+            "FINALIZE"
+        }
     );
     if duration_sec < threshold {
         let mut session_guard = state.current_session.lock().map_err(|e| e.to_string())?;
@@ -242,7 +262,10 @@ pub fn stop_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>
             if dir_existed {
                 match std::fs::remove_dir_all(&dir) {
                     Ok(_) => log::info!("[ignore-trace] stop_recording DISCARD: removed dir"),
-                    Err(e) => log::warn!("[ignore-trace] stop_recording DISCARD: remove failed: {}", e),
+                    Err(e) => log::warn!(
+                        "[ignore-trace] stop_recording DISCARD: remove failed: {}",
+                        e
+                    ),
                 }
             }
             id
@@ -258,10 +281,15 @@ pub fn stop_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>
             // below) serves the stale row and the list keeps showing the
             // discarded recording.
             storage::invalidate_list_cache();
-            log::info!("[ignore-trace] stop_recording DISCARD: invalidated cache, emitting recording_discarded({})", id);
+            log::info!(
+                "[ignore-trace] stop_recording DISCARD: invalidated cache, emitting recording_discarded({})",
+                id
+            );
             let _ = app_handle.emit("recording_discarded", &id);
         } else {
-            log::warn!("[ignore-trace] stop_recording DISCARD: session_guard.take() returned None — no emit");
+            log::warn!(
+                "[ignore-trace] stop_recording DISCARD: session_guard.take() returned None — no emit"
+            );
         }
         return Ok(());
     }
@@ -275,7 +303,7 @@ pub fn stop_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>
 
             let mut metadata = match storage::read_metadata(&id) {
                 Ok(m) => m,
-                Err(_) => in_memory_metadata
+                Err(_) => in_memory_metadata,
             };
 
             metadata.status = "processing".to_string();
@@ -304,7 +332,10 @@ pub fn stop_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>
             let finalization_id = id.clone();
             let finalization_app_handle = app_handle.clone();
             Some(std::thread::spawn(move || {
-                log::info!("[ignore-trace] finalize thread started for {}", finalization_id);
+                log::info!(
+                    "[ignore-trace] finalize thread started for {}",
+                    finalization_id
+                );
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     finalize_recording(&finalization_id, duration_sec, save_mix_only);
                 }));
@@ -331,14 +362,14 @@ pub fn stop_recording(app_handle: tauri::AppHandle, state: State<'_, AudioState>
     };
 
     // Store finalization handle so it can be joined on shutdown or next recording
-    if let Some(handle) = finalization_handle {
-        if let Ok(mut h) = state.finalization_handle.lock() {
-            // Join any previous handle first
-            if let Some(prev) = h.take() {
-                let _ = prev.join();
-            }
-            *h = Some(handle);
+    if let Some(handle) = finalization_handle
+        && let Ok(mut h) = state.finalization_handle.lock()
+    {
+        // Join any previous handle first
+        if let Some(prev) = h.take() {
+            let _ = prev.join();
         }
+        *h = Some(handle);
     }
 
     *is_recording = false;
@@ -404,7 +435,7 @@ fn finalize_recording(id: &str, duration_sec: f64, save_mix_only: bool) {
             if let Err(e) = storage::write_metadata(&latest_metadata) {
                 eprintln!("Failed to save final metadata for {}: {}", id, e);
             }
-        },
+        }
         Err(e) => eprintln!("Failed to reload metadata for {}: {}", id, e),
     }
 }
@@ -448,14 +479,19 @@ pub async fn start_realtime_transcription(
     }
 
     {
-        let mut guard = state.realtime_transcriber.lock().map_err(|e| e.to_string())?;
+        let mut guard = state
+            .realtime_transcriber
+            .lock()
+            .map_err(|e| e.to_string())?;
         if let Some(mut existing) = guard.take() {
             existing.stop();
         }
     }
 
     use crate::config::TranscriptionProvider;
-    use crate::realtime_transcription::{AppleSpeechRealtimeTranscriber, RealtimeTranscriberHandle};
+    use crate::realtime_transcription::{
+        AppleSpeechRealtimeTranscriber, RealtimeTranscriberHandle,
+    };
 
     let new_transcriber: Option<Box<dyn RealtimeTranscriberHandle>> = match rt_config.provider {
         TranscriptionProvider::AppleSpeech => {
@@ -469,7 +505,10 @@ pub async fn start_realtime_transcription(
     };
 
     if let Some(t) = new_transcriber {
-        let mut guard = state.realtime_transcriber.lock().map_err(|e| e.to_string())?;
+        let mut guard = state
+            .realtime_transcriber
+            .lock()
+            .map_err(|e| e.to_string())?;
         *guard = Some(t);
     }
     Ok(())
@@ -478,7 +517,10 @@ pub async fn start_realtime_transcription(
 /// Stop the active real-time transcription session (if any).
 #[tauri::command]
 pub fn stop_realtime_transcription(state: State<'_, AudioState>) -> Result<(), String> {
-    let mut guard = state.realtime_transcriber.lock().map_err(|e| e.to_string())?;
+    let mut guard = state
+        .realtime_transcriber
+        .lock()
+        .map_err(|e| e.to_string())?;
     if let Some(mut transcriber) = guard.take() {
         transcriber.stop();
     }
@@ -500,4 +542,3 @@ mod tests {
         assert_sync::<AudioState>();
     }
 }
-

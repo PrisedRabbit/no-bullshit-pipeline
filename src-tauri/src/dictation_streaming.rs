@@ -12,8 +12,8 @@ use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter};
-use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_shell::process::CommandEvent;
 
 const TARGET_RATE: u32 = 16_000;
 
@@ -137,9 +137,9 @@ impl StreamingSession {
         // start_inner to feel instant from the user's perspective. Samples
         // pile up in the OS stdin pipe buffer (~64KB on macOS = ~1s of 16k
         // f32 mono) while the model loads. Once the sidecar starts reading
-        // stdin, the backlog drains and live transcription catches up. The
-        // ready_rx is still alive in case a caller wants to gate on it.
-        let _ = ready_rx;
+        // stdin, the backlog drains and live transcription catches up. We
+        // deliberately drop the ready receiver here: nothing gates on it.
+        drop(ready_rx);
 
         // Writer task — owns the child handle. When the sample channel closes
         // (StreamingSession dropped or finish() called), the loop exits, the
@@ -214,12 +214,7 @@ impl StreamingSession {
         if let Some(err) = self.error_text.lock().unwrap().clone() {
             return Err(err);
         }
-        Ok(self
-            .final_text
-            .lock()
-            .unwrap()
-            .clone()
-            .unwrap_or_default())
+        Ok(self.final_text.lock().unwrap().clone().unwrap_or_default())
     }
 
     /// Abort streaming — used when the user hits Escape to cancel.
@@ -235,13 +230,8 @@ fn build_resampler(
     source_rate: u32,
 ) -> Result<(usize, crate::resampler_compat::FftFixedInOut<f32>), String> {
     use crate::resampler_compat::FftFixedInOut;
-    let resampler = FftFixedInOut::<f32>::new(
-        source_rate as usize,
-        TARGET_RATE as usize,
-        1024,
-        1,
-    )
-    .map_err(|e| format!("resampler init: {}", e))?;
+    let resampler = FftFixedInOut::<f32>::new(source_rate as usize, TARGET_RATE as usize, 1024, 1)
+        .map_err(|e| format!("resampler init: {}", e))?;
     let chunk_in = resampler.input_frames_next();
     Ok((chunk_in, resampler))
 }
@@ -270,4 +260,3 @@ fn write_f32_samples(
     }
     child.write(&buf).map_err(|e| e.to_string())
 }
-

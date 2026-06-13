@@ -1,10 +1,10 @@
+use crate::config::{get_llm_models_dir, load_settings};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Instant;
 use tokio::sync::broadcast;
-use crate::config::{get_llm_models_dir, load_settings};
 
 lazy_static::lazy_static! {
     static ref DOWNLOAD_CANCEL_TX: broadcast::Sender<String> = broadcast::channel::<String>(16).0;
@@ -96,7 +96,9 @@ pub fn get_llm_models_info() -> Result<Vec<LlmModelInfo>, String> {
             let local_path = models_dir.join(m.filename());
             let file_exists = local_path.exists();
             let local_bytes = if file_exists {
-                std::fs::metadata(&local_path).map(|md| md.len()).unwrap_or(0)
+                std::fs::metadata(&local_path)
+                    .map(|md| md.len())
+                    .unwrap_or(0)
             } else {
                 0
             };
@@ -142,8 +144,7 @@ pub fn get_llm_models_info() -> Result<Vec<LlmModelInfo>, String> {
     // aren't in the current catalog (typically because we bumped to a newer
     // model version). They render in the UI as muted cards with Delete only
     // so users can reclaim disk space whenever they want.
-    let known: std::collections::HashSet<&str> =
-        MODELS.iter().map(|m| m.filename()).collect();
+    let known: std::collections::HashSet<&str> = MODELS.iter().map(|m| m.filename()).collect();
     if let Ok(entries) = std::fs::read_dir(&models_dir) {
         for entry in entries.flatten() {
             let name = entry.file_name();
@@ -207,10 +208,10 @@ pub async fn refresh_llm_model_sizes() -> Result<HashMap<String, u64>, String> {
 
     let mut sizes: HashMap<String, u64> = HashMap::new();
     for m in MODELS {
-        if let Ok(meta) = fetch_remote_meta(&client, m.url).await {
-            if let Some(bytes) = meta.size_bytes {
-                sizes.insert(m.id.to_string(), bytes);
-            }
+        if let Ok(meta) = fetch_remote_meta(&client, m.url).await
+            && let Some(bytes) = meta.size_bytes
+        {
+            sizes.insert(m.id.to_string(), bytes);
         }
     }
     write_remote_size_cache(&sizes);
@@ -390,10 +391,13 @@ pub fn delete_llm_model(model_id: String) -> Result<(), String> {
 
 // ── Freshness Check ─────────────────────────────────────────────────────────
 
-fn sha256_sidecar_path(model_path: &PathBuf) -> PathBuf {
+fn sha256_sidecar_path(model_path: &Path) -> PathBuf {
     // Hide the sha sidecar with a leading `.` so it doesn't pollute the
     // user's view in Finder next to the real model file.
-    let parent = model_path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+    let parent = model_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_default();
     let name = model_path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -403,7 +407,7 @@ fn sha256_sidecar_path(model_path: &PathBuf) -> PathBuf {
 
 /// Compute SHA-256 of a file using streaming reads (no full-file allocation).
 fn compute_sha256(path: &PathBuf) -> Result<String, String> {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     use std::io::Read;
 
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
@@ -412,7 +416,9 @@ fn compute_sha256(path: &PathBuf) -> Result<String, String> {
     let mut buf = vec![0u8; 8 * 1024 * 1024];
     loop {
         let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
-        if n == 0 { break; }
+        if n == 0 {
+            break;
+        }
         hasher.update(&buf[..n]);
     }
     use std::fmt::Write as _;
@@ -455,7 +461,11 @@ async fn fetch_remote_meta(_client: &reqwest::Client, url: &str) -> Result<Remot
         .build()
         .map_err(|e| e.to_string())?;
 
-    let res = no_redirect_client.head(url).send().await.map_err(|e| e.to_string())?;
+    let res = no_redirect_client
+        .head(url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     if !res.status().is_success() && !res.status().is_redirection() {
         return Err(format!("HEAD request failed: HTTP {}", res.status()));
     }
@@ -477,7 +487,10 @@ async fn fetch_remote_meta(_client: &reqwest::Client, url: &str) -> Result<Remot
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse::<u64>().ok());
 
-    Ok(RemoteMeta { sha256: hash, size_bytes })
+    Ok(RemoteMeta {
+        sha256: hash,
+        size_bytes,
+    })
 }
 
 /// Back-compat helper for any caller that still only wants the sha.
@@ -498,8 +511,6 @@ struct CachedModel {
 // SAFETY: LlamaModel and LlamaBackend are internally thread-safe in llama.cpp.
 // We only access the cached model behind a Mutex, so this is safe.
 unsafe impl Send for CachedModel {}
-
-
 
 lazy_static::lazy_static! {
     static ref CACHED_MODEL: Mutex<Option<CachedModel>> = Mutex::new(None);
@@ -567,13 +578,16 @@ pub fn run_inference(model_id: &str, prompt: &str, max_tokens: u32) -> Result<St
 
         let backend = LlamaBackend::init().map_err(|e| format!("Backend init failed: {}", e))?;
 
-        let model_params =
-            LlamaModelParams::default().with_n_gpu_layers(gpu_layers);
+        let model_params = LlamaModelParams::default().with_n_gpu_layers(gpu_layers);
 
         let model = LlamaModel::load_from_file(&backend, &model_path, &model_params)
             .map_err(|e| format!("Failed to load model: {}", e))?;
 
-        eprintln!("Model loaded: {} params, {} ctx", model.n_params(), model.n_ctx_train());
+        eprintln!(
+            "Model loaded: {} params, {} ctx",
+            model.n_params(),
+            model.n_ctx_train()
+        );
 
         *cache = Some(CachedModel {
             model,
@@ -610,8 +624,7 @@ pub fn run_inference(model_id: &str, prompt: &str, max_tokens: u32) -> Result<St
         .map_err(|e| format!("Tokenization failed: {}", e))?;
 
     // Create context
-    let ctx_params = LlamaContextParams::default()
-        .with_n_ctx(NonZeroU32::new(context_size));
+    let ctx_params = LlamaContextParams::default().with_n_ctx(NonZeroU32::new(context_size));
 
     let mut ctx = cached
         .model
@@ -643,9 +656,8 @@ pub fn run_inference(model_id: &str, prompt: &str, max_tokens: u32) -> Result<St
 
     let mut decoder = encoding_rs::UTF_8.new_decoder();
     let mut output = String::new();
-    let mut n_cur = n_tokens as i32;
 
-    for _ in 0..max_tokens {
+    for n_cur in (n_tokens as i32)..(n_tokens as i32 + max_tokens as i32) {
         let new_token = sampler.sample(&ctx, batch.n_tokens() - 1);
         sampler.accept(new_token);
 
@@ -667,8 +679,6 @@ pub fn run_inference(model_id: &str, prompt: &str, max_tokens: u32) -> Result<St
 
         ctx.decode(&mut batch)
             .map_err(|e| format!("Decode failed: {}", e))?;
-
-        n_cur += 1;
     }
 
     Ok(output.trim().to_string())

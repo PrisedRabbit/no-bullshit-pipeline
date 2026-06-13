@@ -10,10 +10,18 @@ use tokio::process::Command as AsyncCommand;
 // we detect installation. Adding a new CLI = one row here + one match arm
 // in `process_with_cli` below.
 pub const SUPPORTED_CLIS: &[(&str, &str, &str)] = &[
-    ("claude", "Claude Code", "curl -fsSL https://claude.ai/install.sh | bash"),
+    (
+        "claude",
+        "Claude Code",
+        "curl -fsSL https://claude.ai/install.sh | bash",
+    ),
     ("codex", "Codex CLI", "npm install -g @openai/codex"),
     ("opencode", "OpenCode", "npm install -g opencode-ai"),
-    ("agy", "Antigravity (Google)", "curl -fsSL https://antigravity.google/cli/install.sh | bash"),
+    (
+        "agy",
+        "Antigravity (Google)",
+        "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+    ),
 ];
 
 #[derive(serde::Serialize, Clone)]
@@ -181,8 +189,8 @@ pub async fn execute(
     // engine's transient input file holding the rendered template; pipeline
     // is the entire prompt already. Old `{transcript}` substitution kept
     // for backward-compat if someone still passes a template-shaped prompt.
-    let raw_content = fs::read_to_string(input_path)
-        .map_err(|e| format!("Failed to read input file: {}", e))?;
+    let raw_content =
+        fs::read_to_string(input_path).map_err(|e| format!("Failed to read input file: {}", e))?;
     let content = super::strip_frontmatter(&raw_content);
 
     let full_prompt = if prompt.contains("{transcript}") {
@@ -214,18 +222,19 @@ pub async fn execute(
     let stderr_handle = child.stderr.take();
 
     // Enforce timeout: wait with timeout, then kill if exceeded
-    let wait_result = tokio::time::timeout(
-        Duration::from_secs(timeout_secs),
-        child.wait(),
-    )
-    .await;
+    let wait_result = tokio::time::timeout(Duration::from_secs(timeout_secs), child.wait()).await;
 
     let status = match wait_result {
         Ok(Ok(status)) => status,
         Ok(Err(e)) => {
             return write_error(
-                output_dir, step_name, step_input, step_description,
-                &created_at, cli, &format!("Process I/O error: {}", e),
+                output_dir,
+                step_name,
+                step_input,
+                step_description,
+                &created_at,
+                cli,
+                &format!("Process I/O error: {}", e),
             );
         }
         Err(_timeout) => {
@@ -233,8 +242,12 @@ pub async fn execute(
             let _ = child.kill().await;
             let _ = child.wait().await;
             return write_error(
-                output_dir, step_name, step_input, step_description,
-                &created_at, cli,
+                output_dir,
+                step_name,
+                step_input,
+                step_description,
+                &created_at,
+                cli,
                 &format!(
                     "CLI agent timed out after {}s (pid: {:?})",
                     timeout_secs, pid
@@ -274,8 +287,12 @@ pub async fn execute(
             format!("exit code: {:?}", status.code())
         };
         return write_error(
-            output_dir, step_name, step_input, step_description,
-            &created_at, cli,
+            output_dir,
+            step_name,
+            step_input,
+            step_description,
+            &created_at,
+            cli,
             &format!("CLI agent '{}' failed: {}", cli, details.trim()),
         );
     }
@@ -283,8 +300,7 @@ pub async fn execute(
     let agent_output = String::from_utf8_lossy(&stdout_bytes).to_string();
 
     // Write success output
-    fs::create_dir_all(output_dir)
-        .map_err(|e| format!("Failed to create output dir: {}", e))?;
+    fs::create_dir_all(output_dir).map_err(|e| format!("Failed to create output dir: {}", e))?;
 
     let output_path = output_dir.join(format!("{}.md", step_name));
     let desc_escaped = step_description.unwrap_or("").replace('"', "\\\"");
@@ -300,8 +316,7 @@ pub async fn execute(
     );
 
     let temp_path = output_dir.join(format!(".{}.md.tmp", step_name));
-    fs::write(&temp_path, &file_content)
-        .map_err(|e| format!("Failed to write output: {}", e))?;
+    fs::write(&temp_path, &file_content).map_err(|e| format!("Failed to write output: {}", e))?;
     fs::rename(&temp_path, &output_path)
         .map_err(|e| format!("Failed to finalize output: {}", e))?;
 
@@ -336,20 +351,19 @@ fn write_error(
     let err_escaped = error.replace('"', "\\\"").replace('\n', " ");
     let file_content = format!(
         "---\nname: {}\ndescription: \"{}\"\nconnector: cli_agent\ninput: {}\nstatus: failed\ncreated_at: {}\ncompleted_at: {}\nerror: \"{}\"\ncli: {}\n---\n\n## Error\n{}\n",
-        step_name,
-        desc_escaped,
-        step_input,
-        created_at,
-        completed_at,
-        err_escaped,
-        cli,
-        error,
+        step_name, desc_escaped, step_input, created_at, completed_at, err_escaped, cli, error,
     );
     let temp_path = output_dir.join(format!(".{}.md.tmp", step_name));
     if let Err(e) = fs::write(&temp_path, &file_content) {
-        eprintln!("[cli_agent] Failed to write error state for step '{}': {}", step_name, e);
+        eprintln!(
+            "[cli_agent] Failed to write error state for step '{}': {}",
+            step_name, e
+        );
     } else if let Err(e) = fs::rename(&temp_path, &output_path) {
-        eprintln!("[cli_agent] Failed to finalize error state for step '{}': {}", step_name, e);
+        eprintln!(
+            "[cli_agent] Failed to finalize error state for step '{}': {}",
+            step_name, e
+        );
     }
     Err(error.to_string())
 }

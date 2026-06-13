@@ -14,14 +14,14 @@
 //! Mirrors the raw CoreGraphics FFI pattern from `dictation.rs`.
 
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::ShortcutRegistration;
 use crate::config::{DictationShortcut, DictationTriggerMode};
 use crate::dictation::{self, DictationState};
-use crate::ShortcutRegistration;
 
 // --- CoreGraphics / CoreFoundation FFI ------------------------------------
 
@@ -287,8 +287,7 @@ extern "C" fn tap_callback(
 ) -> CGEventRef {
     // macOS disables the tap if our callback is slow or on certain user input;
     // re-enable and pass the event through.
-    if type_ == K_CG_EVENT_TAP_DISABLED_BY_TIMEOUT
-        || type_ == K_CG_EVENT_TAP_DISABLED_BY_USER_INPUT
+    if type_ == K_CG_EVENT_TAP_DISABLED_BY_TIMEOUT || type_ == K_CG_EVENT_TAP_DISABLED_BY_USER_INPUT
     {
         set_tap_enabled(true);
         return event;
@@ -315,7 +314,11 @@ extern "C" fn tap_callback(
                 st.fn_down = fn_now;
                 if !was && fn_now {
                     // Fn pressed → solo bindings only.
-                    if let Some(b) = st.bindings.iter().find(|b| b.base_keycode.is_none()).cloned()
+                    if let Some(b) = st
+                        .bindings
+                        .iter()
+                        .find(|b| b.base_keycode.is_none())
+                        .cloned()
                     {
                         fire_down(&mut st, &app, &b);
                     }
@@ -343,26 +346,21 @@ extern "C" fn tap_callback(
                 }
             }
             K_CG_EVENT_KEY_UP => {
-                let kc =
-                    unsafe { CGEventGetIntegerValueField(event, K_CG_KEYBOARD_EVENT_KEYCODE) }
-                        as u16;
-                if let Some((_, Some(active_kc))) = st.ptt_active.clone() {
-                    if active_kc == kc {
-                        st.ptt_active = None;
-                        swallow = true;
-                        spawn_stop(&app);
-                    }
+                let kc = unsafe { CGEventGetIntegerValueField(event, K_CG_KEYBOARD_EVENT_KEYCODE) }
+                    as u16;
+                if let Some((_, Some(active_kc))) = st.ptt_active.clone()
+                    && active_kc == kc
+                {
+                    st.ptt_active = None;
+                    swallow = true;
+                    spawn_stop(&app);
                 }
             }
             _ => {}
         }
     }
 
-    if swallow {
-        std::ptr::null()
-    } else {
-        event
-    }
+    if swallow { std::ptr::null() } else { event }
 }
 
 /// Capture-mode handler: emit the pressed Fn accelerator to the frontend.
@@ -388,8 +386,8 @@ fn capture_event(type_: u32, event: CGEventRef, fn_now: bool) -> CGEventRef {
             event
         }
         K_CG_EVENT_KEY_DOWN if fn_now => {
-            let kc = unsafe { CGEventGetIntegerValueField(event, K_CG_KEYBOARD_EVENT_KEYCODE) }
-                as u16;
+            let kc =
+                unsafe { CGEventGetIntegerValueField(event, K_CG_KEYBOARD_EVENT_KEYCODE) } as u16;
             if let Some(tok) = keycode_to_token(kc) {
                 let _ = app.emit("fn_hotkey_captured", format!("fn+{}", tok));
             }
@@ -420,7 +418,9 @@ fn fire_down(st: &mut FnState, app: &AppHandle, b: &FnBinding) {
 // --- Async dispatch into the dictation engine -----------------------------
 
 fn is_active(app: &AppHandle) -> bool {
-    app.state::<DictationState>().is_active.load(Ordering::Relaxed)
+    app.state::<DictationState>()
+        .is_active
+        .load(Ordering::Relaxed)
 }
 
 fn spawn_toggle(app: &AppHandle, id: &str) {
@@ -493,27 +493,83 @@ fn parse_fn_hotkey(hotkey: &str) -> Option<Option<u16>> {
 fn hotkey_token_to_keycode(token: &str) -> Option<u16> {
     let kc: u16 = match token {
         // Letters (ANSI layout virtual keycodes)
-        "a" => 0, "s" => 1, "d" => 2, "f" => 3, "h" => 4, "g" => 5,
-        "z" => 6, "x" => 7, "c" => 8, "v" => 9, "b" => 11, "q" => 12,
-        "w" => 13, "e" => 14, "r" => 15, "y" => 16, "t" => 17,
-        "o" => 31, "u" => 32, "i" => 34, "p" => 35, "l" => 37, "j" => 38,
-        "k" => 40, "n" => 45, "m" => 46,
+        "a" => 0,
+        "s" => 1,
+        "d" => 2,
+        "f" => 3,
+        "h" => 4,
+        "g" => 5,
+        "z" => 6,
+        "x" => 7,
+        "c" => 8,
+        "v" => 9,
+        "b" => 11,
+        "q" => 12,
+        "w" => 13,
+        "e" => 14,
+        "r" => 15,
+        "y" => 16,
+        "t" => 17,
+        "o" => 31,
+        "u" => 32,
+        "i" => 34,
+        "p" => 35,
+        "l" => 37,
+        "j" => 38,
+        "k" => 40,
+        "n" => 45,
+        "m" => 46,
         // Digit row
-        "1" => 18, "2" => 19, "3" => 20, "4" => 21, "6" => 22, "5" => 23,
-        "9" => 25, "7" => 26, "8" => 28, "0" => 29,
+        "1" => 18,
+        "2" => 19,
+        "3" => 20,
+        "4" => 21,
+        "6" => 22,
+        "5" => 23,
+        "9" => 25,
+        "7" => 26,
+        "8" => 28,
+        "0" => 29,
         // Punctuation
-        "=" => 24, "-" => 27, "]" => 30, "[" => 33, "'" => 39, ";" => 41,
-        "\\" => 42, "," => 43, "/" => 44, "." => 47, "`" => 50,
+        "=" => 24,
+        "-" => 27,
+        "]" => 30,
+        "[" => 33,
+        "'" => 39,
+        ";" => 41,
+        "\\" => 42,
+        "," => 43,
+        "/" => 44,
+        "." => 47,
+        "`" => 50,
         // Whitespace / editing
-        "space" => 49, "enter" => 36, "tab" => 48, "backspace" => 51,
-        "delete" => 117, "home" => 115, "end" => 119, "pageup" => 116,
+        "space" => 49,
+        "enter" => 36,
+        "tab" => 48,
+        "backspace" => 51,
+        "delete" => 117,
+        "home" => 115,
+        "end" => 119,
+        "pageup" => 116,
         "pagedown" => 121,
         // Arrows
-        "left" => 123, "right" => 124, "down" => 125, "up" => 126,
+        "left" => 123,
+        "right" => 124,
+        "down" => 125,
+        "up" => 126,
         // Function keys
-        "f1" => 122, "f2" => 120, "f3" => 99, "f4" => 118, "f5" => 96,
-        "f6" => 97, "f7" => 98, "f8" => 100, "f9" => 101, "f10" => 109,
-        "f11" => 103, "f12" => 111,
+        "f1" => 122,
+        "f2" => 120,
+        "f3" => 99,
+        "f4" => 118,
+        "f5" => 96,
+        "f6" => 97,
+        "f7" => 98,
+        "f8" => 100,
+        "f9" => 101,
+        "f10" => 109,
+        "f11" => 103,
+        "f12" => 111,
         _ => return None,
     };
     Some(kc)
@@ -523,22 +579,78 @@ fn hotkey_token_to_keycode(token: &str) -> Option<u16> {
 /// capture mode can report "fn+<token>" in the same format Save expects.
 fn keycode_to_token(kc: u16) -> Option<String> {
     let tok: &str = match kc {
-        0 => "a", 1 => "s", 2 => "d", 3 => "f", 4 => "h", 5 => "g",
-        6 => "z", 7 => "x", 8 => "c", 9 => "v", 11 => "b", 12 => "q",
-        13 => "w", 14 => "e", 15 => "r", 16 => "y", 17 => "t",
-        31 => "o", 32 => "u", 34 => "i", 35 => "p", 37 => "l", 38 => "j",
-        40 => "k", 45 => "n", 46 => "m",
-        18 => "1", 19 => "2", 20 => "3", 21 => "4", 22 => "6", 23 => "5",
-        25 => "9", 26 => "7", 28 => "8", 29 => "0",
-        24 => "=", 27 => "-", 30 => "]", 33 => "[", 39 => "'", 41 => ";",
-        42 => "\\", 43 => ",", 44 => "/", 47 => ".", 50 => "`",
-        49 => "space", 36 => "enter", 48 => "tab", 51 => "backspace",
-        117 => "delete", 115 => "home", 119 => "end", 116 => "pageup",
+        0 => "a",
+        1 => "s",
+        2 => "d",
+        3 => "f",
+        4 => "h",
+        5 => "g",
+        6 => "z",
+        7 => "x",
+        8 => "c",
+        9 => "v",
+        11 => "b",
+        12 => "q",
+        13 => "w",
+        14 => "e",
+        15 => "r",
+        16 => "y",
+        17 => "t",
+        31 => "o",
+        32 => "u",
+        34 => "i",
+        35 => "p",
+        37 => "l",
+        38 => "j",
+        40 => "k",
+        45 => "n",
+        46 => "m",
+        18 => "1",
+        19 => "2",
+        20 => "3",
+        21 => "4",
+        22 => "6",
+        23 => "5",
+        25 => "9",
+        26 => "7",
+        28 => "8",
+        29 => "0",
+        24 => "=",
+        27 => "-",
+        30 => "]",
+        33 => "[",
+        39 => "'",
+        41 => ";",
+        42 => "\\",
+        43 => ",",
+        44 => "/",
+        47 => ".",
+        50 => "`",
+        49 => "space",
+        36 => "enter",
+        48 => "tab",
+        51 => "backspace",
+        117 => "delete",
+        115 => "home",
+        119 => "end",
+        116 => "pageup",
         121 => "pagedown",
-        123 => "left", 124 => "right", 125 => "down", 126 => "up",
-        122 => "f1", 120 => "f2", 99 => "f3", 118 => "f4", 96 => "f5",
-        97 => "f6", 98 => "f7", 100 => "f8", 101 => "f9", 109 => "f10",
-        103 => "f11", 111 => "f12",
+        123 => "left",
+        124 => "right",
+        125 => "down",
+        126 => "up",
+        122 => "f1",
+        120 => "f2",
+        99 => "f3",
+        118 => "f4",
+        96 => "f5",
+        97 => "f6",
+        98 => "f7",
+        100 => "f8",
+        101 => "f9",
+        109 => "f10",
+        103 => "f11",
+        111 => "f12",
         _ => return None,
     };
     Some(tok.to_string())

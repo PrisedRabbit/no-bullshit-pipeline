@@ -41,7 +41,6 @@ fn default_cli_timeout() -> u64 {
     300
 }
 
-
 impl Default for CliAgentConfig {
     fn default() -> Self {
         Self {
@@ -189,7 +188,7 @@ pub struct DictationConfig {
     /// Master toggle — when false, no global shortcuts are registered
     #[serde(default)]
     pub enabled: bool,
-    /// User-defined shortcuts; each is an independent hotkey/engine/pipeline triple
+    /// User-defined shortcuts; each pairs a hotkey with an optional pipeline
     #[serde(default)]
     pub shortcuts: Vec<DictationShortcut>,
     /// When true, Audio-input dictations are saved as full recordings (audio +
@@ -233,9 +232,6 @@ pub struct DictationShortcut {
     /// Where this shortcut's input comes from
     #[serde(default)]
     pub input_source: DictationInputSource,
-    /// Transcription engine for this shortcut (only used when input_source = Audio)
-    #[serde(default = "default_dictation_engine")]
-    pub engine: TranscriptionProvider,
     /// Mic device name override (None = system default)
     #[serde(default)]
     pub device_name: Option<String>,
@@ -260,10 +256,6 @@ pub struct DictationShortcut {
     /// Push-to-talk is the natural fit for the Fn (🌐) key as a momentary modifier.
     #[serde(default)]
     pub trigger_mode: DictationTriggerMode,
-}
-
-fn default_dictation_engine() -> TranscriptionProvider {
-    TranscriptionProvider::FluidAudio
 }
 
 fn default_true() -> bool {

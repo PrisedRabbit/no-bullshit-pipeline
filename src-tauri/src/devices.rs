@@ -34,7 +34,8 @@ pub fn list_input_devices() -> Result<Vec<AudioDeviceInfo>, anyhow::Error> {
     let default_device = host.default_input_device();
     let default_name = default_device.as_ref().and_then(|d| d.name().ok());
 
-    let devices: Vec<AudioDeviceInfo> = host.input_devices()?
+    let devices: Vec<AudioDeviceInfo> = host
+        .input_devices()?
         .filter_map(|device| {
             let name = device.name().ok()?;
             let config = device.default_input_config().ok()?;
