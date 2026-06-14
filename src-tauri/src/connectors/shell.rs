@@ -11,12 +11,22 @@
 // `{processing_result}` values to this connector. We invoke
 // `<shell> -c <script>` in `cwd` with the raw values exported as env vars:
 //
-//   NBP_TRANSCRIPT         — full recording transcript
+//   NBP_TRANSCRIPT         — full recording transcript (inline; see below)
+//   NBP_TRANSCRIPT_FILE    — path to a file holding the full transcript
 //   NBP_APP                — friendly app name (Zoom / FaceTime / NBP / …)
 //   NBP_PROCESSING_RESULT  — previous Processing step's output (empty on step 1)
+//   NBP_PROCESSING_RESULT_FILE — path to a file holding that output
 //   NBP_CALENDAR_TITLE     — matched calendar event title (empty if unmatched)
 //   NBP_CALENDAR_ATTENDEES — matched event attendees, comma-separated
 //   NBP_DATE               — recording date, local YYYY-MM-DD
+//
+// Why the `_FILE` twins: env vars share the OS `ARG_MAX` budget (~256 KB–1 MB
+// on macOS). A long meeting's transcript (hundreds of KB) shoved inline would
+// fail `posix_spawn` with E2BIG before the script even starts. So the full
+// values are always written to files and exposed as `NBP_*_FILE`; the inline
+// `NBP_TRANSCRIPT` / `NBP_PROCESSING_RESULT` are kept for convenience but only
+// when under a safe cap. Scripts that must handle long meetings should read the
+// `_FILE` path (e.g. `cat "$NBP_TRANSCRIPT_FILE"`).
 //
 // Env-var passing — not `{transcript}` placeholder substitution into the
 // script string — keeps the user safe from shell injection (transcript text
@@ -43,11 +53,20 @@ const DEFAULT_SHELL: &str = "/bin/bash";
 /// JS layer's hint text + this connector's runtime stay in sync via a
 /// single source.
 pub const ENV_VAR_TRANSCRIPT: &str = "NBP_TRANSCRIPT";
+pub const ENV_VAR_TRANSCRIPT_FILE: &str = "NBP_TRANSCRIPT_FILE";
 pub const ENV_VAR_APP: &str = "NBP_APP";
 pub const ENV_VAR_PROCESSING_RESULT: &str = "NBP_PROCESSING_RESULT";
+pub const ENV_VAR_PROCESSING_RESULT_FILE: &str = "NBP_PROCESSING_RESULT_FILE";
 pub const ENV_VAR_CALENDAR_TITLE: &str = "NBP_CALENDAR_TITLE";
 pub const ENV_VAR_CALENDAR_ATTENDEES: &str = "NBP_CALENDAR_ATTENDEES";
 pub const ENV_VAR_DATE: &str = "NBP_DATE";
+
+/// Inline-env byte cap for the large values (transcript / processing result).
+/// Above this we still write the value to its `_FILE` twin but drop the inline
+/// copy, so the combined environment can't blow `ARG_MAX` (E2BIG on spawn).
+/// Conservative on purpose — covers a ~2 h meeting inline; longer ones go to
+/// the file.
+const MAX_INLINE_ENV_BYTES: usize = 128 * 1024;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ShellConnectorConfig {
@@ -129,20 +148,21 @@ async fn run_shell(
     cmd.stderr(std::process::Stdio::piped());
     cmd.kill_on_drop(true);
 
-    let mut child = cmd
+    let child = cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn '{}': {}", shell, e))?;
 
-    let stdout_handle = child.stdout.take();
-    let stderr_handle = child.stderr.take();
     let timeout = Duration::from_secs(cfg.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS));
 
-    let status = match tokio::time::timeout(timeout, child.wait()).await {
-        Ok(Ok(s)) => s,
+    // `wait_with_output` drains stdout + stderr concurrently while the child
+    // runs. Waiting on the process first and only THEN reading the pipes would
+    // deadlock any script that emits more than the OS pipe buffer (~64 KB on
+    // macOS): the child blocks in write(), we block in wait(), nobody drains.
+    // On timeout the future is dropped and `kill_on_drop(true)` reaps the child.
+    let output = match tokio::time::timeout(timeout, child.wait_with_output()).await {
+        Ok(Ok(o)) => o,
         Ok(Err(e)) => return Err(format!("Shell I/O error: {}", e)),
         Err(_) => {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
             return Err(format!(
                 "Shell script timed out after {}s",
                 timeout.as_secs()
@@ -150,26 +170,11 @@ async fn run_shell(
         }
     };
 
-    let stdout = read_to_string(stdout_handle).await;
-    let stderr = read_to_string(stderr_handle).await;
-
     Ok(ShellRunOutcome {
-        stdout,
-        stderr,
-        exit_code: status.code(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        exit_code: output.status.code(),
     })
-}
-
-async fn read_to_string<R>(handle: Option<R>) -> String
-where
-    R: tokio::io::AsyncRead + Unpin,
-{
-    use tokio::io::AsyncReadExt;
-    let mut buf = Vec::new();
-    if let Some(mut h) = handle {
-        let _ = h.read_to_end(&mut buf).await;
-    }
-    String::from_utf8_lossy(&buf).to_string()
 }
 
 /// Execute Shell connector for a pipeline step.
@@ -197,13 +202,12 @@ pub async fn execute(
     let cfg: ShellConnectorConfig = serde_json::from_value(config.clone())
         .map_err(|e| format!("Invalid Shell connector config: {}", e))?;
 
+    // Output dir holds the staged input files (below) and the final .md, so
+    // create it before staging rather than just before the write further down.
+    fs::create_dir_all(output_dir).map_err(|e| format!("Failed to create output dir: {}", e))?;
+
     let mut env_extras: HashMap<String, String> = HashMap::new();
-    env_extras.insert(ENV_VAR_TRANSCRIPT.to_string(), transcript.to_string());
     env_extras.insert(ENV_VAR_APP.to_string(), app.to_string());
-    env_extras.insert(
-        ENV_VAR_PROCESSING_RESULT.to_string(),
-        processing_result.to_string(),
-    );
     env_extras.insert(
         ENV_VAR_CALENDAR_TITLE.to_string(),
         calendar_title.to_string(),
@@ -214,11 +218,40 @@ pub async fn execute(
     );
     env_extras.insert(ENV_VAR_DATE.to_string(), date.to_string());
 
+    // Stage the large values to hidden files inside output_dir and expose their
+    // paths; keep the inline copies only under the E2BIG-safe cap. Files are
+    // removed right after the run (the step's own .md output is what persists).
+    let transcript_file = output_dir.join(".nbp_transcript.txt");
+    let processing_file = output_dir.join(".nbp_processing_result.txt");
+    fs::write(&transcript_file, transcript)
+        .map_err(|e| format!("Failed to stage transcript: {}", e))?;
+    fs::write(&processing_file, processing_result)
+        .map_err(|e| format!("Failed to stage processing result: {}", e))?;
+    env_extras.insert(
+        ENV_VAR_TRANSCRIPT_FILE.to_string(),
+        transcript_file.to_string_lossy().into_owned(),
+    );
+    env_extras.insert(
+        ENV_VAR_PROCESSING_RESULT_FILE.to_string(),
+        processing_file.to_string_lossy().into_owned(),
+    );
+    if transcript.len() <= MAX_INLINE_ENV_BYTES {
+        env_extras.insert(ENV_VAR_TRANSCRIPT.to_string(), transcript.to_string());
+    }
+    if processing_result.len() <= MAX_INLINE_ENV_BYTES {
+        env_extras.insert(
+            ENV_VAR_PROCESSING_RESULT.to_string(),
+            processing_result.to_string(),
+        );
+    }
+
     let created_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let outcome = run_shell(&cfg, script, &env_extras).await;
     let completed_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
 
-    fs::create_dir_all(output_dir).map_err(|e| format!("Failed to create output dir: {}", e))?;
+    let _ = fs::remove_file(&transcript_file);
+    let _ = fs::remove_file(&processing_file);
+
     let output_path = output_dir.join(format!("{}.md", step_name));
 
     let shell_label = cfg
