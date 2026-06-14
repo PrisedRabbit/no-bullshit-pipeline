@@ -266,9 +266,11 @@ fn open_mic_stream(
     // Capture is lock-free: the cpal callback (shared `audio_capture` primitive)
     // only pushes into this ring buffer. The drain thread below pops it into
     // `samples`, so the real-time audio thread never locks, allocates, or
-    // reallocates — that work all happens off it. ~2 s of headroom is plenty for
-    // the drain to keep up; if it ever fell behind, oldest samples drop rather
-    // than the audio thread stalling.
+    // reallocates — that work all happens off it. The drain is a plain memcpy
+    // with no I/O, so it can't fall behind on a slow disk the way the on-disk
+    // recorder's encoder could; ~2 s of headroom makes a full ring effectively
+    // impossible here. (If one ever did fill, `push_slice` drops the *newest*
+    // overflowing samples — never the audio thread.)
     let ring_size = (sample_rate as usize) * (channels as usize) * 2;
     let rb = HeapRb::<f32>::new(ring_size.max(8192));
     let (producer, mut consumer) = rb.split();

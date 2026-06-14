@@ -33,10 +33,12 @@ unsafe impl Send for SendStream {}
 /// already `play()`ing.
 ///
 /// Real-time safety: the F32 path is a straight `push_slice` — no allocation, no
-/// lock. The I16/U16 paths convert into a per-stream scratch buffer allocated
-/// once and only ever `clear()`ed, so the audio callback never calls the
-/// allocator. Samples that don't fit the ring (consumer fell behind) are
-/// dropped rather than blocking the audio thread.
+/// lock. The I16/U16 paths convert into a per-stream scratch buffer (allocated
+/// once, only ever `clear()`ed) in `SCRATCH_SAMPLES`-sized chunks, so even an
+/// oversized callback buffer (e.g. a 192 kHz card handing us 100 ms+ after a
+/// wake) can't grow it — `extend` never reallocs on the audio thread. If the
+/// consumer falls behind and the ring fills, `push_slice` drops the *newest*
+/// samples that don't fit rather than blocking the audio thread.
 pub fn build_input_stream(
     device: &cpal::Device,
     config: cpal::SupportedStreamConfig,
@@ -58,9 +60,14 @@ pub fn build_input_stream(
             device.build_input_stream(
                 &config.into(),
                 move |data: &[i16], _: &_| {
-                    scratch.clear();
-                    scratch.extend(data.iter().map(|&s| s as f32 / i16::MAX as f32));
-                    let _ = producer.push_slice(&scratch);
+                    // Convert in scratch-sized chunks so `extend` can never grow
+                    // the scratch past its reserved capacity (= realloc on the
+                    // audio thread) no matter how large the callback buffer is.
+                    for chunk in data.chunks(SCRATCH_SAMPLES) {
+                        scratch.clear();
+                        scratch.extend(chunk.iter().map(|&s| s as f32 / i16::MAX as f32));
+                        let _ = producer.push_slice(&scratch);
+                    }
                 },
                 err_fn,
                 None,
@@ -71,12 +78,13 @@ pub fn build_input_stream(
             device.build_input_stream(
                 &config.into(),
                 move |data: &[u16], _: &_| {
-                    scratch.clear();
-                    scratch
-                        .extend(data.iter().map(|&s| {
+                    for chunk in data.chunks(SCRATCH_SAMPLES) {
+                        scratch.clear();
+                        scratch.extend(chunk.iter().map(|&s| {
                             (s as f32 - u16::MAX as f32 / 2.0) / (u16::MAX as f32 / 2.0)
                         }));
-                    let _ = producer.push_slice(&scratch);
+                        let _ = producer.push_slice(&scratch);
+                    }
                 },
                 err_fn,
                 None,
