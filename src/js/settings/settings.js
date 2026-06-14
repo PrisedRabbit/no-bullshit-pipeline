@@ -10,6 +10,7 @@ import { refreshModelVersion } from './model-version.js';
 
 const storagePathInput = document.getElementById('settings-storage-path');
 const saveMixOnlyCheckbox = document.getElementById('settings-save-mix-only');
+const entryRetentionSelect = document.getElementById('settings-entry-retention');
 const autoRecordCheckbox = document.getElementById('settings-auto-record');
 const settingsBtn = document.getElementById('settings-btn');
 const settingsBackBtn = document.getElementById('settings-back-btn');
@@ -38,6 +39,19 @@ export async function loadSettings() {
     applyTranscriptionSettings();
 
     if (saveMixOnlyCheckbox) saveMixOnlyCheckbox.checked = state.appSettings.save_mix_only !== false;
+    if (entryRetentionSelect) {
+      // Preserve a hand-edited value that isn't one of the presets (e.g. 7) by
+      // injecting a matching option — otherwise the select would silently snap
+      // to a preset and clobber it on the next save.
+      const days = String(state.appSettings.entry_retention_days ?? 0);
+      if (![...entryRetentionSelect.options].some((o) => o.value === days)) {
+        const opt = document.createElement('option');
+        opt.value = days;
+        opt.textContent = days === '0' ? 'Never' : `${days} days`;
+        entryRetentionSelect.appendChild(opt);
+      }
+      entryRetentionSelect.value = days;
+    }
     if (autoRecordCheckbox) autoRecordCheckbox.checked = state.appSettings.auto_record_meetings !== false;
 
     applyDictationSettings();
@@ -54,6 +68,7 @@ export async function saveSettings() {
     collectTranscriptionSettings();
 
     if (saveMixOnlyCheckbox) state.appSettings.save_mix_only = saveMixOnlyCheckbox.checked;
+    if (entryRetentionSelect) state.appSettings.entry_retention_days = parseInt(entryRetentionSelect.value, 10) || 0;
     if (autoRecordCheckbox) state.appSettings.auto_record_meetings = autoRecordCheckbox.checked;
 
     await invoke('save_settings', { settings: state.appSettings });

@@ -348,6 +348,87 @@ pub fn update_title(recording_id: &str, title: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Delete recording entries (the whole directory: audio + transcript +
+/// metadata + pipeline outputs) older than `retention_days`. `0` means never —
+/// a no-op. In-flight recordings (`recording` / `processing`) are always
+/// skipped so an active or finalizing capture is never yanked out. Returns how
+/// many entries were deleted.
+pub fn prune_old_entries(retention_days: u32) -> usize {
+    if retention_days == 0 {
+        return 0;
+    }
+    let cutoff = Utc::now() - chrono::Duration::days(retention_days as i64);
+    let Ok(recordings) = list_recordings() else {
+        return 0;
+    };
+    let mut deleted = 0;
+    for meta in recordings {
+        if meta.status == "recording" || meta.status == "processing" {
+            continue;
+        }
+        // created_at is RFC3339 (UTC). A malformed value is left untouched
+        // rather than guessed at — never delete on a parse we don't trust.
+        let Ok(created) = chrono::DateTime::parse_from_rfc3339(&meta.created_at) else {
+            continue;
+        };
+        if created.with_timezone(&Utc) >= cutoff {
+            continue;
+        }
+        // Status was already vetted from the in-memory list above, so prune the
+        // entry's own files directly — no redundant metadata re-read per entry
+        // (matters when pruning hundreds of recordings at once).
+        if prune_entry_files(&meta.id).is_ok() {
+            deleted += 1;
+        }
+    }
+    if deleted > 0 {
+        invalidate_list_cache();
+    }
+    deleted
+}
+
+/// Remove a recording's own files (audio, transcript, metadata, waveform, …)
+/// while KEEPING its `pipelines/` results subdirectory — the user's processed
+/// pipeline outputs aren't reclaimable and must survive retention. If the entry
+/// had no pipeline results, the now-empty directory is removed too. Used only
+/// by the retention sweep; manual delete (`delete_recording`) still wipes
+/// everything.
+fn prune_entry_files(recording_id: &str) -> Result<(), String> {
+    let dir = get_recording_dir(recording_id);
+    if !dir.exists() {
+        return Ok(());
+    }
+    let mut kept_pipelines = false;
+    for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        if path.file_name().and_then(|n| n.to_str()) == Some("pipelines") {
+            kept_pipelines = true;
+            continue;
+        }
+        if path.is_dir() {
+            let _ = fs::remove_dir_all(&path);
+        } else {
+            let _ = fs::remove_file(&path);
+        }
+    }
+    // Nothing worth keeping → drop the empty entry directory entirely.
+    if !kept_pipelines {
+        let _ = fs::remove_dir(&dir);
+    }
+    Ok(())
+}
+
+/// Physically remove a recording's directory. No status guard and no cache
+/// bookkeeping — callers that might race a live capture must vet status first
+/// (see `delete_recording`) and invalidate the list cache themselves.
+fn delete_recording_dir(recording_id: &str) -> Result<(), String> {
+    let recording_dir = get_recording_dir(recording_id);
+    if recording_dir.exists() {
+        fs::remove_dir_all(recording_dir).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Delete a recording and all its files
 #[tauri::command]
 pub fn delete_recording(recording_id: &str) -> Result<(), String> {
@@ -358,10 +439,7 @@ pub fn delete_recording(recording_id: &str) -> Result<(), String> {
         return Err("Recording is still being finalized. Please wait.".to_string());
     }
 
-    let recording_dir = get_recording_dir(recording_id);
-    if recording_dir.exists() {
-        fs::remove_dir_all(recording_dir).map_err(|e| e.to_string())?;
-    }
+    delete_recording_dir(recording_id)?;
     invalidate_list_cache();
     Ok(())
 }

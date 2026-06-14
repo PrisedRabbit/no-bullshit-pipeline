@@ -2,10 +2,10 @@ use crate::resampler_compat::{
     SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
 };
 use anyhow::Result;
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, HostTrait};
 use ringbuf::{
     HeapRb,
-    traits::{Consumer, Observer, Producer, Split},
+    traits::{Consumer, Observer, Split},
 };
 use std::fs::File;
 use std::num::{NonZeroU8, NonZeroU32};
@@ -114,49 +114,14 @@ impl MicAudioRecorder {
         // 48k * 2ch * 4bytes = ~384KB.
         let ring_buffer_size = (sample_rate as usize) * (channels as usize) * 8; // generous buffer
         let rb = HeapRb::<f32>::new(ring_buffer_size);
-        let (mut producer, consumer) = rb.split();
+        let (producer, consumer) = rb.split();
 
-        // Error callback
-        let err_fn = move |err| {
-            eprintln!("an error occurred on stream: {}", err);
-        };
-
-        // Build stream with appropriate format handling
-        let stream = match config.sample_format() {
-            cpal::SampleFormat::F32 => device.build_input_stream(
-                &config.into(),
-                move |data: &[f32], _: &_| {
-                    let _ = producer.push_slice(data);
-                },
-                err_fn,
-                None,
-            )?,
-            cpal::SampleFormat::I16 => device.build_input_stream(
-                &config.into(),
-                move |data: &[i16], _: &_| {
-                    for &sample in data {
-                        let s = (sample as f32) / (i16::MAX as f32);
-                        let _ = producer.push_slice(&[s]);
-                    }
-                },
-                err_fn,
-                None,
-            )?,
-            cpal::SampleFormat::U16 => device.build_input_stream(
-                &config.into(),
-                move |data: &[u16], _: &_| {
-                    for &sample in data {
-                        let s = (sample as f32 - u16::MAX as f32 / 2.0) / (u16::MAX as f32 / 2.0);
-                        let _ = producer.push_slice(&[s]);
-                    }
-                },
-                err_fn,
-                None,
-            )?,
-            _ => return Err(anyhow::anyhow!("Unsupported sample format")),
-        };
-
-        stream.play()?;
+        // Build + start the stream via the shared capture primitive (the same
+        // RT callback used by Quick Dictate). `config` is consumed here, so the
+        // log snapshot above already grabbed sample_format / buffer_size.
+        let stream = crate::audio_capture::build_input_stream(&device, config, producer)
+            .map_err(|e| anyhow::anyhow!(e))?
+            .0;
 
         // Stream is live — record it in the lifecycle counters and dump every
         // parameter so a leaked/duplicate capture session is obvious in logs.

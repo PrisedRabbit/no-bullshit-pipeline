@@ -32,6 +32,7 @@
 pub mod app_icons;
 mod asr_models;
 mod audio;
+mod audio_capture;
 mod audio_process_detector;
 pub mod audio_processing;
 mod calendar;
@@ -121,6 +122,45 @@ fn get_audio_levels() -> AudioLevels {
         mic: mic_audio::get_current_audio_level(),
         system: system_audio::get_system_audio_level(),
     }
+}
+
+/// Instant of the last retention sweep. Throttles the sweep so rapid focus/blur
+/// cycling can't re-scan the library on every click. `Instant` (monotonic), not
+/// `SystemTime` — an NTP step or timezone change must never wedge the throttle.
+static LAST_RETENTION_SWEEP: std::sync::Mutex<Option<std::time::Instant>> =
+    std::sync::Mutex::new(None);
+
+/// Sweep expired recording entries when the main window gains focus (the
+/// requested trigger). No-op when retention is off (`0` days). Throttled to
+/// once an hour, runs off the UI thread, and emits `recordings_pruned` so the
+/// list refreshes if anything was removed.
+fn maybe_sweep_retention(app: &tauri::AppHandle) {
+    {
+        let mut last = LAST_RETENTION_SWEEP
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(prev) = *last
+            && prev.elapsed() < std::time::Duration::from_secs(3600)
+        {
+            return;
+        }
+        *last = Some(std::time::Instant::now());
+    }
+
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let days = config::load_settings().entry_retention_days;
+        let deleted = storage::prune_old_entries(days);
+        if deleted > 0 {
+            log::info!(
+                "retention: pruned {deleted} expired recording entr{}",
+                if deleted == 1 { "y" } else { "ies" }
+            );
+            // Broadcast globally — the main window may be hidden to the tray by
+            // the time this lands, so don't target it by name.
+            let _ = app.emit("recordings_pruned", deleted);
+        }
+    });
 }
 
 pub fn run() {
@@ -434,6 +474,9 @@ pub fn run() {
             calendar::open_calendar_settings,
         ])
         .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Focused(true) = event {
+                maybe_sweep_retention(window.app_handle());
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 // Hide window instead of closing — tray keeps the app alive
                 api.prevent_close();

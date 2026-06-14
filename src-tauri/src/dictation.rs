@@ -6,6 +6,8 @@
 //! `transcribe`).
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use ringbuf::HeapRb;
+use ringbuf::traits::{Consumer, Split};
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -45,7 +47,15 @@ pub struct DictationState {
 
 struct Session {
     shortcut_id: String,
+    /// In-memory capture accumulator. Filled by the drain thread (NOT the cpal
+    /// callback) — the audio thread only pushes into a lock-free ring buffer, so
+    /// nothing locks or allocates on it. Read once at stop.
     samples: Arc<Mutex<Vec<f32>>>,
+    /// Signals the drain thread to flush the ring's tail and exit. Set at stop.
+    drain_stop: Arc<AtomicBool>,
+    /// Handle to the drain thread; joined at stop so `samples` is complete and
+    /// the ring consumer is released before we read.
+    drain_thread: Option<std::thread::JoinHandle<()>>,
     sample_rate: u32,
     channels: u16,
     stream: Option<cpal::Stream>,
@@ -211,21 +221,13 @@ fn push_level(samples: &[f32]) {
     crate::mic_audio::set_audio_level(level);
 }
 
-/// Carries a freshly-opened cpal input stream back from the blocking thread it
-/// was created on. SAFETY: same rationale as `unsafe impl Send for Session` —
-/// the AudioUnit operations cpal performs are valid from any thread; cpal only
-/// marks `Stream` `!Send` via `PhantomData`. The stream is created once on a
-/// blocking worker, handed back here, then lives in the Session Mutex; it is
-/// never touched concurrently from two threads.
-struct SendStream(cpal::Stream);
-unsafe impl Send for SendStream {}
-
-/// Everything `start_inner` needs back from opening the mic: the live stream
-/// plus metadata (rate/channels for the Session, device names for the duck
-/// decision) — gathered on the blocking thread so the async side never touches
-/// Core Audio.
+/// Everything `start_inner` needs back from opening the mic: the live stream,
+/// the drain thread that empties the capture ring into `samples`, plus metadata
+/// (rate/channels for the Session, device names for the duck decision) —
+/// gathered on the blocking thread so the async side never touches Core Audio.
 struct MicSetup {
-    stream: SendStream,
+    stream: crate::audio_capture::SendStream,
+    drain_thread: std::thread::JoinHandle<()>,
     sample_rate: u32,
     channels: u16,
     input_name: Option<String>,
@@ -241,6 +243,7 @@ struct MicSetup {
 fn open_mic_stream(
     device_name: Option<String>,
     samples: Arc<Mutex<Vec<f32>>>,
+    drain_stop: Arc<AtomicBool>,
 ) -> Result<MicSetup, String> {
     let host = cpal::default_host();
     let device = if let Some(name) = device_name.as_deref() {
@@ -260,52 +263,43 @@ fn open_mic_stream(
         config.sample_format()
     );
 
-    let err_fn = |err| log::error!("dictation cpal stream error: {}", err);
+    // Capture is lock-free: the cpal callback (shared `audio_capture` primitive)
+    // only pushes into this ring buffer. The drain thread below pops it into
+    // `samples`, so the real-time audio thread never locks, allocates, or
+    // reallocates — that work all happens off it. ~2 s of headroom is plenty for
+    // the drain to keep up; if it ever fell behind, oldest samples drop rather
+    // than the audio thread stalling.
+    let ring_size = (sample_rate as usize) * (channels as usize) * 2;
+    let rb = HeapRb::<f32>::new(ring_size.max(8192));
+    let (producer, mut consumer) = rb.split();
 
-    let stream = match config.sample_format() {
-        cpal::SampleFormat::F32 => device.build_input_stream(
-            &config.into(),
-            move |data: &[f32], _: &_| {
-                push_level(data);
-                if let Ok(mut buf) = samples.lock() {
-                    append_capped(&mut buf, data);
-                }
-            },
-            err_fn,
-            None,
-        ),
-        cpal::SampleFormat::I16 => device.build_input_stream(
-            &config.into(),
-            move |data: &[i16], _: &_| {
-                let f: Vec<f32> = data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
-                push_level(&f);
-                if let Ok(mut buf) = samples.lock() {
-                    append_capped(&mut buf, &f);
-                }
-            },
-            err_fn,
-            None,
-        ),
-        cpal::SampleFormat::U16 => device.build_input_stream(
-            &config.into(),
-            move |data: &[u16], _: &_| {
-                let f: Vec<f32> = data
-                    .iter()
-                    .map(|&s| (s as f32 - u16::MAX as f32 / 2.0) / (u16::MAX as f32 / 2.0))
-                    .collect();
-                push_level(&f);
-                if let Ok(mut buf) = samples.lock() {
-                    append_capped(&mut buf, &f);
-                }
-            },
-            err_fn,
-            None,
-        ),
-        _ => return Err("Unsupported sample format".into()),
-    }
-    .map_err(|e| format!("build_input_stream: {}", e))?;
+    let stream = crate::audio_capture::build_input_stream(&device, config, producer)?;
 
-    stream.play().map_err(|e| format!("stream.play: {}", e))?;
+    // Drain thread: empty the ring into the in-memory accumulator and update the
+    // level meter — both off the audio thread. Spins while data flows, sleeps
+    // briefly when the ring is empty, and exits once `drain_stop` is set AND the
+    // ring is drained (so the tail captured right after stop isn't lost).
+    let drain_thread = {
+        let samples = samples.clone();
+        let drain_stop = drain_stop.clone();
+        std::thread::spawn(move || {
+            let mut buf = vec![0.0f32; 4096];
+            loop {
+                let n = consumer.pop_slice(&mut buf);
+                if n > 0 {
+                    push_level(&buf[..n]);
+                    if let Ok(mut acc) = samples.lock() {
+                        append_capped(&mut acc, &buf[..n]);
+                    }
+                    continue;
+                }
+                if drain_stop.load(Ordering::Relaxed) {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+        })
+    };
 
     // cpal `DeviceTrait::name` is deprecated in 0.17 but kept here: we only
     // compare input vs output device labels for the duck decision, and name()
@@ -316,12 +310,33 @@ fn open_mic_stream(
     let output_name = host.default_output_device().and_then(|d| d.name().ok());
 
     Ok(MicSetup {
-        stream: SendStream(stream),
+        stream,
+        drain_thread,
         sample_rate,
         channels,
         input_name,
         output_name,
     })
+}
+
+/// Tear down the mic capture cleanly: pause + drop the cpal stream so its
+/// callback stops feeding the ring, then signal the drain thread and join it so
+/// `samples` is final and no thread is left spinning. Idempotent (both the
+/// stream and the handle are `take`n). Shared by the stop, cancel, and
+/// start-abort paths so the teardown order lives in exactly one place.
+fn teardown_capture(session: &mut Session) {
+    // Pause BEFORE drop: on macOS `cpal::Stream::Drop` doesn't block on the HAL
+    // thread, so the callback can keep pushing for an unbounded time after drop;
+    // pause() stops it synchronously so the drain thread can actually reach an
+    // empty ring and exit.
+    if let Some(ref s) = session.stream {
+        let _ = s.pause();
+    }
+    drop(session.stream.take());
+    session.drain_stop.store(true, Ordering::Relaxed);
+    if let Some(handle) = session.drain_thread.take() {
+        let _ = handle.join();
+    }
 }
 
 /// Decide whether to duck system output for this session, snapshot the pre-duck
@@ -412,8 +427,13 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
     // the adaptive gain of the next one.
     PEAK_TRACKER.store(0, Ordering::Relaxed);
 
-    // Worst-case headroom (48 kHz × 30 s); the buffer grows past this if needed.
-    let samples: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::with_capacity(48_000 * 30)));
+    // The drain thread appends into this off the audio thread; pre-allocating
+    // the full cap up front keeps even that growth realloc-free. It's one large
+    // mmap, lazily backed by physical pages only as samples actually arrive —
+    // cheap to reserve, no eager 100+ MB commit.
+    let samples: Arc<Mutex<Vec<f32>>> =
+        Arc::new(Mutex::new(Vec::with_capacity(MAX_CAPTURE_SAMPLES)));
+    let drain_stop = Arc::new(AtomicBool::new(false));
 
     // Bring up the system-audio tap in the background. Creating the
     // AggregateDevice + ProcessTap pokes Core Audio's engine and on a cold
@@ -454,14 +474,16 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
     // surface an error to the HUD so it doesn't sit on "starting" forever.
     let device_name = shortcut.device_name.clone();
     let samples_for_cb = samples.clone();
+    let drain_stop_for_cb = drain_stop.clone();
     let MicSetup {
         stream,
+        drain_thread,
         sample_rate,
         channels,
         input_name,
         output_name,
     } = match tauri::async_runtime::spawn_blocking(move || {
-        open_mic_stream(device_name, samples_for_cb)
+        open_mic_stream(device_name, samples_for_cb, drain_stop_for_cb)
     })
     .await
     {
@@ -507,9 +529,11 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
     // is unregistered as soon as the session ends (stop or cancel).
     register_escape_cancel(app);
 
-    let session = Session {
+    let mut session = Session {
         shortcut_id: shortcut.id.clone(),
         samples,
+        drain_stop,
+        drain_thread: Some(drain_thread),
         sample_rate,
         channels,
         stream: Some(stream),
@@ -538,8 +562,12 @@ pub async fn start_inner(app: &AppHandle, shortcut_id: &str) -> Result<(), Strin
                 restore_system_volume_to(v);
             }
             unregister_escape_cancel(app);
-            // Leave is_active as-is (cancel owns it now); the session drops here,
-            // closing the mic. Commit so the guard's Drop doesn't touch the flag.
+            // Stop the stream AND join the drain thread before the session drops
+            // — otherwise the drain thread spins forever (it only exits once
+            // drain_stop is set and the ring is empty).
+            teardown_capture(&mut session);
+            // Leave is_active as-is (cancel owns it now). Commit so the guard's
+            // Drop doesn't touch the flag.
             active_guard.commit = true;
             return Ok(());
         }
@@ -593,21 +621,15 @@ pub async fn stop_inner(app: &AppHandle) -> Result<String, String> {
     // HUD at any time (transcribing/processing/pasting/error display). It's
     // released at the natural end of stop_inner or by force_hide_hud.
 
-    // Grace period: let the last ~250ms of audio reach the cpal callback
-    // before we drop the stream. Otherwise the tail of the last word is
-    // truncated because the OS audio queue hasn't flushed yet.
+    // Grace period: let the last ~250ms of audio reach the cpal callback (and
+    // the drain thread that's still emptying the ring into `samples`) before we
+    // tear down. Otherwise the tail of the last word is truncated because the OS
+    // audio queue hasn't flushed yet.
     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-    // Pause the cpal stream BEFORE dropping it. On macOS, cpal::Stream::Drop
-    // does not block on the HAL audio thread — the input callback keeps
-    // running for an unbounded time after drop, still holding its Arc clone
-    // of `samples`. That kept previous sessions' Vec<f32>s alive across
-    // shortcut cycles (5 cycles → 5 live Vecs, ~88 MB stuck in the heap per
-    // malloc_history). `pause()` blocking-stops the device so the callback
-    // is torn down and its Arc is released before drop returns.
-    if let Some(ref s) = session.stream {
-        let _ = s.pause();
-    }
-    drop(session.stream.take());
+    // Pause + drop the stream, then stop and join the drain thread. Joining is
+    // what guarantees the ring's final tail is in `samples` and the drain's Arc
+    // clone is released — no more capture buffers stuck alive across sessions.
+    teardown_capture(&mut session);
 
     // Stop the parallel system-audio tap (if any). Its `stop()` joins the
     // capture thread, so by the time it returns SYSTEM_BUFFER holds the full
@@ -666,14 +688,16 @@ pub async fn stop_inner(app: &AppHandle) -> Result<String, String> {
         return process_and_deliver(app, &shortcut, trimmed, None).await;
     }
 
-    // Batch fallback: legacy path that buffers all PCM in memory, then
-    // converts + transcribes after stop.
+    // Batch fallback: buffers all PCM in memory, then converts + transcribes
+    // after stop. The drain thread is already joined (teardown_capture above),
+    // so we own `samples` exclusively — move it out instead of cloning up to
+    // ~100 MB.
     let raw_samples = {
-        let s = session
+        let mut s = session
             .samples
             .lock()
             .map_err(|e| format!("samples lock: {}", e))?;
-        s.clone()
+        std::mem::take(&mut *s)
     };
 
     if raw_samples.is_empty() {
@@ -1128,17 +1152,10 @@ pub fn cancel_inner(app: &AppHandle) {
         Some(s) => s,
         None => return,
     };
-    // Pause the cpal stream BEFORE dropping it. On macOS, cpal::Stream::Drop
-    // does not block on the HAL audio thread — the input callback keeps
-    // running for an unbounded time after drop, still holding its Arc clone
-    // of `samples`. That kept previous sessions' Vec<f32>s alive across
-    // shortcut cycles (5 cycles → 5 live Vecs, ~88 MB stuck in the heap per
-    // malloc_history). `pause()` blocking-stops the device so the callback
-    // is torn down and its Arc is released before drop returns.
-    if let Some(ref s) = session.stream {
-        let _ = s.pause();
-    }
-    drop(session.stream.take());
+    // Pause + drop the stream and join the drain thread (same teardown the stop
+    // path uses) so the callback stops, the drain thread exits, and no capture
+    // buffer is left alive across shortcut cycles. Cancel discards the samples.
+    teardown_capture(&mut session);
     if let Some(handle) = session.system_setup.take() {
         // Cancel path is sync — can't await. Abort the background setup.
         // If the spawn_blocking already produced a SystemAudioRecorder,

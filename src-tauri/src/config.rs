@@ -179,6 +179,15 @@ pub struct AppSettings {
     /// Quick Dictate (hotkey push-to-talk dictation) settings
     #[serde(default)]
     pub dictation: DictationConfig,
+    /// Auto-delete recording entries (audio + transcript + metadata) older than
+    /// this many days. Swept when the NBP window comes to the foreground.
+    /// `0` = never delete (the default — opt-in feature).
+    #[serde(default = "default_entry_retention_days")]
+    pub entry_retention_days: u32,
+}
+
+fn default_entry_retention_days() -> u32 {
+    0
 }
 
 /// Quick Dictate: hotkey-driven ephemeral mic capture → transcribe → optional pipeline → paste.
@@ -299,6 +308,7 @@ impl Default for AppSettings {
             local_llm: LocalLlmConfig::default(),
             cli_agent: CliAgentConfig::default(),
             dictation: DictationConfig::default(),
+            entry_retention_days: default_entry_retention_days(),
         }
     }
 }

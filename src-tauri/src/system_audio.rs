@@ -48,7 +48,17 @@ pub struct SystemAudioRecorder {
 
 struct AudioContext {
     producer: HeapProd<f32>,
+    /// Reusable interleave buffer for the IOProc. Pre-allocated once and only
+    /// ever `clear()`ed (never freed) so the real-time audio callback never
+    /// calls the allocator — heap alloc on a CoreAudio IOProc risks missing the
+    /// frame deadline (glitches). Sized for far more than any single callback.
+    scratch: Vec<f32>,
 }
+
+/// Pre-allocated capacity for the IOProc interleave scratch (1 s of 48 kHz
+/// stereo). A single callback carries a few thousand frames at most, so this is
+/// never reallocated at runtime.
+const SYS_INTERLEAVE_SCRATCH: usize = 48_000 * 2;
 
 impl SystemAudioRecorder {
     pub fn new(output_path: std::path::PathBuf, skip_file: bool) -> Result<Self> {
@@ -224,7 +234,10 @@ fn run_audio_capture(
     let rb = HeapRb::<f32>::new(ring_buffer_size);
     let (producer, mut consumer) = rb.split();
 
-    let mut ctx = AudioContext { producer };
+    let mut ctx = AudioContext {
+        producer,
+        scratch: Vec::with_capacity(SYS_INTERLEAVE_SCRATCH),
+    };
 
     // 6. Define IO Proc
     extern "C" fn audio_proc(
@@ -239,6 +252,9 @@ fn run_audio_capture(
         let Some(ctx) = ctx else {
             return os::Status::NO_ERR; // Graceful: no context, skip frame
         };
+        // Split-borrow so the interleave scratch and the ring producer can be
+        // used together without re-borrowing ctx.
+        let AudioContext { producer, scratch } = ctx;
 
         let num_buffers = input_data.number_buffers;
         let buffers = &input_data.buffers;
@@ -260,17 +276,19 @@ fn run_audio_capture(
                 let samples_r = unsafe { std::slice::from_raw_parts(ptr_r, len_r) };
 
                 let frame_count = len_l.min(len_r);
-                let mut interleaved = Vec::with_capacity(frame_count * 2);
+                // Reuse the pre-allocated scratch — no per-callback heap alloc,
+                // and no mid-frame realloc when L runs longer than R.
+                scratch.clear();
                 for i in 0..frame_count {
-                    interleaved.push(samples_l[i]);
-                    interleaved.push(samples_r[i]);
+                    scratch.push(samples_l[i]);
+                    scratch.push(samples_r[i]);
                 }
                 // If L has extra samples beyond R, pad R with silence
                 for &sample in &samples_l[frame_count..len_l] {
-                    interleaved.push(sample);
-                    interleaved.push(0.0);
+                    scratch.push(sample);
+                    scratch.push(0.0);
                 }
-                ctx.producer.push_slice(&interleaved);
+                producer.push_slice(scratch);
             }
         } else if !buffers.is_empty() {
             let buffer = &buffers[0];
@@ -279,7 +297,7 @@ fn run_audio_capture(
 
             if !ptr.is_null() && len > 0 {
                 let samples = unsafe { std::slice::from_raw_parts(ptr, len) };
-                ctx.producer.push_slice(samples);
+                producer.push_slice(samples);
             }
         }
 

@@ -182,6 +182,13 @@ async function init() {
     await loadRecordings();
   });
 
+  // Retention sweep removed expired entries on window focus — refresh the list
+  // so the deleted rows disappear immediately.
+  listen('recordings_pruned', async () => {
+    await loadRecordings();
+    renderRecordingsList();
+  });
+
   // Track in-flight transcriptions so the recordings list can render a
   // "Transcribing…" status on the affected row instead of just a duration.
   // detail.js has its own per-recording progress bar; this is purely for
