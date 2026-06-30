@@ -90,6 +90,31 @@ The app opens automatically. Recordings are saved to `~/nbp-data/`.
 - **Input Sources**: Microphone (with optional system loopback) or clipboard text.
 - **Ephemeral by Default**: No storage unless you opt to save dictations to the recording list.
 
+### Lifelog CLI (Headless Transcription)
+
+Transcribe arbitrary WAV files from the command line — no window, no recording entry. Built for the wearable-recorder dump flow: a daemon drops day-long `.WAV` files in a folder, `nbp-cli` turns each into a timecoded `.txt` for downstream LLM processing.
+
+- **Headless**: Drives the FluidAudio (Parakeet v3) sidecar directly; runs on-device, exits when done. Chews ~5h of audio in ~2 min, no chunking.
+- **Wall-clock Timecodes**: Reads the recorder's `YYYYMMDDHHMMSS.WAV` filename as the start time, so every speech segment is stamped with the real time of day it was spoken.
+- **Pause Segmentation**: Splits the transcript at silence gaps (`--pause`, default 3.5s) — one timestamp per spoken block, silence dropped. No diarization.
+- **Batch**: Pass multiple files; each gets its own `<file>.txt`.
+
+```bash
+# Build the CLI (once)
+cargo build --release --bin nbp-cli --manifest-path src-tauri/Cargo.toml
+
+# One file → <file>.txt next to it
+nbp-cli transcribe ~/voice/20260617125745.WAV
+
+# Custom output path / pause threshold
+nbp-cli transcribe day.WAV --out ~/day.txt --pause 3.0
+
+# Batch — each file → its own .txt
+nbp-cli transcribe ~/voice/*.WAV
+```
+
+The sidecar is resolved automatically (bundled `binaries/`, dev build, or `--sidecar <path>` / `NBP_SIDECAR`). Output is plain text: a small header plus `[HH:MM:SS] text` lines (wall-clock when the filename parses, else offset from zero).
+
 ### Calendar
 
 - **Event Matching**: When a recording finalizes, NBP matches it to a nearby Calendar event (Google / iCloud / Exchange — whatever Calendar.app syncs, no extra OAuth).

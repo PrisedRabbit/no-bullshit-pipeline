@@ -216,6 +216,56 @@ func translitRescore(text: String, canonicals: [String], threshold: Float, minLe
     return (out.joined(separator: " "), repls)
 }
 
+/// Split ASR token timings into segments at pauses — a gap between consecutive
+/// tokens larger than `gapThreshold` seconds starts a new segment. No
+/// diarization: every segment is "Speaker 1". This drives the lifelog timecode
+/// view — a fresh timestamp appears wherever speech resumes after silence, and
+/// pure-silence stretches produce no segment at all (the timestamp marks the
+/// moment text actually starts).
+func segmentByPause(
+    tokenTimings: [TokenTiming],
+    gapThreshold: Double,
+    fallbackText: String
+) -> [SpeakerSegment] {
+    guard !tokenTimings.isEmpty else {
+        return fallbackText.isEmpty
+            ? []
+            : [SpeakerSegment(speakerId: "Speaker 1", startTime: 0, endTime: 0, text: fallbackText)]
+    }
+
+    var segments: [SpeakerSegment] = []
+    var curTokens: [String] = []
+    var segStart = tokenTimings[0].startTime
+    var segEnd = tokenTimings[0].endTime
+    var prevEnd = tokenTimings[0].startTime
+
+    func flush() {
+        guard !curTokens.isEmpty else { return }
+        let text = joinTokens(curTokens)
+        if !text.isEmpty {
+            segments.append(SpeakerSegment(
+                speakerId: "Speaker 1",
+                startTime: segStart,
+                endTime: segEnd,
+                text: text
+            ))
+        }
+        curTokens = []
+    }
+
+    for t in tokenTimings {
+        if t.startTime - prevEnd > gapThreshold, !curTokens.isEmpty {
+            flush()
+            segStart = t.startTime
+        }
+        curTokens.append(t.token)
+        segEnd = t.endTime
+        prevEnd = t.endTime
+    }
+    flush()
+    return segments
+}
+
 /// Merge ASR word timings with diarization segments.
 func mergeAsrWithDiarization(
     tokenTimings: [TokenTiming],
@@ -632,7 +682,7 @@ func runDownload(argv: [String]) async {
 struct FluidAudioSidecar {
     static func main() async {
         guard CommandLine.arguments.count >= 2 else {
-            writeError("Usage: fluidaudio-sidecar <path-to-wav> [--engine parakeet-v3|qwen3] [--variant f32|int8] [--vocab <file>] [--lang <code>] [--no-diarize]  |  fluidaudio-sidecar --stream")
+            writeError("Usage: fluidaudio-sidecar <path-to-wav> [--engine parakeet-v3|qwen3] [--variant f32|int8] [--vocab <file>] [--lang <code>] [--no-diarize] [--segment-pause <sec>]  |  fluidaudio-sidecar --stream")
         }
 
         if CommandLine.arguments[1] == "--stream" {
@@ -677,6 +727,10 @@ struct FluidAudioSidecar {
         var translitMinLen = 4
         var langCode: String? = nil
         var noDiarize = false
+        // When set (seconds), and diarization is off, split the transcript into
+        // timecoded segments at token gaps larger than this. Opt-in: the app's
+        // plain `--no-diarize` path keeps the single-block behaviour.
+        var segmentPause: Double? = nil
         var ai = 1
         while ai < argv.count {
             switch argv[ai] {
@@ -692,6 +746,7 @@ struct FluidAudioSidecar {
             case "--translit-threshold": if ai + 1 < argv.count { translitThreshold = Float(argv[ai + 1]) ?? translitThreshold; ai += 1 }
             case "--translit-min-len": if ai + 1 < argv.count { translitMinLen = Int(argv[ai + 1]) ?? translitMinLen; ai += 1 }
             case "--lang", "--language", "-l": if ai + 1 < argv.count { langCode = argv[ai + 1]; ai += 1 }
+            case "--segment-pause": if ai + 1 < argv.count { segmentPause = Double(argv[ai + 1]); ai += 1 }
             default:
                 if !argv[ai].hasPrefix("--") && wavPath.isEmpty { wavPath = argv[ai] }
             }
@@ -888,11 +943,23 @@ struct FluidAudioSidecar {
             if let lc = langCode { modelLabel += "+lang:\(lc)" }
 
             let timings = asrResult.tokenTimings ?? []
-            let (segments, speakerCount) = mergeAsrWithDiarization(
-                tokenTimings: timings,
-                fullText: fullText,
-                diarizationSegments: diarizationSegments
-            )
+            let segments: [SpeakerSegment]
+            let speakerCount: Int
+            if let gap = segmentPause, diarizationSegments.isEmpty {
+                // Timecoded, pause-split, no diarization (lifelog CLI path).
+                segments = segmentByPause(
+                    tokenTimings: timings,
+                    gapThreshold: gap,
+                    fallbackText: fullText
+                )
+                speakerCount = 1
+            } else {
+                (segments, speakerCount) = mergeAsrWithDiarization(
+                    tokenTimings: timings,
+                    fullText: fullText,
+                    diarizationSegments: diarizationSegments
+                )
+            }
 
             let output = FluidAudioOutputJSON(
                 text: fullText,
