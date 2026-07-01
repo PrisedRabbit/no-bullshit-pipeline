@@ -1,12 +1,9 @@
 [package]
 name = "nbp"
-version = "0.6.31"
+version = "0.6.32"
 description = "A Tauri App"
 authors = ["sk"]
 edition = "2024"
-# Two binaries live here (nbp = the Tauri app, nbp-cli = headless transcriber);
-# make `cargo run` / `tauri dev` default to the app instead of erroring out.
-default-run = "nbp"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
