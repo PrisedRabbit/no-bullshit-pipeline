@@ -98,3 +98,9 @@ src-tauri/binaries/*-x86_64-apple-darwin
 .medulla/human.md
 .medulla/medulla
 .medulla/scripts
+
+# Local per-machine tooling / scratch (not shared)
+.cursor/
+.medulla/
+opencode.json
+test_vorbis_clipping.py
