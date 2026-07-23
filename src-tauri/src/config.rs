@@ -192,7 +192,7 @@ fn default_entry_retention_days() -> u32 {
 
 /// Quick Dictate: hotkey-driven ephemeral mic capture → transcribe → optional pipeline → paste.
 /// Bypasses the regular recording pipeline entirely (no storage, no recordings list).
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct DictationConfig {
     /// Master toggle — when false, no global shortcuts are registered
     #[serde(default)]
@@ -206,6 +206,22 @@ pub struct DictationConfig {
     /// paste-and-forget (legacy).
     #[serde(default)]
     pub save_dictations: bool,
+    /// When true (default), the on-screen HUD overlay is shown during a
+    /// dictation session. Off = dictation still records / transcribes / pastes,
+    /// just without the visual overlay (silent mode).
+    #[serde(default = "default_true")]
+    pub show_hud: bool,
+}
+
+impl Default for DictationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            shortcuts: Vec::new(),
+            save_dictations: false,
+            show_hud: true,
+        }
+    }
 }
 
 /// What feeds into the pipeline / paste step:

@@ -51,9 +51,16 @@ pub fn reposition(app: &tauri::AppHandle) {
     let x = mx + (mw - HUD_W) / 2.0;
     let y = my + mh * 0.12;
     let _ = window.set_position(tauri::LogicalPosition::new(x, y));
-    // First call after launch reveals the window (built hidden off-screen to
-    // dodge the transparent-WebView startup flash); later calls no-op.
-    let _ = window.show();
+    // Respect the "Show HUD" dictation setting. When off, the overlay stays
+    // hidden — dictation still records / transcribes / pastes, it just runs
+    // silently with no on-screen window. When on (default), the first call
+    // after launch reveals the window (built hidden off-screen to dodge the
+    // transparent-WebView startup flash); later calls no-op.
+    if crate::config::load_settings().dictation.show_hud {
+        let _ = window.show();
+    } else {
+        let _ = window.hide();
+    }
 }
 
 /// Build the HUD window once. Born hidden + click-through; the frontend and

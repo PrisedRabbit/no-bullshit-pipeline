@@ -8,6 +8,7 @@ import { on } from '../core/events.js';
 
 const enabledToggle = () => document.getElementById('settings-dictation-enabled');
 const saveDictationsToggle = () => document.getElementById('settings-save-dictations');
+const showHudToggle = () => document.getElementById('settings-dictation-show-hud');
 const listEl = () => document.getElementById('dictation-shortcuts-list');
 const addBtn = () => document.getElementById('add-dictation-shortcut-btn');
 const editor = () => document.getElementById('dictation-shortcut-editor');
@@ -398,10 +399,20 @@ async function handleSaveDictationsChange() {
   await persistAndReload();
 }
 
+async function handleShowHudChange() {
+  ensureDictationConfig();
+  state.appSettings.dictation.show_hud = !!showHudToggle().checked;
+  // Backend hot-pickup via save_settings — no re-register needed. hud::reposition
+  // reads this flag on each dictation start, so the change takes effect next session.
+  await persistAndReload();
+}
+
 export async function applyDictationSettings() {
   ensureDictationConfig();
   if (enabledToggle()) enabledToggle().checked = !!state.appSettings.dictation.enabled;
   if (saveDictationsToggle()) saveDictationsToggle().checked = !!state.appSettings.dictation.save_dictations;
+  // Default ON: treat a missing flag as true so existing configs keep the HUD.
+  if (showHudToggle()) showHudToggle().checked = state.appSettings.dictation.show_hud !== false;
   // Read cached registration status from the backend — the actual register
   // already happened during Rust startup, so we just want the result for the
   // badges. Don't call reload here (it would double-register the shortcuts).
@@ -533,6 +544,9 @@ export function initShortcutsTab() {
   if (en) en.addEventListener('change', handleEnabledChange);
   const sd = saveDictationsToggle();
   if (sd) sd.addEventListener('change', handleSaveDictationsChange);
+
+  const sh = showHudToggle();
+  if (sh) sh.addEventListener('change', handleShowHudChange);
 
   const ab = addBtn();
   if (ab) ab.addEventListener('click', () => openEditor(null));
