@@ -90,30 +90,28 @@ The app opens automatically. Recordings are saved to `~/nbp-data/`.
 - **Input Sources**: Microphone (with optional system loopback) or clipboard text.
 - **Ephemeral by Default**: No storage unless you opt to save dictations to the recording list.
 
-### Lifelog CLI (Headless Transcription)
+### Headless Transcription (`nbp transcribe`)
 
-Transcribe arbitrary WAV files from the command line — no window, no recording entry. Built for the wearable-recorder dump flow: a daemon drops day-long `.WAV` files in a folder, `nbp-cli` turns each into a timecoded `.txt` for downstream LLM processing.
+Transcribe arbitrary audio files from the command line — no window, no recording entry — with the same `nbp` binary that runs the app. Built for the wearable-recorder dump flow: a daemon drops day-long recordings in a folder, `nbp transcribe` turns each into a timecoded `.txt` for downstream LLM processing.
 
 - **Headless**: Drives the FluidAudio (Parakeet v3) sidecar directly; runs on-device, exits when done. Chews ~5h of audio in ~2 min, no chunking.
-- **Wall-clock Timecodes**: Reads the recorder's `YYYYMMDDHHMMSS.WAV` filename as the start time, so every speech segment is stamped with the real time of day it was spoken.
+- **Any format the sidecar decodes**: Audio is read via AVFoundation, so WAV, m4a, mov/qta, … all work — not just WAV. Resampling to 16 kHz is automatic.
+- **Wall-clock Timecodes**: Reads the recorder's `YYYYMMDDHHMMSS.WAV` filename as the start time, so every speech segment is stamped with the real time of day it was spoken (else offset from zero).
 - **Pause Segmentation**: Splits the transcript at silence gaps (`--pause`, default 3.5s) — one timestamp per spoken block, silence dropped. No diarization.
 - **Batch**: Pass multiple files; each gets its own `<file>.txt`.
 
 ```bash
-# Build the CLI (once)
-cargo build --release --bin nbp-cli --manifest-path src-tauri/Cargo.toml
-
 # One file → <file>.txt next to it
-nbp-cli transcribe ~/voice/20260617125745.WAV
+nbp transcribe ~/voice/20260617125745.WAV
 
 # Custom output path / pause threshold
-nbp-cli transcribe day.WAV --out ~/day.txt --pause 3.0
+nbp transcribe day.WAV --out ~/day.txt --pause 3.0
 
 # Batch — each file → its own .txt
-nbp-cli transcribe ~/voice/*.WAV
+nbp transcribe ~/voice/*.WAV
 ```
 
-The sidecar is resolved automatically (bundled `binaries/`, dev build, or `--sidecar <path>` / `NBP_SIDECAR`). Output is plain text: a small header plus `[HH:MM:SS] text` lines (wall-clock when the filename parses, else offset from zero).
+Any first argument other than `transcribe` launches the app as usual. The sidecar is resolved automatically (app bundle, dev build, or `--sidecar <path>` / `NBP_SIDECAR`). Output is plain text: a small header plus `[HH:MM:SS] text` lines.
 
 ### Calendar
 

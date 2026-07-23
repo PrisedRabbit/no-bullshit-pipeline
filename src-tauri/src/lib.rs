@@ -55,6 +55,7 @@ pub mod realtime_transcription;
 mod resampler_compat;
 pub mod storage;
 mod system_audio;
+pub mod transcribe_cli;
 mod transcript_migration;
 pub mod transcription;
 mod updater;
