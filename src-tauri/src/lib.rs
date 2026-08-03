@@ -41,6 +41,7 @@ mod call_session;
 pub mod config;
 mod connectors;
 mod devices;
+mod diarization;
 mod dictation;
 mod dictation_streaming;
 mod fn_hotkey;
@@ -325,6 +326,9 @@ pub fn run() {
                 );
             }
 
+            // Same idea for diarization jobs left `running` by a crash.
+            diarization::cleanup_interrupted();
+
             // HAL per-process audio detector (macOS 14.4+). Runs alongside
             // the legacy device-level call_detector — both emit `call-event`
             // and call_session dedups via the existing overwrite policy.
@@ -437,6 +441,10 @@ pub fn run() {
             transcription::is_transcribing,
             transcription::get_transcript,
             transcription::export_transcript_md,
+            diarization::diarize_recording,
+            diarization::get_diarization,
+            diarization::get_diarization_status,
+            diarization::rename_speaker,
             playback::play_audio,
             playback::pause_audio,
             playback::resume_audio,

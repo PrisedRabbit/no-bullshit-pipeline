@@ -111,6 +111,153 @@ async function calendarAction(cmd, id, btn) {
   }
 }
 
+// --- Diarization (who said what) ---------------------------------------------
+
+let diarListenerStarted = false;
+/// One global subscription: live progress + auto-refresh when a job finishes,
+/// even if the user navigated away and back mid-run.
+function ensureDiarListener() {
+  if (diarListenerStarted) return;
+  diarListenerStarted = true;
+  listen('diarization_progress', (event) => {
+    const p = event.payload || {};
+    if (p.recording_id !== state.selectedRecordingId) return;
+    if (p.status === 'running') {
+      const content = document.getElementById('diarization-content');
+      const btn = document.getElementById('diarize-btn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Diarizing…'; }
+      if (content) {
+        content.className = 'content-body empty';
+        content.textContent = `${p.stage || 'Working'}… ${p.percent || 0}%`;
+      }
+    } else {
+      const rec = state.allRecordings.find(r => r.id === p.recording_id);
+      if (rec) renderDiarization(rec);
+    }
+  });
+}
+
+/// Inline rename: swap the speaker chip for an input (window.prompt is
+/// unreliable in WKWebView). Enter/blur saves, Escape cancels.
+function startSpeakerRename(el, rec, spk, current) {
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = current;
+  input.className = 'diar-rename-input';
+  input.placeholder = `Speaker ${spk + 1}`;
+  el.replaceWith(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = async (save) => {
+    if (done) return;
+    done = true;
+    if (save) {
+      try {
+        await invoke('rename_speaker', { recordingId: rec.id, speaker: spk, name: input.value.trim() });
+      } catch (e) {
+        showToast('Rename failed: ' + e, 'error');
+      }
+    }
+    renderDiarization(rec);
+  };
+  input.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') finish(true);
+    else if (ev.key === 'Escape') finish(false);
+  });
+  input.addEventListener('blur', () => finish(true));
+}
+
+async function renderDiarization(rec) {
+  ensureDiarListener();
+  const content = document.getElementById('diarization-content');
+  const btn = document.getElementById('diarize-btn');
+  if (!content) return;
+
+  let status = null;
+  let diar = null;
+  try { status = await invoke('get_diarization_status', { recordingId: rec.id }); } catch { status = null; }
+  try { diar = await invoke('get_diarization', { recordingId: rec.id }); } catch { diar = null; }
+  // The user may have switched recordings while we awaited — don't paint stale.
+  if (state.selectedRecordingId !== rec.id) return;
+
+  const running = !!(status && status.status === 'running');
+
+  if (btn) {
+    btn.disabled = running || rec.status === 'processing';
+    btn.textContent = running ? 'Diarizing…' : (diar ? 'Re-diarize' : 'Diarize');
+    btn.onclick = async () => {
+      btn.disabled = true;
+      btn.textContent = 'Diarizing…';
+      content.className = 'content-body empty';
+      content.textContent = 'Starting…';
+      try {
+        await invoke('diarize_recording', { recordingId: rec.id });
+      } catch (e) {
+        showToast('Diarization failed: ' + e, 'error');
+      }
+      renderDiarization(rec);
+    };
+  }
+
+  if (running) {
+    content.className = 'content-body empty';
+    content.textContent = `${status.stage || 'Working'}… ${status.percent || 0}%`;
+    return;
+  }
+
+  if (!diar || !diar.segments || diar.segments.length === 0) {
+    content.className = 'content-body empty';
+    content.textContent =
+      status && status.status === 'failed' && status.error
+        ? `Diarization failed: ${status.error}`
+        : 'Not diarized yet.';
+    return;
+  }
+
+  const nameByLocal = {};
+  const meLocal = new Set();
+  (diar.speakers || []).forEach(s => {
+    if (s.name) nameByLocal[s.local_id] = s.name;
+    if (s.is_me) meLocal.add(s.local_id);
+  });
+  const label = (spk) => nameByLocal[spk] || (meLocal.has(spk) ? 'You' : `Speaker ${spk + 1}`);
+  const fmt = (t) => { t = Math.floor(t); return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`; };
+
+  // Coalesce consecutive segments of the same speaker into one block (keep the
+  // first timestamp) — turn-taking stays visible, monologues read as one piece.
+  const kept = diar.segments.filter(s => /[\p{L}\p{N}]/u.test(s.text || ''));
+  const blocks = [];
+  for (const s of kept) {
+    const last = blocks[blocks.length - 1];
+    if (last && last.speaker === s.speaker) {
+      last.text += ' ' + (s.text || '').trim();
+    } else {
+      blocks.push({ speaker: s.speaker, start: s.start, text: (s.text || '').trim() });
+    }
+  }
+  const colorClass = (spk) => meLocal.has(spk) ? 'diar-me' : `diar-c${spk % 6}`;
+  const rows = blocks
+    .map(b => `<div class="diar-seg ${colorClass(b.speaker)}"><div class="diar-head"><span class="diar-spk" data-spk="${b.speaker}" title="Click to rename">${escapeHtml(label(b.speaker))}</span><span class="diar-time">${fmt(b.start)}</span></div><div class="diar-text">${escapeHtml(b.text)}</div></div>`)
+    .join('');
+
+  if (!rows) {
+    content.className = 'content-body empty';
+    content.textContent = `${diar.speaker_count} speaker(s) detected, but no speech segments with text.`;
+    return;
+  }
+
+  content.className = 'content-body';
+  content.innerHTML = rows;
+
+  content.querySelectorAll('.diar-spk').forEach(el => {
+    el.addEventListener('click', () => {
+      const spk = parseInt(el.dataset.spk, 10);
+      startSpeakerRename(el, rec, spk, nameByLocal[spk] || '');
+    });
+  });
+}
+
 export async function showDetailView(id) {
   const rec = state.allRecordings.find(r => r.id === id);
   if (!rec) return;
@@ -132,6 +279,7 @@ export async function showDetailView(id) {
   if (detailTitleInput) detailTitleInput.value = rec.title || '';
 
   renderCalendarRow(rec);
+  renderDiarization(rec);
 
   const isProcessing = rec.status === 'processing';
 

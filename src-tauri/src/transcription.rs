@@ -48,6 +48,18 @@ pub fn is_transcribing(recording_id: String, state: tauri::State<'_, Transcripti
 struct FluidAudioOutput {
     model: String,
     text: String,
+    /// v2 diarization computed in the same sidecar run (single ASR pass) —
+    /// persisted as diarization.json alongside the transcript.
+    #[serde(rename = "diarV2", default)]
+    diar_v2: Option<DiarV2Payload>,
+}
+
+#[derive(Deserialize, Debug)]
+struct DiarV2Payload {
+    #[serde(rename = "speakerCount")]
+    speaker_count: usize,
+    segments: Vec<crate::diarization::DiarSegment>,
+    centroids: Vec<Vec<f32>>,
 }
 
 /// JSON transcript stored as transcript.json (source of truth)
@@ -146,6 +158,9 @@ async fn transcribe_recording_inner(
     if !audio_path.exists() {
         audio_path = recording_dir.join("raw_mic.ogg");
     }
+    // Set inside the FluidAudio arm when clean stems exist: skip mix diarization
+    // there and run the source-split diarize pass after the transcript is saved.
+    let mut split_diar_after = false;
 
     if !audio_path.exists() {
         return Err("Audio file not found".to_string());
@@ -280,7 +295,15 @@ async fn transcribe_recording_inner(
             // Speaker labels (diarization) are opt-out via settings. Recordings
             // default to on; disabling skips the diarizer for a faster,
             // single-speaker transcript. (Quick Dictate always passes --no-diarize.)
-            if !settings.transcription.diarize {
+            // When BOTH stems exist, in-transcribe (mix) diarization is skipped
+            // too — the cleaner source-split pass runs right after the
+            // transcript is saved (see the tail of this function).
+            let has_stems = recording_dir.join("raw_system.ogg").exists()
+                && recording_dir.join("raw_mic.ogg").exists();
+            if settings.transcription.diarize && has_stems {
+                split_diar_after = true;
+            }
+            if !settings.transcription.diarize || split_diar_after {
                 fa_cmd = fa_cmd.arg("--no-diarize");
             }
             // Engine selection + code-switch recovery — shared with the dictation
@@ -361,6 +384,18 @@ async fn transcribe_recording_inner(
                 .and_then(|m| m.audio.mix.as_ref().map(|a| a.duration_sec))
                 .unwrap_or(0.0);
 
+            // Same-run diarization (Speaker labels on): persist diarization.json
+            // from the single ASR pass — no separate Diarize needed.
+            if let Some(diar) = fa_output.diar_v2 {
+                crate::diarization::store_from_transcribe(
+                    app_handle,
+                    &recording_id,
+                    diar.speaker_count,
+                    diar.segments,
+                    &diar.centroids,
+                );
+            }
+
             TranscriptJson {
                 source,
                 model: fa_output.model,
@@ -412,6 +447,19 @@ async fn transcribe_recording_inner(
             percent: 100,
         },
     );
+
+    // Clean stems present → kick off the source-split diarization now that the
+    // transcript is saved. Fire-and-forget: the diarization job has its own
+    // status file + progress events, and must not delay the transcript.
+    if split_diar_after {
+        let app = app_handle.clone();
+        let id = recording_id.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = crate::diarization::diarize_recording(app, id).await {
+                eprintln!("post-transcribe diarization failed: {e}");
+            }
+        });
+    }
 
     // Return rendered text for immediate UI display
     Ok(preview_text)

@@ -10,11 +10,24 @@ struct SpeakerSegment: Codable {
     let text: String
 }
 
+/// Raw per-segment diarization embedding (256-d WeSpeaker), emitted for offline
+/// clustering experiments (spectral + eigenvalue-gap) via --emit-embeddings.
+struct DiarEmbedding: Codable {
+    let startTime: Double
+    let endTime: Double
+    let speakerId: String
+    let embedding: [Float]
+}
+
 struct FluidAudioOutputJSON: Codable {
     let text: String
     let speakerCount: Int
     let model: String
     let segments: [SpeakerSegment]
+    let diarEmbeddings: [DiarEmbedding]?
+    /// v2 (senko-port) diarization computed in the same run — lets the app
+    /// store diarization.json from a single ASR pass.
+    let diarV2: DiarV2Output?
 }
 
 func writeError(_ message: String) -> Never {
@@ -676,6 +689,29 @@ func runDownload(argv: [String]) async {
     }
 }
 
+/// Isolated validation of the ported spectral clusterer. Reads
+/// {"embeddings":[[Float]...],"starts":[Double...]} and prints speaker count.
+func runClusterTest(path: String) {
+    guard !path.isEmpty, let data = FileManager.default.contents(atPath: path),
+        let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let embAny = obj["embeddings"] as? [[Any]]
+    else {
+        writeError("cluster-test: need JSON {embeddings:[[..]], starts:[..]}")
+    }
+    let embeddings: [[Float]] = embAny.map { row in row.compactMap { ($0 as? NSNumber)?.floatValue } }
+    let starts: [Double] =
+        (obj["starts"] as? [Any])?.compactMap { ($0 as? NSNumber)?.doubleValue }
+        ?? (0..<embeddings.count).map { Double($0) }
+    let labels = SpeakerClustering.cluster(embeddings: embeddings, starts: starts)
+    let uniq = Set(labels).sorted()
+    var counts: [Int: Int] = [:]
+    for l in labels { counts[l, default: 0] += 1 }
+    FileHandle.standardOutput.write(Data("SPEAKERS: \(uniq.count)\n".utf8))
+    for s in uniq {
+        FileHandle.standardOutput.write(Data("  speaker \(s): \(counts[s]!) segs\n".utf8))
+    }
+}
+
 // MARK: - Main
 
 @main
@@ -687,6 +723,28 @@ struct FluidAudioSidecar {
 
         if CommandLine.arguments[1] == "--stream" {
             await runStreamMode()
+            return
+        }
+
+        // Isolated test of the ported spectral clusterer: reads a JSON
+        // {"embeddings":[[...]],"starts":[...]} and prints auto-detected speaker
+        // count. Validates the clustering core independent of the embedder.
+        if CommandLine.arguments[1] == "--cluster-test" {
+            runClusterTest(path: CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "")
+            return
+        }
+
+        // Self-contained native diarization (dense embeddings + spectral).
+        if CommandLine.arguments[1] == "--diarize-v2" {
+            await runDiarizeV2(wavPath: CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "")
+            return
+        }
+
+        // Source-split diarization: <system.wav> <mic.wav> (clean stems).
+        if CommandLine.arguments[1] == "--diarize-v2-split" {
+            await runDiarizeV2Split(
+                systemWav: CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "",
+                micWav: CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : "")
             return
         }
 
@@ -731,6 +789,7 @@ struct FluidAudioSidecar {
         // timecoded segments at token gaps larger than this. Opt-in: the app's
         // plain `--no-diarize` path keeps the single-block behaviour.
         var segmentPause: Double? = nil
+        var emitEmbeddings = false
         var ai = 1
         while ai < argv.count {
             switch argv[ai] {
@@ -747,6 +806,7 @@ struct FluidAudioSidecar {
             case "--translit-min-len": if ai + 1 < argv.count { translitMinLen = Int(argv[ai + 1]) ?? translitMinLen; ai += 1 }
             case "--lang", "--language", "-l": if ai + 1 < argv.count { langCode = argv[ai + 1]; ai += 1 }
             case "--segment-pause": if ai + 1 < argv.count { segmentPause = Double(argv[ai + 1]); ai += 1 }
+            case "--emit-embeddings": emitEmbeddings = true
             default:
                 if !argv[ai].hasPrefix("--") && wavPath.isEmpty { wavPath = argv[ai] }
             }
@@ -784,7 +844,9 @@ struct FluidAudioSidecar {
         }
 
         do {
-            let cached = modelsAreCached(requireDiarizer: !noDiarize)
+            // v2 diarization uses its own bundled models (CAM++/pyannote), so
+            // FluidAudio's offline-diarizer repo is never needed here.
+            let cached = modelsAreCached(requireDiarizer: false)
 
             writeProgress("Preparing models", 0)
 
@@ -806,26 +868,9 @@ struct FluidAudioSidecar {
             writeProgress("Preparing models", 15)
 
             // Quick Dictate passes --no-diarize: single-speaker, only the
-            // transcript matters. Skips diarizer model download + load +
-            // process — saves several seconds and avoids the VAD throwing
-            // "No speech detected" on short/quiet clips.
-            let diarizerManager: OfflineDiarizerManager?
-            if noDiarize {
-                diarizerManager = nil
-            } else {
-                if !cached { writeProgress("Downloading diarizer", 20) }
-                let tDiarInit = CFAbsoluteTimeGetCurrent()
-                var diarizerConfig = OfflineDiarizerConfig()
-                diarizerConfig.clusteringThreshold = 0.12
-                diarizerConfig.embeddingExcludeOverlap = false
-                diarizerConfig.minSegmentDuration = 0.1
-                diarizerConfig.minGapDuration = 0.3
-                diarizerConfig.clustering.minSpeakers = 2
-                let mgr = OfflineDiarizerManager(config: diarizerConfig)
-                try await mgr.prepareModels()
-                diarizerManager = mgr
-                tick("diarizer.prepareModels", tDiarInit)
-            }
+            // transcript matters. Diarization (when on) runs the senko-port v2
+            // pipeline AFTER ASR — one Parakeet pass produces both the
+            // transcript and the speaker map (no double ASR).
             writeProgress("Preparing models", 25)
 
             writeProgress("Transcribing", 25)
@@ -846,25 +891,28 @@ struct FluidAudioSidecar {
             progressTask.cancel()
             writeProgress("Transcribing", 60)
 
-            let diarizationSegments: [TimedSpeakerSegment]
-            if let diarizerManager {
-                writeProgress("Diarization", 60)
+            // Senko-port v2 diarization on the same wav (VAD → fbank → CAM++ →
+            // spectral). Failure degrades to a single-speaker transcript, same
+            // tolerance as the old FluidAudio diarizer path.
+            var diarV2Result: DiarPipelineResult? = nil
+            if !noDiarize {
                 let tDiarize = CFAbsoluteTimeGetCurrent()
-                // Diarization VAD can reject quiet/short clips with
-                // "No speech detected in audio" — swallow the failure and
-                // ship the transcript with a single default speaker.
                 do {
-                    let diarizationResult = try await diarizerManager.process(fileURL)
-                    diarizationSegments = diarizationResult.segments
+                    diarV2Result = try await runDiarPipeline(wavPath: wavPath) { stage, pct in
+                        // Map the pipeline's 0-100 into the transcribe flow's 60-90 band.
+                        writeProgress(stage, 60 + Int(Double(pct) * 0.3))
+                    }
                 } catch {
                     FileHandle.standardError.write(Data("diarization skipped: \(error)\n".utf8))
-                    diarizationSegments = []
                 }
                 tick("diarizer.process", tDiarize)
                 writeProgress("Diarization", 90)
-            } else {
-                diarizationSegments = []
             }
+
+            // --emit-embeddings belonged to the retired FluidAudio diarizer
+            // spike path; v2 exposes per-speaker centroids in `diarV2` instead.
+            let diarEmbeddings: [DiarEmbedding]? = nil
+            _ = emitEmbeddings
 
             writeProgress("Finalizing", 90)
 
@@ -945,7 +993,23 @@ struct FluidAudioSidecar {
             let timings = asrResult.tokenTimings ?? []
             let segments: [SpeakerSegment]
             let speakerCount: Int
-            if let gap = segmentPause, diarizationSegments.isEmpty {
+            var diarV2Payload: DiarV2Output? = nil
+            if let diar = diarV2Result, !diar.segments.isEmpty {
+                // One ASR pass feeds both outputs: speaker-attributed transcript
+                // segments + the diarization payload (segments/centroids) that
+                // the app persists as diarization.json.
+                let textSegs = mergeTokensWithSpeakers(tokenTimings: timings, diar: diar.segments)
+                segments = textSegs.map {
+                    SpeakerSegment(
+                        speakerId: "Speaker \($0.speaker + 1)",
+                        startTime: $0.start,
+                        endTime: $0.end,
+                        text: $0.text)
+                }
+                speakerCount = diar.speakerCount
+                diarV2Payload = DiarV2Output(
+                    speakerCount: diar.speakerCount, segments: textSegs, centroids: diar.centroids)
+            } else if let gap = segmentPause {
                 // Timecoded, pause-split, no diarization (lifelog CLI path).
                 segments = segmentByPause(
                     tokenTimings: timings,
@@ -957,7 +1021,7 @@ struct FluidAudioSidecar {
                 (segments, speakerCount) = mergeAsrWithDiarization(
                     tokenTimings: timings,
                     fullText: fullText,
-                    diarizationSegments: diarizationSegments
+                    diarizationSegments: []
                 )
             }
 
@@ -965,7 +1029,9 @@ struct FluidAudioSidecar {
                 text: fullText,
                 speakerCount: speakerCount,
                 model: modelLabel,
-                segments: segments
+                segments: segments,
+                diarEmbeddings: diarEmbeddings,
+                diarV2: diarV2Payload
             )
 
             let encoder = JSONEncoder()
@@ -1043,7 +1109,9 @@ struct FluidAudioSidecar {
                 model: modelLabel,
                 segments: [
                     SpeakerSegment(speakerId: "Speaker 1", startTime: 0, endTime: duration, text: text)
-                ]
+                ],
+                diarEmbeddings: nil,
+                diarV2: nil
             )
 
             writeProgress("Complete", 100)

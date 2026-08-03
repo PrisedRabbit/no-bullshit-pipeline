@@ -66,9 +66,20 @@ The app opens automatically. Recordings are saved to `~/nbp-data/`.
 - **FluidAudio** (default): Device-local transcription (Parakeet v3) via sidecar binary. No cloud, supports streaming.
 - **Qwen3**: Alternative on-device model (`f32` quality or `int8` lighter/faster), batch mode.
 - **Apple Speech**: Native macOS `SpeechTranscriber` (macOS 26+), supports streaming.
-- **Speaker Diarization**: Speaker labels for recordings (FluidAudio only).
 - **Code-switch Correction**: Optional phonetic recovery of Cyrillic-mangled terms against your word list (Russian).
 - **Export**: Transcripts written as source-of-truth JSON plus rendered Markdown.
+
+### Speaker Diarization (who said what)
+
+A native Swift port of the [senko](https://github.com/narcotic-sh/senko) diarization pipeline, running fully on-device — no Python, no cloud:
+
+- **Pipeline**: pyannote segmentation (VAD) → dense subsegments → Kaldi-style fbank (vendored C++) → CAM++ speaker embeddings (CoreML, 192-d) → spectral clustering with automatic speaker-count via the eigenvalue gap. Zero manual thresholds.
+- **Source-split mode**: recordings that keep both stems are diarized per channel — remote voices from the clean system tap, "You" from the mic by channel identity (echo is filtered by centroid matching + a time guard). Parallel speech survives with both texts intact, and You/them attribution is exact where a mixed track would be guesswork.
+- **One ASR pass**: with Speaker labels enabled, a single Parakeet run produces both the transcript and the speaker map. Mix-only recordings and the manual **Diarize** button use the same engine.
+- **Speakers are voiceprints**: each speaker carries a stable uid + CAM++ centroid. Renaming "Speaker 2" to a real name survives re-diarization — voices are re-matched by cosine similarity, not by index.
+- **Models bundled**: CAM++ (~14 MB) and pyannote (~5.5 MB) ship inside the app — diarization works offline out of the box.
+
+Credits: [senko](https://github.com/narcotic-sh/senko) (MIT) for the pipeline design, the Kaldi fbank/VAD code and the CAM++ CoreML conversion; [3D-Speaker](https://github.com/modelscope/3D-Speaker) (Apache-2.0) for the CAM++ model and the spectral clustering algorithm; [pyannote](https://github.com/pyannote/pyannote-audio) (MIT) segmentation via [FluidAudio](https://github.com/FluidInference/FluidAudio)'s CoreML conversion.
 
 ### Pipelines
 

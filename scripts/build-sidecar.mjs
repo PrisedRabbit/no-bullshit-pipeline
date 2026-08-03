@@ -59,3 +59,23 @@ if (!existsSync(builtBinary)) {
 mkdirSync(dirname(stagedBinary), { recursive: true });
 copyFileSync(builtBinary, stagedBinary);
 console.log(`[sidecar] staged ${stagedBinary}`);
+
+// Diarization models: precompile CAM++ (.mlpackage → .mlmodelc) so the sidecar
+// never pays MLModel.compileModel at runtime. pyannote already ships compiled.
+const modelsDir = join(swiftDir, 'Models');
+const camppPkg = join(modelsDir, 'camplusplus_batch16.mlpackage');
+const camppCompiled = join(modelsDir, 'camplusplus_batch16.mlmodelc');
+if (existsSync(camppPkg)) {
+  const pkgMtime = latestMtime(camppPkg);
+  const compiledMtime = existsSync(camppCompiled) ? latestMtime(camppCompiled) : 0;
+  if (compiledMtime < pkgMtime) {
+    console.log('[sidecar] compiling CAM++ → .mlmodelc …');
+    const cc = spawnSync('xcrun', ['coremlcompiler', 'compile', camppPkg, modelsDir], {
+      stdio: 'inherit',
+    });
+    if (cc.status !== 0) {
+      console.error('[sidecar] coremlcompiler failed');
+      process.exit(cc.status ?? 1);
+    }
+  }
+}

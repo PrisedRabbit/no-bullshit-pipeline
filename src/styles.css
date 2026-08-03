@@ -4883,3 +4883,52 @@ body.light .provider-models-section {
 .dictation-disabled .shortcut-empty {
   opacity: 0.4;
 }
+
+/* Diarization (who said what) — chat-style: a steady per-speaker accent bar,
+   quiet timecodes, "You" in the app accent. */
+.diar-seg {
+  margin-bottom: 14px;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--diar-color, var(--text-secondary, #888));
+}
+.diar-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+.diar-spk {
+  font-weight: 600;
+  color: var(--diar-color, var(--accent));
+  cursor: pointer;
+}
+.diar-spk:hover {
+  text-decoration: underline;
+}
+.diar-time {
+  color: var(--text-secondary, #888);
+  font-size: 0.75em;
+  font-family: 'JetBrains Mono', monospace;
+}
+.diar-text {
+  white-space: pre-wrap;
+  line-height: 1.55;
+}
+/* Stable per-speaker palette; "You" uses the app accent. */
+.diar-me { --diar-color: var(--accent); }
+.diar-c0 { --diar-color: #61afef; }
+.diar-c1 { --diar-color: #98c379; }
+.diar-c2 { --diar-color: #e06c75; }
+.diar-c3 { --diar-color: #d19a66; }
+.diar-c4 { --diar-color: #c678dd; }
+.diar-c5 { --diar-color: #56b6c2; }
+.diar-rename-input {
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--bg-secondary, transparent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0 4px;
+  max-width: 180px;
+}
