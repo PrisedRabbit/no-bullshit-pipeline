@@ -370,13 +370,23 @@ async fn diarize_inner(app_handle: &tauri::AppHandle, recording_id: &str) -> Res
     let mut exit_code: Option<i32> = None;
     let mut last_pct: u32 = 0;
 
-    let timeout_duration = std::time::Duration::from_secs(600);
+    // Real wall-clock timeout: a silently hung sidecar produces NO events, so
+    // the deadline must wrap `recv()` itself — a post-event elapsed check would
+    // never fire. Split mode runs 2 diar pipelines + 2 ASR passes → more room.
+    let timeout_duration = std::time::Duration::from_secs(if split { 1200 } else { 600 });
     let start = std::time::Instant::now();
 
-    while let Some(event) = rx.recv().await {
-        if start.elapsed() > timeout_duration {
-            return Err("Diarization timed out after 10 minutes".to_string());
+    loop {
+        let remaining = timeout_duration.saturating_sub(start.elapsed());
+        if remaining.is_zero() {
+            // SidecarGuard kills the child on drop.
+            return Err("Diarization timed out".to_string());
         }
+        let event = match tokio::time::timeout(remaining, rx.recv()).await {
+            Ok(Some(ev)) => ev,
+            Ok(None) => break, // channel closed without Terminated — guard cleans up
+            Err(_) => return Err("Diarization timed out".to_string()),
+        };
         match event {
             CommandEvent::Stdout(data) => stdout_buf.extend_from_slice(&data),
             CommandEvent::Stderr(data) => {
@@ -397,13 +407,14 @@ async fn diarize_inner(app_handle: &tauri::AppHandle, recording_id: &str) -> Res
             }
             CommandEvent::Terminated(payload) => {
                 exit_code = payload.code;
+                // Clean exit — nothing left to kill. (On any other path the
+                // guard's kill-on-drop stays armed.)
+                sidecar_guard.0.take();
                 break;
             }
             _ => {}
         }
     }
-    // Sidecar exited on its own — nothing left to kill.
-    sidecar_guard.0.take();
 
     if exit_code != Some(0) {
         let detail: String = stderr_buf

@@ -224,16 +224,18 @@ async function renderDiarization(rec) {
   const label = (spk) => nameByLocal[spk] || (meLocal.has(spk) ? 'You' : `Speaker ${spk + 1}`);
   const fmt = (t) => { t = Math.floor(t); return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`; };
 
-  // Coalesce consecutive segments of the same speaker into one block (keep the
-  // first timestamp) — turn-taking stays visible, monologues read as one piece.
+  // Coalesce consecutive same-speaker segments into one block (keep the first
+  // timestamp) — but only across small gaps, so real pauses (>2s) still break
+  // a long monologue instead of collapsing into a wall of text.
   const kept = diar.segments.filter(s => /[\p{L}\p{N}]/u.test(s.text || ''));
   const blocks = [];
   for (const s of kept) {
     const last = blocks[blocks.length - 1];
-    if (last && last.speaker === s.speaker) {
+    if (last && last.speaker === s.speaker && s.start - last.end <= 2.0) {
       last.text += ' ' + (s.text || '').trim();
+      last.end = Math.max(last.end, s.end);
     } else {
-      blocks.push({ speaker: s.speaker, start: s.start, text: (s.text || '').trim() });
+      blocks.push({ speaker: s.speaker, start: s.start, end: s.end, text: (s.text || '').trim() });
     }
   }
   const colorClass = (spk) => meLocal.has(spk) ? 'diar-me' : `diar-c${spk % 6}`;

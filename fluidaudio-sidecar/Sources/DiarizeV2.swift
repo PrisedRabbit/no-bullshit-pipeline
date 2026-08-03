@@ -401,12 +401,14 @@ func runDiarizeV2Split(systemWav: String, micWav: String) async {
             for s in mic.segments { dur[s.speaker, default: 0] += s.end - s.start }
             // Drop echo clusters (acoustically identical to a remote speaker).
             var candidates: [Int] = []
+            var sawEchoCluster = false
             for (spk, _) in dur {
                 guard spk < mic.centroids.count else { continue }
                 let maxSys = sys.centroids.map { cos(mic.centroids[spk], $0) }.max() ?? 0
                 if maxSys < echoThreshold {
                     candidates.append(spk)
                 } else {
+                    sawEchoCluster = true
                     FileHandle.standardError.write(
                         Data("mic cluster \(spk) dropped as echo (cos \(maxSys))\n".utf8))
                 }
@@ -423,9 +425,10 @@ func runDiarizeV2Split(systemWav: String, micWav: String) async {
             // echo into ONE mic cluster (mixed centroid slips under the cosine
             // threshold). Echo is, by definition, simultaneous with remote
             // speech — so trim every "me" segment to the parts where the
-            // system channel is SILENT. Honest trade-off: local speech spoken
-            // OVER a remote voice is dropped too (headphones make this moot).
-            if !meSegments.isEmpty {
+            // system channel is SILENT. Only applied when echo clusters were
+            // actually seen: on headphone calls (no echo) trimming would delete
+            // legitimate interjections spoken over the remote voice.
+            if !meSegments.isEmpty && sawEchoCluster {
                 let sysIntervals = sys.speechRegions.map { ($0.start, $0.end) }.sorted { $0.0 < $1.0 }
                 var trimmed: [DiarV2Segment] = []
                 for seg in meSegments {
@@ -461,7 +464,7 @@ func runDiarizeV2Split(systemWav: String, micWav: String) async {
         writeProgress("Finalizing", 90)
 
         var segments = mergeTokensWithSpeakers(tokenTimings: sysTokens, diar: sys.segments)
-        if !meSegments.isEmpty {
+        if !meSegments.isEmpty, !micTokens.isEmpty {
             // STRICT: only mic tokens inside a "me" segment (±0.3s) belong to the
             // local speaker — everything else the mic heard is speaker echo whose
             // text already comes from the clean system-stem ASR.
@@ -470,18 +473,26 @@ func runDiarizeV2Split(systemWav: String, micWav: String) async {
                 let mid = (tk.startTime + tk.endTime) / 2.0
                 return meSegments.contains { mid >= $0.start - slack && mid <= $0.end + slack }
             }
-            segments += mergeTokensWithSpeakers(tokenTimings: meTokens, diar: meSegments)
+            if !meTokens.isEmpty {
+                segments += mergeTokensWithSpeakers(tokenTimings: meTokens, diar: meSegments)
+            }
         }
         segments.sort { $0.start < $1.start }
 
+        // No ghost "You": a listener-only call (silent mic / everything dropped
+        // as echo) must not inflate speakerCount or emit a zero-vector centroid
+        // that re-diarize could never match.
+        let hasMe = segments.contains { $0.speaker == meId }
         var centroids = sys.centroids
-        centroids.append(meCentroid.isEmpty ? [Float](repeating: 0, count: embDim) : meCentroid)
+        if hasMe {
+            centroids.append(meCentroid.isEmpty ? [Float](repeating: 0, count: embDim) : meCentroid)
+        }
 
         let outObj = DiarV2Output(
-            speakerCount: sys.speakerCount + 1,
+            speakerCount: sys.speakerCount + (hasMe ? 1 : 0),
             segments: segments,
             centroids: centroids,
-            meSpeaker: meId)
+            meSpeaker: hasMe ? meId : nil)
         writeProgress("Complete", 100)
         let enc = JSONEncoder()
         enc.outputFormatting = [.sortedKeys]
