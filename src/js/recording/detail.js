@@ -189,10 +189,21 @@ async function renderDiarization(rec) {
 
   let status = null;
   let diar = null;
+  let profiles = [];
   try { status = await invoke('get_diarization_status', { recordingId: rec.id }); } catch { status = null; }
   try { diar = await invoke('get_diarization', { recordingId: rec.id }); } catch { diar = null; }
+  try { profiles = (await invoke('list_speaker_profiles')) || []; } catch { profiles = []; }
   // The user may have switched recordings while we awaited — don't paint stale.
   if (state.selectedRecordingId !== rec.id) return;
+
+  // Names live in the global profiles (uid OR merged alias → person): naming
+  // someone anywhere labels every recording instantly at render time.
+  const nameByUid = {};
+  for (const p of profiles) {
+    if (!p.name) continue;
+    nameByUid[p.uid] = p.name;
+    for (const a of p.aliases || []) nameByUid[a] = p.name;
+  }
 
   const running = !!(status && status.status === 'running');
 
@@ -232,7 +243,8 @@ async function renderDiarization(rec) {
   // merges into one flow instead of looking like two speakers.
   const ident = {};
   (diar.speakers || []).forEach(s => {
-    ident[s.local_id] = { uid: s.uid || `local-${s.local_id}`, name: s.name || '', isMe: !!s.is_me };
+    const uid = s.uid || `local-${s.local_id}`;
+    ident[s.local_id] = { uid, name: nameByUid[uid] || s.name || '', isMe: !!s.is_me };
   });
   const idKey = (spk) => {
     const i = ident[spk];

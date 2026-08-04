@@ -191,9 +191,19 @@ fn set_status(app: &tauri::AppHandle, recording_id: &str, status: &str, stage: &
 }
 
 /// Repair statuses left `running` by a crash/quit — call once on startup.
+/// Also sweeps orphaned temp wavs: a kill -9 / crash skips the RAII cleanup,
+/// and a single interrupted long call can leave hundreds of MB behind.
 pub fn cleanup_interrupted() {
     let Ok(entries) = std::fs::read_dir(get_data_dir()) else { return };
     for entry in entries.flatten() {
+        if let Ok(files) = std::fs::read_dir(entry.path()) {
+            for f in files.flatten() {
+                let name = f.file_name().to_string_lossy().to_string();
+                if name.starts_with("temp_diar") || name == "temp_transcription.wav" {
+                    let _ = std::fs::remove_file(f.path());
+                }
+            }
+        }
         let sp = entry.path().join("diarization_status.json");
         let Ok(content) = std::fs::read_to_string(&sp) else { continue };
         let Ok(mut st) = serde_json::from_str::<DiarizationStatus>(&content) else { continue };
@@ -270,6 +280,11 @@ pub struct SpeakerProfile {
     pub centroids: Vec<Vec<f32>>,
     #[serde(default)]
     pub appearances: Vec<Appearance>,
+    /// Former candidate uids folded into this person (explicit merges). The UI
+    /// resolves names by uid OR alias, so old recordings label instantly
+    /// without rewriting their diarization.json.
+    #[serde(default)]
+    pub aliases: Vec<String>,
     pub updated_at: String,
 }
 
@@ -338,6 +353,7 @@ fn upsert_profiles_after_diarize(recording_id: &str, d: &DiarizationJson) {
                 name: sp.name.clone(),
                 centroids: vec![sp.centroid.clone()],
                 appearances: vec![appearance],
+                aliases: Vec::new(),
                 updated_at: now.clone(),
             }),
         }
@@ -845,6 +861,7 @@ pub async fn rename_speaker(
                 name: trimmed.clone(),
                 centroids: vec![centroid.clone()],
                 appearances: Vec::new(),
+                aliases: Vec::new(),
                 updated_at: now,
             }),
         }
@@ -852,42 +869,9 @@ pub async fn rename_speaker(
     }
 
     write_json_atomic(&diar_path(&recording_id), &d)?;
-
-    // Retro-apply: the same voice (same uid) in OTHER recordings gets the name
-    // too — one rename labels the whole history. Recordings mid-diarize are
-    // skipped (their fresh write would clobber ours); the next rename or
-    // re-diarize reconciles them via the profile.
-    if !trimmed.is_empty() {
-        let appearances: Vec<Appearance> = load_profiles()
-            .into_iter()
-            .find(|p| p.uid == uid)
-            .map(|p| p.appearances)
-            .unwrap_or_default();
-        for a in appearances {
-            if a.recording_id == recording_id {
-                continue;
-            }
-            let busy = active_set()
-                .lock()
-                .map(|s| s.contains(&a.recording_id))
-                .unwrap_or(true);
-            if busy {
-                continue;
-            }
-            if let Some(mut other) = read_diarization(&a.recording_id) {
-                let mut changed = false;
-                for s in other.speakers.iter_mut() {
-                    if s.uid == uid && s.name != trimmed {
-                        s.name = trimmed.clone();
-                        changed = true;
-                    }
-                }
-                if changed {
-                    let _ = write_json_atomic(&diar_path(&a.recording_id), &other);
-                }
-            }
-        }
-    }
+    // No retro fan-out: the profile is the single source of truth for names —
+    // every view resolves uid→name at render time, so the whole history (and
+    // any future recording) picks the name up instantly with zero rewrites.
     Ok(())
 }
 
@@ -922,6 +906,8 @@ pub struct ProfileView {
     pub sample_local_id: i64,
     /// Whether a voice sample file actually exists for that appearance.
     pub has_sample: bool,
+    /// Former uids merged into this person — the UI resolves names by any of them.
+    pub aliases: Vec<String>,
 }
 
 /// All profiles (named + candidates), best-appearance first. The UI derives
@@ -951,6 +937,7 @@ pub async fn list_speaker_profiles() -> Result<Vec<ProfileView>, String> {
                 .or_else(|| p.appearances.iter().max_by(by_secs));
             let has_sample = best.map(|a| has_file(&a)).unwrap_or(false);
             ProfileView {
+                aliases: p.aliases.clone(),
                 uid: p.uid,
                 name: p.name,
                 total_seconds: total,
@@ -1001,7 +988,9 @@ pub async fn assign_speaker_profile(
         return Err("Target profile has no name".to_string());
     }
 
-    // Fold the old candidate profile (if any) into the target.
+    // Fold the old candidate profile (if any) into the target. The old uid is
+    // kept as an ALIAS so every recording that stored it resolves to the
+    // person at render time — no history rewrite needed.
     if old_uid != profile_uid {
         if let Some(src_idx) = profiles.iter().position(|p| p.uid == old_uid) {
             let src = profiles.remove(src_idx);
@@ -1014,6 +1003,15 @@ pub async fn assign_speaker_profile(
             for c in src.centroids {
                 t.centroids.push(c);
             }
+            for al in src.aliases {
+                if !t.aliases.contains(&al) {
+                    t.aliases.push(al);
+                }
+            }
+        }
+        let t = profiles.iter_mut().find(|p| p.uid == profile_uid).ok_or("Unknown person")?;
+        if !t.aliases.contains(&old_uid) {
+            t.aliases.push(old_uid.clone());
         }
     }
     {
@@ -1037,41 +1035,8 @@ pub async fn assign_speaker_profile(
         }
     }
     write_json_atomic(&diar_path(&recording_id), &d)?;
-
-    // Retro-apply across the person's (now merged) history: old-uid speakers
-    // become the person; skip recordings that are mid-diarize.
-    let appearances: Vec<Appearance> = profiles
-        .into_iter()
-        .find(|p| p.uid == profile_uid)
-        .map(|p| p.appearances)
-        .unwrap_or_default();
-    for a in appearances {
-        if a.recording_id == recording_id {
-            continue;
-        }
-        let busy = active_set()
-            .lock()
-            .map(|s| s.contains(&a.recording_id))
-            .unwrap_or(true);
-        if busy {
-            continue;
-        }
-        if let Some(mut other) = read_diarization(&a.recording_id) {
-            let mut changed = false;
-            for s in other.speakers.iter_mut() {
-                if s.uid == old_uid || s.uid == profile_uid {
-                    if s.uid != profile_uid || s.name != target_name {
-                        s.uid = profile_uid.clone();
-                        s.name = target_name.clone();
-                        changed = true;
-                    }
-                }
-            }
-            if changed {
-                let _ = write_json_atomic(&diar_path(&a.recording_id), &other);
-            }
-        }
-    }
+    // No retro fan-out: alias resolution at render time labels the person's
+    // whole history instantly, without touching other diarization.json files.
     Ok(())
 }
 
