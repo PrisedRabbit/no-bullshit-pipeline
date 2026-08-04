@@ -400,6 +400,10 @@ fn cut_voice_samples(
         let spec = reader.spec();
         let sr = spec.sample_rate as f64;
         let samples: Vec<i16> = reader.samples::<i16>().filter_map(Result::ok).collect();
+        // Preview samples don't need full rate: decimate to 16k (box-filter
+        // average) when the source rate divides evenly — 3× smaller on disk.
+        let factor = if spec.sample_rate % 16_000 == 0 { (spec.sample_rate / 16_000) as usize } else { 1 };
+        let out_spec = hound::WavSpec { sample_rate: spec.sample_rate / factor as u32, ..spec };
         for (spk, start, dur) in cuts {
             let a = ((start * sr) as usize).min(samples.len());
             let b = (((start + dur) * sr) as usize).min(samples.len());
@@ -407,9 +411,13 @@ fn cut_voice_samples(
                 continue;
             }
             let out = dir.join(format!("voice_{spk}.wav"));
-            if let Ok(mut w) = hound::WavWriter::create(&out, spec) {
-                for s in &samples[a..b] {
-                    let _ = w.write_sample(*s);
+            if let Ok(mut w) = hound::WavWriter::create(&out, out_spec) {
+                let mut i = a;
+                while i + factor <= b {
+                    let avg: i32 = samples[i..i + factor].iter().map(|s| *s as i32).sum::<i32>()
+                        / factor as i32;
+                    let _ = w.write_sample(avg as i16);
+                    i += factor;
                 }
                 let _ = w.finalize();
             }
