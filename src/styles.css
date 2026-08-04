@@ -4928,6 +4928,34 @@ body.light .provider-models-section {
   font-family: 'JetBrains Mono', monospace;
   margin-right: 8px;
 }
+/* Diarization progress bar */
+.diar-progress-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+.diar-progress-stage {
+  font-weight: 500;
+}
+.diar-progress-pct {
+  color: var(--text-secondary, #888);
+  font-size: 0.8em;
+  font-family: 'JetBrains Mono', monospace;
+}
+.diar-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-color, rgba(128, 128, 128, 0.2));
+  overflow: hidden;
+}
+.diar-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+
 /* People editor (Settings → ASR) */
 .people-badge {
   display: inline-block;

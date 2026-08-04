@@ -114,6 +114,16 @@ async function calendarAction(cmd, id, btn) {
 
 // --- Diarization (who said what) ---------------------------------------------
 
+function renderDiarProgress(content, stage, percent) {
+  content.className = 'content-body';
+  content.innerHTML = `
+    <div class="diar-progress-row">
+      <span class="diar-progress-stage">${escapeHtml(stage || 'Working')}</span>
+      <span class="diar-progress-pct">${percent || 0}%</span>
+    </div>
+    <div class="diar-progress"><div class="diar-progress-fill" style="width:${Math.min(100, percent || 0)}%"></div></div>`;
+}
+
 let diarListenerStarted = false;
 /// One global subscription: live progress + auto-refresh when a job finishes,
 /// even if the user navigated away and back mid-run.
@@ -127,10 +137,7 @@ function ensureDiarListener() {
       const content = document.getElementById('diarization-content');
       const btn = document.getElementById('diarize-btn');
       if (btn) { btn.disabled = true; btn.textContent = 'Diarizing…'; }
-      if (content) {
-        content.className = 'content-body empty';
-        content.textContent = `${p.stage || 'Working'}… ${p.percent || 0}%`;
-      }
+      if (content) renderDiarProgress(content, p.stage, p.percent);
     } else {
       const rec = state.allRecordings.find(r => r.id === p.recording_id);
       if (rec) renderDiarization(rec);
@@ -207,8 +214,7 @@ async function renderDiarization(rec) {
   }
 
   if (running) {
-    content.className = 'content-body empty';
-    content.textContent = `${status.stage || 'Working'}… ${status.percent || 0}%`;
+    renderDiarProgress(content, status.stage, status.percent);
     return;
   }
 

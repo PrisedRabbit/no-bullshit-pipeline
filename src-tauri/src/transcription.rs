@@ -591,6 +591,17 @@ pub fn convert_ogg_to_wav(
     ogg_path: &std::path::Path,
     wav_path: &std::path::Path,
 ) -> Result<(), String> {
+    convert_ogg_to_wav_progress(ogg_path, wav_path, 0.0, &mut |_| {})
+}
+
+/// Same conversion with a progress callback (0-100). `total_secs` (e.g. from
+/// recording metadata) drives the estimate; pass 0.0 for no progress.
+pub fn convert_ogg_to_wav_progress(
+    ogg_path: &std::path::Path,
+    wav_path: &std::path::Path,
+    total_secs: f64,
+    on_pct: &mut dyn FnMut(u32),
+) -> Result<(), String> {
     use crate::resampler_compat::{
         SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
     };
@@ -615,8 +626,10 @@ pub fn convert_ogg_to_wav(
 
     let mut wav_writer = WavWriter::create(wav_path, spec).map_err(|e| e.to_string())?;
 
-    // Collect all decoded mono samples as f32
+    // Collect all decoded mono samples as f32. Decoding dominates the wall
+    // time, so it owns 0-85% of the progress; resampling takes 85-100%.
     let mut all_mono: Vec<f32> = Vec::new();
+    let mut last_pct: u32 = 0;
     while let Some(packet) = ogg_reader
         .read_dec_packet_generic::<Vec<Vec<i16>>>()
         .map_err(|e| e.to_string())?
@@ -633,6 +646,14 @@ pub fn convert_ogg_to_wav(
                 }
             }
             all_mono.push((sum / src_channels as i32) as f32 / 32768.0);
+        }
+        if total_secs > 0.0 {
+            let decoded = all_mono.len() as f64 / src_rate as f64;
+            let pct = ((decoded / total_secs) * 85.0).min(85.0) as u32;
+            if pct != last_pct {
+                last_pct = pct;
+                on_pct(pct);
+            }
         }
     }
 
@@ -675,6 +696,13 @@ pub fn convert_ogg_to_wav(
                     .map_err(|e| e.to_string())?;
             }
             pos += chunk_size;
+            if total_secs > 0.0 && !all_mono.is_empty() {
+                let pct = 85 + ((pos as f64 / all_mono.len() as f64) * 15.0) as u32;
+                if pct != last_pct {
+                    last_pct = pct;
+                    on_pct(pct.min(100));
+                }
+            }
         }
 
         // Process remaining frames

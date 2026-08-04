@@ -544,7 +544,14 @@ async fn diarize_inner(app_handle: &tauri::AppHandle, recording_id: &str) -> Res
         return Err("Audio file not found".to_string());
     }
 
-    set_status(app_handle, recording_id, "running", "Converting audio", 0, "");
+    set_status(app_handle, recording_id, "running", "Preparing audio", 0, "");
+
+    // One monotonic 0-100 scale for the WHOLE job: audio conversion owns
+    // 0-10%, the sidecar's internal 0-100 is mapped into 10-100.
+    let total_secs = crate::storage::read_metadata(recording_id)
+        .ok()
+        .and_then(|m| m.audio.mix.as_ref().map(|a| a.duration_sec))
+        .unwrap_or(0.0);
 
     // Per-job temp wavs — no collision even if guards are ever bypassed.
     struct TempWav(PathBuf);
@@ -567,8 +574,12 @@ async fn diarize_inner(app_handle: &tauri::AppHandle, recording_id: &str) -> Res
     if split {
         let sys_wav = dir.join(format!("temp_diar_sys_{job}.wav"));
         let mic_wav = dir.join(format!("temp_diar_mic_{job}.wav"));
-        convert_ogg_to_wav(&sys_ogg, &sys_wav)?;
-        convert_ogg_to_wav(&mic_ogg, &mic_wav)?;
+        crate::transcription::convert_ogg_to_wav_progress(&sys_ogg, &sys_wav, total_secs, &mut |p| {
+            set_status(app_handle, recording_id, "running", "Preparing audio", p / 20, "");
+        })?;
+        crate::transcription::convert_ogg_to_wav_progress(&mic_ogg, &mic_wav, total_secs, &mut |p| {
+            set_status(app_handle, recording_id, "running", "Preparing audio", 5 + p / 20, "");
+        })?;
         cmd = cmd
             .arg("--diarize-v2-split")
             .arg(sys_wav.to_str().ok_or("Invalid WAV path")?)
@@ -579,7 +590,9 @@ async fn diarize_inner(app_handle: &tauri::AppHandle, recording_id: &str) -> Res
         _tmps.push(TempWav(mic_wav));
     } else {
         let wav = dir.join(format!("temp_diar_{job}.wav"));
-        convert_ogg_to_wav(&audio, &wav)?;
+        crate::transcription::convert_ogg_to_wav_progress(&audio, &wav, total_secs, &mut |p| {
+            set_status(app_handle, recording_id, "running", "Preparing audio", p / 10, "");
+        })?;
         cmd = cmd.arg("--diarize-v2").arg(wav.to_str().ok_or("Invalid WAV path")?);
         mix_wav_path = Some(wav.clone());
         _tmps.push(TempWav(wav));
@@ -627,11 +640,20 @@ async fn diarize_inner(app_handle: &tauri::AppHandle, recording_id: &str) -> Res
                     if let Some(rest) = l.strip_prefix("PROGRESS:") {
                         let parts: Vec<&str> = rest.splitn(2, ':').collect();
                         if parts.len() == 2
-                            && let Ok(pct) = parts[1].parse::<u32>()
-                            && pct != last_pct
+                            && let Ok(raw_pct) = parts[1].parse::<u32>()
                         {
-                            last_pct = pct;
-                            set_status(app_handle, recording_id, "running", parts[0], pct, "");
+                            // Technical sidecar stages → user-facing phases,
+                            // sidecar 0-100 → global 10-100 (monotonic).
+                            let stage = match parts[0] {
+                                "Transcribing" => "Transcribing",
+                                "Finalizing" | "Complete" => "Finishing",
+                                _ => "Analyzing voices",
+                            };
+                            let pct = 10 + raw_pct * 9 / 10;
+                            if pct != last_pct {
+                                last_pct = pct;
+                                set_status(app_handle, recording_id, "running", stage, pct, "");
+                            }
                         }
                     }
                 }
