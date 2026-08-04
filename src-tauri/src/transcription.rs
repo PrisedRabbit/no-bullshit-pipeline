@@ -594,6 +594,68 @@ pub fn convert_ogg_to_wav(
     convert_ogg_to_wav_progress(ogg_path, wav_path, 0.0, &mut |_| {})
 }
 
+/// Decode OGG → mono WAV at the SOURCE sample rate — no resampling. For
+/// consumers that resample anyway (the FluidAudio sidecar runs everything
+/// through AVFoundation/Accelerate), the expensive sinc resample here was
+/// pure waste; skipping it makes conversion several times faster.
+pub fn convert_ogg_to_wav_native_progress(
+    ogg_path: &std::path::Path,
+    wav_path: &std::path::Path,
+    total_secs: f64,
+    on_pct: &mut dyn FnMut(u32),
+) -> Result<(), String> {
+    use hound::{WavSpec, WavWriter};
+    use lewton::inside_ogg::OggStreamReader;
+    use std::fs::File;
+
+    let ogg_file = File::open(ogg_path).map_err(|e| e.to_string())?;
+    let mut ogg_reader = OggStreamReader::new(ogg_file).map_err(|e| e.to_string())?;
+    let src_rate = ogg_reader.ident_hdr.audio_sample_rate;
+    let src_channels = ogg_reader.ident_hdr.audio_channels as u16;
+
+    let spec = WavSpec {
+        channels: 1,
+        sample_rate: src_rate,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut wav_writer = WavWriter::create(wav_path, spec).map_err(|e| e.to_string())?;
+
+    let mut written: u64 = 0;
+    let mut last_pct: u32 = 0;
+    while let Some(packet) = ogg_reader
+        .read_dec_packet_generic::<Vec<Vec<i16>>>()
+        .map_err(|e| e.to_string())?
+    {
+        if packet.is_empty() {
+            continue;
+        }
+        let frames = packet[0].len();
+        for i in 0..frames {
+            let mut sum: i32 = 0;
+            for ch in 0..src_channels as usize {
+                if ch < packet.len() && i < packet[ch].len() {
+                    sum += packet[ch][i] as i32;
+                }
+            }
+            wav_writer
+                .write_sample((sum / src_channels as i32) as i16)
+                .map_err(|e| e.to_string())?;
+        }
+        written += frames as u64;
+        if total_secs > 0.0 {
+            let decoded = written as f64 / src_rate as f64;
+            let pct = ((decoded / total_secs) * 100.0).min(100.0) as u32;
+            if pct != last_pct {
+                last_pct = pct;
+                on_pct(pct);
+            }
+        }
+    }
+    wav_writer.finalize().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Same conversion with a progress callback (0-100). `total_secs` (e.g. from
 /// recording metadata) drives the estimate; pass 0.0 for no progress.
 pub fn convert_ogg_to_wav_progress(

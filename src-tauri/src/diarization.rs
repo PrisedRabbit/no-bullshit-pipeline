@@ -10,7 +10,6 @@
 //! `diarization_progress` event keep the UI honest across view switches.
 
 use crate::storage::get_data_dir;
-use crate::transcription::convert_ogg_to_wav;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -574,10 +573,10 @@ async fn diarize_inner(app_handle: &tauri::AppHandle, recording_id: &str) -> Res
     if split {
         let sys_wav = dir.join(format!("temp_diar_sys_{job}.wav"));
         let mic_wav = dir.join(format!("temp_diar_mic_{job}.wav"));
-        crate::transcription::convert_ogg_to_wav_progress(&sys_ogg, &sys_wav, total_secs, &mut |p| {
+        crate::transcription::convert_ogg_to_wav_native_progress(&sys_ogg, &sys_wav, total_secs, &mut |p| {
             set_status(app_handle, recording_id, "running", "Preparing audio", p / 20, "");
         })?;
-        crate::transcription::convert_ogg_to_wav_progress(&mic_ogg, &mic_wav, total_secs, &mut |p| {
+        crate::transcription::convert_ogg_to_wav_native_progress(&mic_ogg, &mic_wav, total_secs, &mut |p| {
             set_status(app_handle, recording_id, "running", "Preparing audio", 5 + p / 20, "");
         })?;
         cmd = cmd
@@ -590,7 +589,7 @@ async fn diarize_inner(app_handle: &tauri::AppHandle, recording_id: &str) -> Res
         _tmps.push(TempWav(mic_wav));
     } else {
         let wav = dir.join(format!("temp_diar_{job}.wav"));
-        crate::transcription::convert_ogg_to_wav_progress(&audio, &wav, total_secs, &mut |p| {
+        crate::transcription::convert_ogg_to_wav_native_progress(&audio, &wav, total_secs, &mut |p| {
             set_status(app_handle, recording_id, "running", "Preparing audio", p / 10, "");
         })?;
         cmd = cmd.arg("--diarize-v2").arg(wav.to_str().ok_or("Invalid WAV path")?);
