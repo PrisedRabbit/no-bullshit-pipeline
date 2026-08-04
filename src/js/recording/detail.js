@@ -238,9 +238,27 @@ async function renderDiarization(rec) {
       blocks.push({ speaker: s.speaker, start: s.start, end: s.end, text: (s.text || '').trim() });
     }
   }
+  // Second-level grouping: consecutive blocks of the SAME speaker (any gap)
+  // share one header — the name isn't repeated for every pause, paragraphs
+  // inside carry their own quiet timecodes.
+  const groups = [];
+  for (const b of blocks) {
+    const last = groups[groups.length - 1];
+    if (last && last.speaker === b.speaker) {
+      last.paras.push(b);
+    } else {
+      groups.push({ speaker: b.speaker, start: b.start, paras: [b] });
+    }
+  }
+
   const colorClass = (spk) => meLocal.has(spk) ? 'diar-me' : `diar-c${spk % 6}`;
-  const rows = blocks
-    .map(b => `<div class="diar-seg ${colorClass(b.speaker)}"><div class="diar-head"><span class="diar-spk" data-spk="${b.speaker}" title="Click to rename">${escapeHtml(label(b.speaker))}</span><span class="diar-time">${fmt(b.start)}</span></div><div class="diar-text">${escapeHtml(b.text)}</div></div>`)
+  const rows = groups
+    .map(g => {
+      const paras = g.paras
+        .map((p, i) => `<div class="diar-para">${i === 0 ? '' : `<span class="diar-ptime">${fmt(p.start)}</span>`}${escapeHtml(p.text)}</div>`)
+        .join('');
+      return `<div class="diar-seg ${colorClass(g.speaker)}"><div class="diar-head"><span class="diar-spk" data-spk="${g.speaker}" title="Click to rename">${escapeHtml(label(g.speaker))}</span><span class="diar-time">${fmt(g.start)}</span></div>${paras}</div>`;
+    })
     .join('');
 
   if (!rows) {

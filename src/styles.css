@@ -4914,6 +4914,20 @@ body.light .provider-models-section {
   white-space: pre-wrap;
   line-height: 1.55;
 }
+/* Paragraphs inside one speaker group: quiet inline timecode, no name repeat. */
+.diar-para {
+  white-space: pre-wrap;
+  line-height: 1.55;
+}
+.diar-para + .diar-para {
+  margin-top: 8px;
+}
+.diar-ptime {
+  color: var(--text-secondary, #888);
+  font-size: 0.72em;
+  font-family: 'JetBrains Mono', monospace;
+  margin-right: 8px;
+}
 /* Stable per-speaker palette; "You" uses the app accent. */
 .diar-me { --diar-color: var(--accent); }
 .diar-c0 { --diar-color: #61afef; }

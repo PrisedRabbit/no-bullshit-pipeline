@@ -221,6 +221,65 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
     dot / (na * nb + 1e-9)
 }
 
+// ---------------------------------------------------------------------------
+// Global speaker profiles — cross-recording identity. Renaming a speaker once
+// creates/extends a profile (multi-vector voiceprint); every later diarization
+// matches its centroids against the profiles and auto-fills the name.
+// ---------------------------------------------------------------------------
+
+/// Voiceprints kept per person; more vectors (from different calls/mics) make
+/// recognition sturdier.
+const PROFILE_MAX_VECTORS: usize = 8;
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SpeakerProfile {
+    pub uid: String,
+    pub name: String,
+    pub centroids: Vec<Vec<f32>>,
+    pub updated_at: String,
+}
+
+fn profiles_path() -> PathBuf {
+    get_data_dir().join("speaker_profiles.json")
+}
+
+fn load_profiles() -> Vec<SpeakerProfile> {
+    std::fs::read_to_string(profiles_path())
+        .ok()
+        .and_then(|c| serde_json::from_str(&c).ok())
+        .unwrap_or_default()
+}
+
+fn save_profiles(profiles: &[SpeakerProfile]) -> Result<(), String> {
+    write_json_atomic(&profiles_path(), &profiles.to_vec())
+}
+
+/// Best profile for a centroid: max cosine over each profile's vectors, with
+/// the same accept/margin bar as within-recording matching.
+fn match_profile<'a>(centroid: &[f32], profiles: &'a [SpeakerProfile]) -> Option<&'a SpeakerProfile> {
+    let mut best: Option<(&SpeakerProfile, f32)> = None;
+    let mut second = -1.0f32;
+    for p in profiles {
+        let score = p
+            .centroids
+            .iter()
+            .map(|c| cosine(centroid, c))
+            .fold(-1.0f32, f32::max);
+        match best {
+            Some((_, bs)) if score > bs => {
+                second = bs;
+                best = Some((p, score));
+            }
+            Some((_, bs)) => second = second.max(score).min(bs),
+            None => best = Some((p, score)),
+        }
+    }
+    match best {
+        Some((p, s)) if s >= MATCH_ACCEPT && s - second.max(0.0) >= MATCH_MARGIN => Some(p),
+        _ => None,
+    }
+}
+
 /// Build speaker entries for fresh centroids, inheriting uid+name from the
 /// previous run when a centroid clearly matches (accept ≥0.80, margin ≥0.05).
 /// `me_local` marks the mic-channel speaker in split mode.
@@ -229,12 +288,15 @@ fn build_speakers(
     previous: &[SpeakerEntry],
     me_local: Option<i64>,
 ) -> Vec<SpeakerEntry> {
+    let profiles = load_profiles();
     let mut used_prev: HashSet<usize> = HashSet::new();
+    let mut used_profiles: HashSet<String> = HashSet::new();
     centroids
         .iter()
         .enumerate()
         .map(|(local, c)| {
             let is_me = me_local == Some(local as i64);
+            // 1) Same-recording previous run — the surest match (same audio).
             let mut best: Option<(usize, f32)> = None;
             let mut second = -1.0f32;
             for (pi, prev) in previous.iter().enumerate() {
@@ -258,6 +320,19 @@ fn build_speakers(
                         uid: previous[pi].uid.clone(),
                         local_id: local as i64,
                         name: previous[pi].name.clone(),
+                        centroid: c.clone(),
+                        is_me,
+                    };
+                }
+            }
+            // 2) Global speaker profiles — cross-recording auto-naming.
+            if let Some(p) = match_profile(c, &profiles) {
+                if !used_profiles.contains(&p.uid) {
+                    used_profiles.insert(p.uid.clone());
+                    return SpeakerEntry {
+                        uid: p.uid.clone(),
+                        local_id: local as i64,
+                        name: p.name.clone(),
                         centroid: c.clone(),
                         is_me,
                     };
@@ -505,11 +580,45 @@ pub async fn rename_speaker(
         return Err("Diarization is running — try again when it finishes".to_string());
     }
     let mut d = read_diarization(&recording_id).ok_or("No diarization for this recording")?;
-    if let Some(entry) = d.speakers.iter_mut().find(|s| s.local_id == speaker) {
-        entry.name = name.trim().to_string();
-    } else {
-        return Err(format!("Unknown speaker {speaker}"));
+    let trimmed = name.trim().to_string();
+    let entry = d
+        .speakers
+        .iter_mut()
+        .find(|s| s.local_id == speaker)
+        .ok_or_else(|| format!("Unknown speaker {speaker}"))?;
+    entry.name = trimmed.clone();
+
+    // Upsert the global profile so this person is auto-named in future
+    // recordings. Same display name (case-insensitive) = same person: their
+    // voiceprint set grows with each rename, and the recording's speaker uid
+    // is rewritten to the profile uid so identity stays linked.
+    if !trimmed.is_empty() && !entry.centroid.is_empty() {
+        let mut profiles = load_profiles();
+        let now = chrono::Utc::now().to_rfc3339();
+        let existing = profiles
+            .iter_mut()
+            .find(|p| p.uid == entry.uid || p.name.to_lowercase() == trimmed.to_lowercase());
+        match existing {
+            Some(p) => {
+                p.name = trimmed.clone();
+                p.centroids.push(entry.centroid.clone());
+                if p.centroids.len() > PROFILE_MAX_VECTORS {
+                    let excess = p.centroids.len() - PROFILE_MAX_VECTORS;
+                    p.centroids.drain(0..excess);
+                }
+                p.updated_at = now;
+                entry.uid = p.uid.clone();
+            }
+            None => profiles.push(SpeakerProfile {
+                uid: entry.uid.clone(),
+                name: trimmed.clone(),
+                centroids: vec![entry.centroid.clone()],
+                updated_at: now,
+            }),
+        }
+        save_profiles(&profiles)?;
     }
+
     write_json_atomic(&diar_path(&recording_id), &d)?;
     Ok(())
 }
