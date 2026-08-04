@@ -440,6 +440,9 @@ pub fn delete_recording(recording_id: &str) -> Result<(), String> {
     }
 
     delete_recording_dir(recording_id)?;
+    // Deleting a recording also deletes the biometric traces it produced in
+    // the global voice-profile store (appearances + orphaned candidates).
+    crate::diarization::purge_recording(recording_id);
     invalidate_list_cache();
     Ok(())
 }

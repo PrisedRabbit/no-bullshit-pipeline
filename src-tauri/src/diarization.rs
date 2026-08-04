@@ -130,6 +130,24 @@ struct DiarProgressEvent {
 // Paths + IO helpers
 // ---------------------------------------------------------------------------
 
+/// Serializes every read-mutate-write over speaker_profiles.json AND the
+/// retro-apply fan-out — two concurrent diarizations (or a rename during one)
+/// must not lose each other's updates. Held only around fs mutation, never
+/// across awaits or sidecar runs.
+static DIAR_STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+fn state_lock() -> &'static Mutex<()> {
+    DIAR_STATE_LOCK.get_or_init(|| Mutex::new(()))
+}
+
+/// Reject ids that could escape the data dir (path traversal): recording ids
+/// are uuid-like tokens, never path fragments.
+fn validate_recording_id(id: &str) -> Result<(), String> {
+    let ok = !id.is_empty()
+        && id.len() <= 64
+        && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if ok { Ok(()) } else { Err("Invalid recording id".to_string()) }
+}
+
 fn diar_path(recording_id: &str) -> PathBuf {
     get_data_dir().join(recording_id).join("diarization.json")
 }
@@ -140,7 +158,8 @@ fn status_path(recording_id: &str) -> PathBuf {
 
 fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     let body = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension("json.tmp");
+    // Unique temp name: concurrent writers must never rename each other's temp.
+    let tmp = path.with_extension(format!("json.tmp.{}", uuid::Uuid::new_v4()));
     std::fs::write(&tmp, body).map_err(|e| format!("write {}: {e}", path.display()))?;
     std::fs::rename(&tmp, path).map_err(|e| format!("finalize {}: {e}", path.display()))?;
     Ok(())
@@ -275,6 +294,7 @@ fn save_profiles(profiles: &[SpeakerProfile]) -> Result<(), String> {
 /// appearance record. Candidates thus accumulate across recordings with no
 /// user action; the People editor just reads this file.
 fn upsert_profiles_after_diarize(recording_id: &str, d: &DiarizationJson) {
+    let _g = state_lock().lock();
     let mut profiles = load_profiles();
     let now = chrono::Utc::now().to_rfc3339();
     for sp in &d.speakers {
@@ -488,6 +508,7 @@ pub async fn diarize_recording(
     app_handle: tauri::AppHandle,
     recording_id: String,
 ) -> Result<usize, String> {
+    validate_recording_id(&recording_id)?;
     // Refuse a concurrent diarize on the same recording (dedup + no temp race).
     {
         let mut s = active_set().lock().map_err(|_| "diarization lock poisoned")?;
@@ -686,6 +707,7 @@ pub(crate) fn store_from_transcribe(
     speaker_count: usize,
     segments: Vec<DiarSegment>,
     centroids: &[Vec<f32>],
+    source_wav: Option<&Path>,
 ) {
     let previous = read_diarization(recording_id).map(|d| d.speakers).unwrap_or_default();
     let speakers = build_speakers(centroids, &previous, None);
@@ -699,6 +721,12 @@ pub(crate) fn store_from_transcribe(
         eprintln!("diarization: store_from_transcribe failed: {e}");
         return;
     }
+    // Cut voice samples while the transcribe temp wav still exists — otherwise
+    // People-editor candidates from this path would have nothing to play.
+    if let Some(wav) = source_wav {
+        let dir = get_data_dir().join(recording_id);
+        cut_voice_samples(&dir, &diar, |_| wav.to_path_buf());
+    }
     upsert_profiles_after_diarize(recording_id, &diar);
     set_status(app, recording_id, "done", "Complete", 100, "");
 }
@@ -706,6 +734,7 @@ pub(crate) fn store_from_transcribe(
 /// Read stored diarization for a recording (None if not diarized yet).
 #[tauri::command]
 pub async fn get_diarization(recording_id: String) -> Result<Option<DiarizationJson>, String> {
+    validate_recording_id(&recording_id)?;
     Ok(read_diarization(&recording_id))
 }
 
@@ -714,6 +743,7 @@ pub async fn get_diarization(recording_id: String) -> Result<Option<DiarizationJ
 pub async fn get_diarization_status(
     recording_id: String,
 ) -> Result<Option<DiarizationStatus>, String> {
+    validate_recording_id(&recording_id)?;
     let path = status_path(&recording_id);
     if !path.exists() {
         return Ok(None);
@@ -729,6 +759,7 @@ pub async fn rename_speaker(
     speaker: i64,
     name: String,
 ) -> Result<(), String> {
+    validate_recording_id(&recording_id)?;
     if active_set().lock().map_err(|_| "lock poisoned")?.contains(&recording_id) {
         return Err("Diarization is running — try again when it finishes".to_string());
     }
@@ -740,32 +771,30 @@ pub async fn rename_speaker(
         .find(|s| s.local_id == speaker)
         .ok_or_else(|| format!("Unknown speaker {speaker}"))?;
     entry.name = trimmed.clone();
+    let uid = entry.uid.clone();
+    let centroid = entry.centroid.clone();
 
-    // Upsert the global profile so this person is auto-named in future
-    // recordings. Same display name (case-insensitive) = same person: their
-    // voiceprint set grows with each rename, and the recording's speaker uid
-    // is rewritten to the profile uid so identity stays linked.
-    if !trimmed.is_empty() && !entry.centroid.is_empty() {
+    // The name is a LABEL on this voice's uid — never a join key. Two people
+    // may share a display name; merging identities is an explicit future
+    // operation, not a side effect of typing the same string.
+    let _g = state_lock().lock();
+    if !trimmed.is_empty() && !centroid.is_empty() {
         let mut profiles = load_profiles();
         let now = chrono::Utc::now().to_rfc3339();
-        let existing = profiles
-            .iter_mut()
-            .find(|p| p.uid == entry.uid || p.name.to_lowercase() == trimmed.to_lowercase());
-        match existing {
+        match profiles.iter_mut().find(|p| p.uid == uid) {
             Some(p) => {
                 p.name = trimmed.clone();
-                p.centroids.push(entry.centroid.clone());
+                p.centroids.push(centroid.clone());
                 if p.centroids.len() > PROFILE_MAX_VECTORS {
                     let excess = p.centroids.len() - PROFILE_MAX_VECTORS;
                     p.centroids.drain(0..excess);
                 }
                 p.updated_at = now;
-                entry.uid = p.uid.clone();
             }
             None => profiles.push(SpeakerProfile {
-                uid: entry.uid.clone(),
+                uid: uid.clone(),
                 name: trimmed.clone(),
-                centroids: vec![entry.centroid.clone()],
+                centroids: vec![centroid.clone()],
                 appearances: Vec::new(),
                 updated_at: now,
             }),
@@ -775,40 +804,60 @@ pub async fn rename_speaker(
 
     write_json_atomic(&diar_path(&recording_id), &d)?;
 
-    // Retro-apply: the same voice in OTHER recordings gets the name too —
-    // one rename labels the whole history (and, via the profile, the future).
+    // Retro-apply: the same voice (same uid) in OTHER recordings gets the name
+    // too — one rename labels the whole history. Recordings mid-diarize are
+    // skipped (their fresh write would clobber ours); the next rename or
+    // re-diarize reconciles them via the profile.
     if !trimmed.is_empty() {
-        let uid = d
-            .speakers
-            .iter()
-            .find(|s| s.local_id == speaker)
-            .map(|s| s.uid.clone());
-        if let Some(uid) = uid {
-            let appearances: Vec<Appearance> = load_profiles()
-                .into_iter()
-                .find(|p| p.uid == uid)
-                .map(|p| p.appearances)
-                .unwrap_or_default();
-            for a in appearances {
-                if a.recording_id == recording_id {
-                    continue;
+        let appearances: Vec<Appearance> = load_profiles()
+            .into_iter()
+            .find(|p| p.uid == uid)
+            .map(|p| p.appearances)
+            .unwrap_or_default();
+        for a in appearances {
+            if a.recording_id == recording_id {
+                continue;
+            }
+            let busy = active_set()
+                .lock()
+                .map(|s| s.contains(&a.recording_id))
+                .unwrap_or(true);
+            if busy {
+                continue;
+            }
+            if let Some(mut other) = read_diarization(&a.recording_id) {
+                let mut changed = false;
+                for s in other.speakers.iter_mut() {
+                    if s.uid == uid && s.name != trimmed {
+                        s.name = trimmed.clone();
+                        changed = true;
+                    }
                 }
-                if let Some(mut other) = read_diarization(&a.recording_id) {
-                    let mut changed = false;
-                    for s in other.speakers.iter_mut() {
-                        if s.uid == uid && s.name != trimmed {
-                            s.name = trimmed.clone();
-                            changed = true;
-                        }
-                    }
-                    if changed {
-                        let _ = write_json_atomic(&diar_path(&a.recording_id), &other);
-                    }
+                if changed {
+                    let _ = write_json_atomic(&diar_path(&a.recording_id), &other);
                 }
             }
         }
     }
     Ok(())
+}
+
+/// Purge a deleted recording from the identity store: drop its appearances
+/// and any anonymous profile left with no appearances (deleting a recording
+/// must also delete the biometric traces it produced).
+pub fn purge_recording(recording_id: &str) {
+    let _g = state_lock().lock();
+    let mut profiles = load_profiles();
+    let before = profiles.len();
+    for p in profiles.iter_mut() {
+        p.appearances.retain(|a| a.recording_id != recording_id);
+    }
+    profiles.retain(|p| !p.name.is_empty() || !p.appearances.is_empty());
+    if let Err(e) = save_profiles(&profiles) {
+        eprintln!("diarization: purge failed: {e}");
+    } else if profiles.len() != before {
+        log::info!("diarization: pruned {} orphan voice profile(s)", before - profiles.len());
+    }
 }
 
 /// Lightweight profile projection for the People editor (no centroid payload).
@@ -822,6 +871,8 @@ pub struct ProfileView {
     /// Best appearance to play a voice sample from.
     pub sample_recording_id: String,
     pub sample_local_id: i64,
+    /// Whether a voice sample file actually exists for that appearance.
+    pub has_sample: bool,
 }
 
 /// All profiles (named + candidates), best-appearance first. The UI derives
@@ -832,10 +883,24 @@ pub async fn list_speaker_profiles() -> Result<Vec<ProfileView>, String> {
         .into_iter()
         .map(|p| {
             let total: f64 = p.appearances.iter().map(|a| a.seconds).sum();
+            let has_file = |a: &&Appearance| {
+                get_data_dir()
+                    .join(&a.recording_id)
+                    .join(format!("voice_{}.wav", a.local_id))
+                    .exists()
+            };
+            let by_secs = |a: &&Appearance, b: &&Appearance| {
+                a.seconds.partial_cmp(&b.seconds).unwrap_or(std::cmp::Ordering::Equal)
+            };
+            // Prefer the longest appearance that actually HAS a sample file;
+            // fall back to the longest overall (quote still useful, ▶ hidden).
             let best = p
                 .appearances
                 .iter()
-                .max_by(|a, b| a.seconds.partial_cmp(&b.seconds).unwrap_or(std::cmp::Ordering::Equal));
+                .filter(has_file)
+                .max_by(by_secs)
+                .or_else(|| p.appearances.iter().max_by(by_secs));
+            let has_sample = best.map(|a| has_file(&a)).unwrap_or(false);
             ProfileView {
                 uid: p.uid,
                 name: p.name,
@@ -844,6 +909,7 @@ pub async fn list_speaker_profiles() -> Result<Vec<ProfileView>, String> {
                 preview: best.map(|a| a.preview.clone()).unwrap_or_default(),
                 sample_recording_id: best.map(|a| a.recording_id.clone()).unwrap_or_default(),
                 sample_local_id: best.map(|a| a.local_id).unwrap_or(0),
+                has_sample,
             }
         })
         .collect();
@@ -854,6 +920,10 @@ pub async fn list_speaker_profiles() -> Result<Vec<ProfileView>, String> {
 /// Voice sample (wav) for a speaker in a recording, base64 for an <audio> tag.
 #[tauri::command]
 pub async fn get_voice_sample(recording_id: String, speaker: i64) -> Result<String, String> {
+    validate_recording_id(&recording_id)?;
+    if speaker < 0 {
+        return Err("Invalid speaker".to_string());
+    }
     let path = get_data_dir()
         .join(&recording_id)
         .join(format!("voice_{speaker}.wav"));

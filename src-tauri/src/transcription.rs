@@ -363,8 +363,6 @@ async fn transcribe_recording_inner(
                 }
             }
 
-            let _ = std::fs::remove_file(&wav_path);
-
             for line in stderr_buf.lines() {
                 if !line.starts_with("PROGRESS:") && !line.is_empty() {
                     eprintln!("{}", line);
@@ -372,11 +370,15 @@ async fn transcribe_recording_inner(
             }
 
             if exit_code != Some(0) {
+                let _ = std::fs::remove_file(&wav_path);
                 return Err(format!("FluidAudio sidecar failed: {}", stderr_buf));
             }
 
             let stdout = String::from_utf8_lossy(&stdout_buf);
             let fa_output: FluidAudioOutput = serde_json::from_str(&stdout)
+                .inspect_err(|_| {
+                    let _ = std::fs::remove_file(&wav_path);
+                })
                 .map_err(|e| format!("Failed to parse FluidAudio output: {}", e))?;
 
             let duration_sec = read_metadata(&recording_id)
@@ -385,7 +387,8 @@ async fn transcribe_recording_inner(
                 .unwrap_or(0.0);
 
             // Same-run diarization (Speaker labels on): persist diarization.json
-            // from the single ASR pass — no separate Diarize needed.
+            // from the single ASR pass — no separate Diarize needed. The temp
+            // wav is removed only AFTER this, so voice samples can be cut.
             if let Some(diar) = fa_output.diar_v2 {
                 crate::diarization::store_from_transcribe(
                     app_handle,
@@ -393,8 +396,10 @@ async fn transcribe_recording_inner(
                     diar.speaker_count,
                     diar.segments,
                     &diar.centroids,
+                    Some(&wav_path),
                 );
             }
+            let _ = std::fs::remove_file(&wav_path);
 
             TranscriptJson {
                 source,

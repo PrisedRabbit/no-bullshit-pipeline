@@ -1,8 +1,20 @@
 // People editor: voices collected reactively by diarization. Naming a voice
 // labels its whole history (backend retro-applies) and all future recordings.
-import { invoke } from '../core/tauri.js';
+import { invoke, listen } from '../core/tauri.js';
 import { escapeHtml } from '../core/utils.js';
 import { showToast } from '../ui/toast.js';
+
+// Reactive: refresh the list/badge whenever a diarization job finishes while
+// the settings view is open.
+let listenerStarted = false;
+function ensurePeopleListener() {
+  if (listenerStarted) return;
+  listenerStarted = true;
+  listen('diarization_progress', (event) => {
+    const p = event.payload || {};
+    if (p.status === 'done') renderPeople();
+  });
+}
 
 const MIN_SECONDS = 60; // show candidates with enough voice to judge…
 const MIN_RECORDINGS = 2; // …or seen in more than one recording
@@ -13,6 +25,7 @@ function fmtDur(s) {
 }
 
 export async function renderPeople() {
+  ensurePeopleListener();
   const list = document.getElementById('people-list');
   const badge = document.getElementById('people-badge');
   if (!list) return;
@@ -41,7 +54,7 @@ export async function renderPeople() {
 
   const row = (p, isCandidate) => `
     <div class="people-row" data-uid="${p.uid}">
-      <button class="people-play mini-action-btn" data-rec="${escapeHtml(p.sample_recording_id)}" data-spk="${p.sample_local_id}" title="Listen">&#9654;</button>
+      ${p.has_sample ? `<button class="people-play mini-action-btn" data-rec="${escapeHtml(p.sample_recording_id)}" data-spk="${p.sample_local_id}" title="Listen">&#9654;</button>` : ''}
       <div class="people-info">
         <div class="people-title">${p.name ? escapeHtml(p.name) : 'Unknown voice'} <span class="people-meta">${fmtDur(p.total_seconds)} · ${p.recordings} rec</span></div>
         ${p.preview ? `<div class="people-quote">«${escapeHtml(p.preview)}»</div>` : ''}
