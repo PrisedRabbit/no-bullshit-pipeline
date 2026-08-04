@@ -231,11 +231,27 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
 /// recognition sturdier.
 const PROFILE_MAX_VECTORS: usize = 8;
 
+/// One recording a voice appeared in (drives the People editor: listen/quote).
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Appearance {
+    pub recording_id: String,
+    pub local_id: i64,
+    pub seconds: f64,
+    #[serde(default)]
+    pub preview: String,
+}
+
+/// A person (named) or a candidate voice (name empty). Candidates accumulate
+/// reactively with every diarization — the People editor lists them for
+/// naming; assigning a name back-fills every recording they appeared in.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SpeakerProfile {
     pub uid: String,
+    #[serde(default)]
     pub name: String,
     pub centroids: Vec<Vec<f32>>,
+    #[serde(default)]
+    pub appearances: Vec<Appearance>,
     pub updated_at: String,
 }
 
@@ -252,6 +268,118 @@ fn load_profiles() -> Vec<SpeakerProfile> {
 
 fn save_profiles(profiles: &[SpeakerProfile]) -> Result<(), String> {
     write_json_atomic(&profiles_path(), &profiles.to_vec())
+}
+
+/// Reactive profile growth: after every diarization, every speaker (named OR
+/// anonymous) upserts into the global profiles — centroids (cap 8) + an
+/// appearance record. Candidates thus accumulate across recordings with no
+/// user action; the People editor just reads this file.
+fn upsert_profiles_after_diarize(recording_id: &str, d: &DiarizationJson) {
+    let mut profiles = load_profiles();
+    let now = chrono::Utc::now().to_rfc3339();
+    for sp in &d.speakers {
+        if sp.centroid.is_empty() {
+            continue;
+        }
+        let seconds: f64 = d
+            .segments
+            .iter()
+            .filter(|s| s.speaker == sp.local_id)
+            .map(|s| s.end - s.start)
+            .sum();
+        let preview = d
+            .segments
+            .iter()
+            .filter(|s| s.speaker == sp.local_id && !s.text.trim().is_empty())
+            .max_by(|a, b| (a.end - a.start).partial_cmp(&(b.end - b.start)).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|s| s.text.trim().chars().take(120).collect::<String>())
+            .unwrap_or_default();
+        let appearance = Appearance {
+            recording_id: recording_id.to_string(),
+            local_id: sp.local_id,
+            seconds,
+            preview,
+        };
+        match profiles.iter_mut().find(|p| p.uid == sp.uid) {
+            Some(p) => {
+                if !sp.name.is_empty() {
+                    p.name = sp.name.clone();
+                }
+                p.centroids.push(sp.centroid.clone());
+                if p.centroids.len() > PROFILE_MAX_VECTORS {
+                    let excess = p.centroids.len() - PROFILE_MAX_VECTORS;
+                    p.centroids.drain(0..excess);
+                }
+                p.appearances.retain(|a| a.recording_id != recording_id);
+                p.appearances.push(appearance);
+                p.updated_at = now.clone();
+            }
+            None => profiles.push(SpeakerProfile {
+                uid: sp.uid.clone(),
+                name: sp.name.clone(),
+                centroids: vec![sp.centroid.clone()],
+                appearances: vec![appearance],
+                updated_at: now.clone(),
+            }),
+        }
+    }
+    if let Err(e) = save_profiles(&profiles) {
+        eprintln!("diarization: profile upsert failed: {e}");
+    }
+}
+
+/// Cut a short voice sample per speaker (longest text segment, ≤6s) from the
+/// already-converted 16k mono wav(s) — written next to the recording as
+/// `voice_<local_id>.wav` for instant playback in the UI / People editor.
+fn cut_voice_samples(
+    dir: &Path,
+    d: &DiarizationJson,
+    wav_for_speaker: impl Fn(i64) -> PathBuf,
+) {
+    use std::collections::HashMap as Map;
+    // Pick the longest texted segment per speaker.
+    let mut best: Map<i64, &DiarSegment> = Map::new();
+    for s in &d.segments {
+        if s.text.trim().is_empty() {
+            continue;
+        }
+        let cur = best.get(&s.speaker);
+        if cur.map_or(true, |c| (s.end - s.start) > (c.end - c.start)) {
+            best.insert(s.speaker, s);
+        }
+    }
+    // Group by source wav so each file is read once.
+    let mut by_wav: Map<PathBuf, Vec<(i64, f64, f64)>> = Map::new();
+    for (spk, seg) in &best {
+        let dur = (seg.end - seg.start).min(6.0);
+        if dur < 1.0 {
+            continue;
+        }
+        by_wav
+            .entry(wav_for_speaker(*spk))
+            .or_default()
+            .push((*spk, seg.start, dur));
+    }
+    for (wav, cuts) in by_wav {
+        let Ok(mut reader) = hound::WavReader::open(&wav) else { continue };
+        let spec = reader.spec();
+        let sr = spec.sample_rate as f64;
+        let samples: Vec<i16> = reader.samples::<i16>().filter_map(Result::ok).collect();
+        for (spk, start, dur) in cuts {
+            let a = ((start * sr) as usize).min(samples.len());
+            let b = (((start + dur) * sr) as usize).min(samples.len());
+            if b <= a {
+                continue;
+            }
+            let out = dir.join(format!("voice_{spk}.wav"));
+            if let Ok(mut w) = hound::WavWriter::create(&out, spec) {
+                for s in &samples[a..b] {
+                    let _ = w.write_sample(*s);
+                }
+                let _ = w.finalize();
+            }
+        }
+    }
 }
 
 /// Best profile for a centroid: max cosine over each profile's vectors, with
@@ -411,6 +539,10 @@ async fn diarize_inner(app_handle: &tauri::AppHandle, recording_id: &str) -> Res
         .sidecar("fluidaudio-sidecar")
         .map_err(|e| format!("Failed to create sidecar command: {e}"))?;
     let mut _tmps: Vec<TempWav> = Vec::new();
+    // Kept for post-run voice-sample cutting (files are removed on drop).
+    let mut sys_wav_path: Option<PathBuf> = None;
+    let mut mic_wav_path: Option<PathBuf> = None;
+    let mut mix_wav_path: Option<PathBuf> = None;
     if split {
         let sys_wav = dir.join(format!("temp_diar_sys_{job}.wav"));
         let mic_wav = dir.join(format!("temp_diar_mic_{job}.wav"));
@@ -420,12 +552,15 @@ async fn diarize_inner(app_handle: &tauri::AppHandle, recording_id: &str) -> Res
             .arg("--diarize-v2-split")
             .arg(sys_wav.to_str().ok_or("Invalid WAV path")?)
             .arg(mic_wav.to_str().ok_or("Invalid WAV path")?);
+        sys_wav_path = Some(sys_wav.clone());
+        mic_wav_path = Some(mic_wav.clone());
         _tmps.push(TempWav(sys_wav));
         _tmps.push(TempWav(mic_wav));
     } else {
         let wav = dir.join(format!("temp_diar_{job}.wav"));
         convert_ogg_to_wav(&audio, &wav)?;
         cmd = cmd.arg("--diarize-v2").arg(wav.to_str().ok_or("Invalid WAV path")?);
+        mix_wav_path = Some(wav.clone());
         _tmps.push(TempWav(wav));
     }
     if let Some(p) = find_model(app_handle, "camplusplus_batch16.mlmodelc") {
@@ -523,6 +658,23 @@ async fn diarize_inner(app_handle: &tauri::AppHandle, recording_id: &str) -> Res
         created_at: chrono::Utc::now().to_rfc3339(),
     };
     write_json_atomic(&diar_path(recording_id), &diar)?;
+
+    // Reactive layers: voice samples (while the temp wavs still exist) and the
+    // global candidate profiles for the People editor.
+    let me_local = out.me_speaker;
+    cut_voice_samples(&dir, &diar, |spk| {
+        if split {
+            if Some(spk) == me_local {
+                mic_wav_path.clone().unwrap_or_default()
+            } else {
+                sys_wav_path.clone().unwrap_or_default()
+            }
+        } else {
+            mix_wav_path.clone().unwrap_or_default()
+        }
+    });
+    upsert_profiles_after_diarize(recording_id, &diar);
+
     Ok(diar.speaker_count)
 }
 
@@ -547,6 +699,7 @@ pub(crate) fn store_from_transcribe(
         eprintln!("diarization: store_from_transcribe failed: {e}");
         return;
     }
+    upsert_profiles_after_diarize(recording_id, &diar);
     set_status(app, recording_id, "done", "Complete", 100, "");
 }
 
@@ -613,6 +766,7 @@ pub async fn rename_speaker(
                 uid: entry.uid.clone(),
                 name: trimmed.clone(),
                 centroids: vec![entry.centroid.clone()],
+                appearances: Vec::new(),
                 updated_at: now,
             }),
         }
@@ -620,5 +774,90 @@ pub async fn rename_speaker(
     }
 
     write_json_atomic(&diar_path(&recording_id), &d)?;
+
+    // Retro-apply: the same voice in OTHER recordings gets the name too —
+    // one rename labels the whole history (and, via the profile, the future).
+    if !trimmed.is_empty() {
+        let uid = d
+            .speakers
+            .iter()
+            .find(|s| s.local_id == speaker)
+            .map(|s| s.uid.clone());
+        if let Some(uid) = uid {
+            let appearances: Vec<Appearance> = load_profiles()
+                .into_iter()
+                .find(|p| p.uid == uid)
+                .map(|p| p.appearances)
+                .unwrap_or_default();
+            for a in appearances {
+                if a.recording_id == recording_id {
+                    continue;
+                }
+                if let Some(mut other) = read_diarization(&a.recording_id) {
+                    let mut changed = false;
+                    for s in other.speakers.iter_mut() {
+                        if s.uid == uid && s.name != trimmed {
+                            s.name = trimmed.clone();
+                            changed = true;
+                        }
+                    }
+                    if changed {
+                        let _ = write_json_atomic(&diar_path(&a.recording_id), &other);
+                    }
+                }
+            }
+        }
+    }
     Ok(())
+}
+
+/// Lightweight profile projection for the People editor (no centroid payload).
+#[derive(Serialize)]
+pub struct ProfileView {
+    pub uid: String,
+    pub name: String,
+    pub total_seconds: f64,
+    pub recordings: usize,
+    pub preview: String,
+    /// Best appearance to play a voice sample from.
+    pub sample_recording_id: String,
+    pub sample_local_id: i64,
+}
+
+/// All profiles (named + candidates), best-appearance first. The UI derives
+/// the "N voices waiting for names" badge from entries with an empty name.
+#[tauri::command]
+pub async fn list_speaker_profiles() -> Result<Vec<ProfileView>, String> {
+    let mut views: Vec<ProfileView> = load_profiles()
+        .into_iter()
+        .map(|p| {
+            let total: f64 = p.appearances.iter().map(|a| a.seconds).sum();
+            let best = p
+                .appearances
+                .iter()
+                .max_by(|a, b| a.seconds.partial_cmp(&b.seconds).unwrap_or(std::cmp::Ordering::Equal));
+            ProfileView {
+                uid: p.uid,
+                name: p.name,
+                total_seconds: total,
+                recordings: p.appearances.len(),
+                preview: best.map(|a| a.preview.clone()).unwrap_or_default(),
+                sample_recording_id: best.map(|a| a.recording_id.clone()).unwrap_or_default(),
+                sample_local_id: best.map(|a| a.local_id).unwrap_or(0),
+            }
+        })
+        .collect();
+    views.sort_by(|a, b| b.total_seconds.partial_cmp(&a.total_seconds).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(views)
+}
+
+/// Voice sample (wav) for a speaker in a recording, base64 for an <audio> tag.
+#[tauri::command]
+pub async fn get_voice_sample(recording_id: String, speaker: i64) -> Result<String, String> {
+    let path = get_data_dir()
+        .join(&recording_id)
+        .join(format!("voice_{speaker}.wav"));
+    let bytes = std::fs::read(&path).map_err(|_| "No voice sample for this speaker".to_string())?;
+    use base64::Engine;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }

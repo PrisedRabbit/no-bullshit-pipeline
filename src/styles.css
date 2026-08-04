@@ -4928,6 +4928,65 @@ body.light .provider-models-section {
   font-family: 'JetBrains Mono', monospace;
   margin-right: 8px;
 }
+/* People editor (Settings → ASR) */
+.people-badge {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.7em;
+  text-align: center;
+  vertical-align: middle;
+}
+.people-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-color, rgba(128, 128, 128, 0.15));
+}
+.people-play {
+  flex: 0 0 auto;
+}
+.people-info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.people-title {
+  font-weight: 600;
+}
+.people-meta {
+  color: var(--text-secondary, #888);
+  font-weight: 400;
+  font-size: 0.8em;
+  margin-left: 6px;
+}
+.people-quote {
+  color: var(--text-secondary, #888);
+  font-size: 0.85em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.people-name-input {
+  flex: 0 0 140px;
+  font: inherit;
+  padding: 3px 8px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+}
+.people-known-sep {
+  margin: 12px 0 4px;
+  color: var(--text-secondary, #888);
+  font-size: 0.8em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 /* Stable per-speaker palette; "You" uses the app accent. */
 .diar-me { --diar-color: var(--accent); }
 .diar-c0 { --diar-color: #61afef; }

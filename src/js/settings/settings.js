@@ -5,6 +5,7 @@ import { applyTheme } from '../ui/theme.js';
 import { ViewManager } from '../ui/view-manager.js';
 import { emit } from '../core/events.js';
 import { applyTranscriptionSettings, collectTranscriptionSettings } from './transcription.js';
+import { renderPeople } from './people.js';
 import { applyDictationSettings, initShortcutsTab } from './shortcuts.js';
 import { refreshModelVersion } from './model-version.js';
 
@@ -37,6 +38,7 @@ export async function loadSettings() {
     if (storagePathInput) storagePathInput.value = state.appSettings.storage_path;
 
     applyTranscriptionSettings();
+    renderPeople();
 
     if (saveMixOnlyCheckbox) saveMixOnlyCheckbox.checked = state.appSettings.save_mix_only !== false;
     if (entryRetentionSelect) {
