@@ -570,14 +570,42 @@ async fn diarize_inner(app_handle: &tauri::AppHandle, recording_id: &str) -> Res
     let mut sys_wav_path: Option<PathBuf> = None;
     let mut mic_wav_path: Option<PathBuf> = None;
     let mut mix_wav_path: Option<PathBuf> = None;
+    // Audio preparation owns 0-40% of the bar: measured on real calls the OGG
+    // decode is ~70% of total wall time, so a 0-10% band read as "stuck".
     if split {
         let sys_wav = dir.join(format!("temp_diar_sys_{job}.wav"));
         let mic_wav = dir.join(format!("temp_diar_mic_{job}.wav"));
-        crate::transcription::convert_ogg_to_wav_native_progress(&sys_ogg, &sys_wav, total_secs, &mut |p| {
-            set_status(app_handle, recording_id, "running", "Preparing audio", p / 20, "");
-        })?;
-        crate::transcription::convert_ogg_to_wav_native_progress(&mic_ogg, &mic_wav, total_secs, &mut |p| {
-            set_status(app_handle, recording_id, "running", "Preparing audio", 5 + p / 20, "");
+        // Decode both stems IN PARALLEL (two cores) — halves the dominant phase.
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let sys_p = AtomicU32::new(0);
+        let mic_p = AtomicU32::new(0);
+        let last_reported = AtomicU32::new(0);
+        let report = |sys_p: &AtomicU32, mic_p: &AtomicU32, last: &AtomicU32| {
+            // sum 0..200 → global 0..40, monotonic via max-guard.
+            let total = (sys_p.load(Ordering::Relaxed) + mic_p.load(Ordering::Relaxed)) / 5;
+            let prev = last.fetch_max(total, Ordering::Relaxed);
+            if total > prev {
+                set_status(app_handle, recording_id, "running", "Preparing audio", total, "");
+            }
+        };
+        std::thread::scope(|scope| -> Result<(), String> {
+            let h_sys = scope.spawn(|| {
+                crate::transcription::convert_ogg_to_wav_native_progress(
+                    &sys_ogg, &sys_wav, total_secs, &mut |p| {
+                        sys_p.store(p, Ordering::Relaxed);
+                        report(&sys_p, &mic_p, &last_reported);
+                    })
+            });
+            let h_mic = scope.spawn(|| {
+                crate::transcription::convert_ogg_to_wav_native_progress(
+                    &mic_ogg, &mic_wav, total_secs, &mut |p| {
+                        mic_p.store(p, Ordering::Relaxed);
+                        report(&sys_p, &mic_p, &last_reported);
+                    })
+            });
+            h_sys.join().map_err(|_| "stem decode thread panicked".to_string())??;
+            h_mic.join().map_err(|_| "stem decode thread panicked".to_string())??;
+            Ok(())
         })?;
         cmd = cmd
             .arg("--diarize-v2-split")
@@ -590,7 +618,7 @@ async fn diarize_inner(app_handle: &tauri::AppHandle, recording_id: &str) -> Res
     } else {
         let wav = dir.join(format!("temp_diar_{job}.wav"));
         crate::transcription::convert_ogg_to_wav_native_progress(&audio, &wav, total_secs, &mut |p| {
-            set_status(app_handle, recording_id, "running", "Preparing audio", p / 10, "");
+            set_status(app_handle, recording_id, "running", "Preparing audio", p * 2 / 5, "");
         })?;
         cmd = cmd.arg("--diarize-v2").arg(wav.to_str().ok_or("Invalid WAV path")?);
         mix_wav_path = Some(wav.clone());
@@ -648,7 +676,7 @@ async fn diarize_inner(app_handle: &tauri::AppHandle, recording_id: &str) -> Res
                                 "Finalizing" | "Complete" => "Finishing",
                                 _ => "Analyzing voices",
                             };
-                            let pct = 10 + raw_pct * 9 / 10;
+                            let pct = 40 + raw_pct * 6 / 10;
                             if pct != last_pct {
                                 last_pct = pct;
                                 set_status(app_handle, recording_id, "running", stage, pct, "");
