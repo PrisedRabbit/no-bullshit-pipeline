@@ -917,6 +917,115 @@ pub async fn list_speaker_profiles() -> Result<Vec<ProfileView>, String> {
     Ok(views)
 }
 
+/// EXPLICIT assignment of a recording's speaker to an existing person profile
+/// (the user picked them from the People list — unlike renaming, this is an
+/// intentional identity merge). The speaker's old candidate profile is folded
+/// into the target (centroids + appearances), and the person's name/uid is
+/// retro-applied across the merged history.
+#[tauri::command]
+pub async fn assign_speaker_profile(
+    recording_id: String,
+    speaker: i64,
+    profile_uid: String,
+) -> Result<(), String> {
+    validate_recording_id(&recording_id)?;
+    if active_set().lock().map_err(|_| "lock poisoned")?.contains(&recording_id) {
+        return Err("Diarization is running — try again when it finishes".to_string());
+    }
+    let mut d = read_diarization(&recording_id).ok_or("No diarization for this recording")?;
+    let entry = d
+        .speakers
+        .iter_mut()
+        .find(|s| s.local_id == speaker)
+        .ok_or_else(|| format!("Unknown speaker {speaker}"))?;
+    let old_uid = entry.uid.clone();
+    let centroid = entry.centroid.clone();
+
+    let _g = state_lock().lock();
+    let mut profiles = load_profiles();
+    let target_idx = profiles
+        .iter()
+        .position(|p| p.uid == profile_uid)
+        .ok_or("Unknown person")?;
+    let target_name = profiles[target_idx].name.clone();
+    if target_name.is_empty() {
+        return Err("Target profile has no name".to_string());
+    }
+
+    // Fold the old candidate profile (if any) into the target.
+    if old_uid != profile_uid {
+        if let Some(src_idx) = profiles.iter().position(|p| p.uid == old_uid) {
+            let src = profiles.remove(src_idx);
+            // recompute target index after removal
+            let t = profiles.iter_mut().find(|p| p.uid == profile_uid).ok_or("Unknown person")?;
+            for a in src.appearances {
+                t.appearances.retain(|x| x.recording_id != a.recording_id);
+                t.appearances.push(a);
+            }
+            for c in src.centroids {
+                t.centroids.push(c);
+            }
+        }
+    }
+    {
+        let t = profiles.iter_mut().find(|p| p.uid == profile_uid).ok_or("Unknown person")?;
+        if !centroid.is_empty() {
+            t.centroids.push(centroid);
+        }
+        if t.centroids.len() > PROFILE_MAX_VECTORS {
+            let excess = t.centroids.len() - PROFILE_MAX_VECTORS;
+            t.centroids.drain(0..excess);
+        }
+        t.updated_at = chrono::Utc::now().to_rfc3339();
+    }
+    save_profiles(&profiles)?;
+
+    // This recording: rewrite the speaker to the person's identity.
+    for s in d.speakers.iter_mut() {
+        if s.uid == old_uid || s.local_id == speaker {
+            s.uid = profile_uid.clone();
+            s.name = target_name.clone();
+        }
+    }
+    write_json_atomic(&diar_path(&recording_id), &d)?;
+
+    // Retro-apply across the person's (now merged) history: old-uid speakers
+    // become the person; skip recordings that are mid-diarize.
+    let appearances: Vec<Appearance> = profiles
+        .into_iter()
+        .find(|p| p.uid == profile_uid)
+        .map(|p| p.appearances)
+        .unwrap_or_default();
+    for a in appearances {
+        if a.recording_id == recording_id {
+            continue;
+        }
+        let busy = active_set()
+            .lock()
+            .map(|s| s.contains(&a.recording_id))
+            .unwrap_or(true);
+        if busy {
+            continue;
+        }
+        if let Some(mut other) = read_diarization(&a.recording_id) {
+            let mut changed = false;
+            for s in other.speakers.iter_mut() {
+                if s.uid == old_uid || s.uid == profile_uid {
+                    if s.uid != profile_uid || s.name != target_name {
+                        s.uid = profile_uid.clone();
+                        s.name = target_name.clone();
+                        changed = true;
+                    }
+                }
+            }
+            if changed {
+                let _ = write_json_atomic(&diar_path(&a.recording_id), &other);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Voice sample (wav) for a speaker in a recording, base64 for an <audio> tag.
 #[tauri::command]
 pub async fn get_voice_sample(recording_id: String, speaker: i64) -> Result<String, String> {

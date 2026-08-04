@@ -9,6 +9,7 @@ import { ViewManager } from '../ui/view-manager.js';
 import { updateMainButton } from './controls.js';
 import { loadRecordings } from './list.js';
 import { subscribeToProgress, renderPipelineStatus, cleanupPipelineProgress } from './pipeline-status.js';
+import { commitSpeakerName, ensureNamesDatalist } from '../settings/people.js';
 import { renderPipelineFlowHTML } from '../pipeline/flow-renderer.js';
 import * as pipelineState from '../pipeline/state.js';
 
@@ -138,13 +139,16 @@ function ensureDiarListener() {
 }
 
 /// Inline rename: swap the speaker chip for an input (window.prompt is
-/// unreliable in WKWebView). Enter/blur saves, Escape cancels.
+/// unreliable in WKWebView). Enter/blur saves, Escape cancels. Known people
+/// are suggested via the shared datalist; picking one is an explicit merge.
 function startSpeakerRename(el, rec, spk, current) {
+  invoke('list_speaker_profiles').then(p => ensureNamesDatalist(p || [])).catch(() => {});
   const input = document.createElement('input');
   input.type = 'text';
   input.value = current;
   input.className = 'diar-rename-input';
   input.placeholder = `Speaker ${spk + 1}`;
+  input.setAttribute('list', 'people-names');
   el.replaceWith(input);
   input.focus();
   input.select();
@@ -154,7 +158,9 @@ function startSpeakerRename(el, rec, spk, current) {
     done = true;
     if (save) {
       try {
-        await invoke('rename_speaker', { recordingId: rec.id, speaker: spk, name: input.value.trim() });
+        const name = input.value.trim();
+        if (name) await commitSpeakerName(rec.id, spk, name);
+        else await invoke('rename_speaker', { recordingId: rec.id, speaker: spk, name: '' });
       } catch (e) {
         showToast('Rename failed: ' + e, 'error');
       }
@@ -215,43 +221,61 @@ async function renderDiarization(rec) {
     return;
   }
 
-  const nameByLocal = {};
-  const meLocal = new Set();
+  // Identity per local speaker: different cluster ids can be the SAME person
+  // (same uid/name) — render by identity so one person keeps one color and
+  // merges into one flow instead of looking like two speakers.
+  const ident = {};
   (diar.speakers || []).forEach(s => {
-    if (s.name) nameByLocal[s.local_id] = s.name;
-    if (s.is_me) meLocal.add(s.local_id);
+    ident[s.local_id] = { uid: s.uid || `local-${s.local_id}`, name: s.name || '', isMe: !!s.is_me };
   });
-  const label = (spk) => nameByLocal[spk] || (meLocal.has(spk) ? 'You' : `Speaker ${spk + 1}`);
+  const idKey = (spk) => {
+    const i = ident[spk];
+    if (!i) return `local-${spk}`;
+    return i.name ? `name:${i.name.toLowerCase()}` : i.uid;
+  };
+  const label = (spk) => {
+    const i = ident[spk];
+    return (i && i.name) || (i && i.isMe ? 'You' : `Speaker ${spk + 1}`);
+  };
   const fmt = (t) => { t = Math.floor(t); return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`; };
 
-  // Coalesce consecutive same-speaker segments into one block (keep the first
+  // Coalesce consecutive same-person segments into one block (keep the first
   // timestamp) — but only across small gaps, so real pauses (>2s) still break
   // a long monologue instead of collapsing into a wall of text.
   const kept = diar.segments.filter(s => /[\p{L}\p{N}]/u.test(s.text || ''));
   const blocks = [];
   for (const s of kept) {
     const last = blocks[blocks.length - 1];
-    if (last && last.speaker === s.speaker && s.start - last.end <= 2.0) {
+    if (last && idKey(last.speaker) === idKey(s.speaker) && s.start - last.end <= 2.0) {
       last.text += ' ' + (s.text || '').trim();
       last.end = Math.max(last.end, s.end);
     } else {
       blocks.push({ speaker: s.speaker, start: s.start, end: s.end, text: (s.text || '').trim() });
     }
   }
-  // Second-level grouping: consecutive blocks of the SAME speaker (any gap)
+  // Second-level grouping: consecutive blocks of the SAME person (any gap)
   // share one header — the name isn't repeated for every pause, paragraphs
   // inside carry their own quiet timecodes.
   const groups = [];
   for (const b of blocks) {
     const last = groups[groups.length - 1];
-    if (last && last.speaker === b.speaker) {
+    if (last && idKey(last.speaker) === idKey(b.speaker)) {
       last.paras.push(b);
     } else {
       groups.push({ speaker: b.speaker, start: b.start, paras: [b] });
     }
   }
 
-  const colorClass = (spk) => meLocal.has(spk) ? 'diar-me' : `diar-c${spk % 6}`;
+  // Stable color per PERSON (hash of the identity key) — the same person
+  // keeps one color even across different cluster ids.
+  const colorClass = (spk) => {
+    const i = ident[spk];
+    if (i && i.isMe) return 'diar-me';
+    const k = idKey(spk);
+    let h = 0;
+    for (let c = 0; c < k.length; c++) h = (h * 31 + k.charCodeAt(c)) >>> 0;
+    return `diar-c${h % 6}`;
+  };
   const rows = groups
     .map(g => {
       const paras = g.paras
@@ -273,7 +297,7 @@ async function renderDiarization(rec) {
   content.querySelectorAll('.diar-spk').forEach(el => {
     el.addEventListener('click', () => {
       const spk = parseInt(el.dataset.spk, 10);
-      startSpeakerRename(el, rec, spk, nameByLocal[spk] || '');
+      startSpeakerRename(el, rec, spk, (ident[spk] && ident[spk].name) || '');
     });
   });
 }

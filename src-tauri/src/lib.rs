@@ -447,6 +447,7 @@ pub fn run() {
             diarization::rename_speaker,
             diarization::list_speaker_profiles,
             diarization::get_voice_sample,
+            diarization::assign_speaker_profile,
             playback::play_audio,
             playback::pause_audio,
             playback::resume_audio,

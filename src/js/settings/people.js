@@ -3,6 +3,40 @@
 import { invoke, listen } from '../core/tauri.js';
 import { escapeHtml } from '../core/utils.js';
 import { showToast } from '../ui/toast.js';
+import { showConfirm } from '../ui/confirm-modal.js';
+
+/// Keep a <datalist> of known people for name inputs (rename suggestions).
+export function ensureNamesDatalist(profiles) {
+  let dl = document.getElementById('people-names');
+  if (!dl) {
+    dl = document.createElement('datalist');
+    dl.id = 'people-names';
+    document.body.appendChild(dl);
+  }
+  const names = [...new Set(profiles.filter(p => p.name).map(p => p.name))];
+  dl.innerHTML = names.map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
+}
+
+/// Commit a typed name for a speaker: if it matches an existing person, ask —
+/// picking them is an EXPLICIT identity merge (assign_speaker_profile);
+/// otherwise it's a plain label (rename_speaker; duplicates allowed).
+export async function commitSpeakerName(recordingId, speaker, name) {
+  let profiles = [];
+  try { profiles = (await invoke('list_speaker_profiles')) || []; } catch { profiles = []; }
+  const match = profiles.find(p => p.name && p.name.toLowerCase() === name.toLowerCase());
+  if (match) {
+    const same = await showConfirm(
+      `Same person as “${match.name}”?`,
+      `They appear in ${match.recordings} recording${match.recordings === 1 ? '' : 's'}. Linking merges this voice into that person and labels their whole history.`,
+      'Yes, same person'
+    );
+    if (same) {
+      await invoke('assign_speaker_profile', { recordingId, speaker, profileUid: match.uid });
+      return;
+    }
+  }
+  await invoke('rename_speaker', { recordingId, speaker, name });
+}
 
 // Reactive: refresh the list/badge whenever a diarization job finishes while
 // the settings view is open.
@@ -32,6 +66,7 @@ export async function renderPeople() {
 
   let profiles = [];
   try { profiles = (await invoke('list_speaker_profiles')) || []; } catch { profiles = []; }
+  ensureNamesDatalist(profiles);
 
   const named = profiles.filter(p => p.name);
   const candidates = profiles.filter(
@@ -60,7 +95,7 @@ export async function renderPeople() {
         ${p.preview ? `<div class="people-quote">«${escapeHtml(p.preview)}»</div>` : ''}
       </div>
       ${isCandidate
-        ? `<input class="people-name-input" type="text" placeholder="Name…" data-rec="${escapeHtml(p.sample_recording_id)}" data-spk="${p.sample_local_id}" />`
+        ? `<input class="people-name-input" type="text" list="people-names" placeholder="Name…" data-rec="${escapeHtml(p.sample_recording_id)}" data-spk="${p.sample_local_id}" />`
         : ''}
     </div>`;
 
@@ -89,13 +124,8 @@ export async function renderPeople() {
       if (!name) return;
       input.disabled = true;
       try {
-        // rename_speaker on the best appearance names the profile and
-        // retro-applies across every recording this voice appeared in.
-        await invoke('rename_speaker', {
-          recordingId: input.dataset.rec,
-          speaker: parseInt(input.dataset.spk, 10),
-          name,
-        });
+        // Existing person → explicit merge (with confirm); new name → label.
+        await commitSpeakerName(input.dataset.rec, parseInt(input.dataset.spk, 10), name);
         showToast(`Named: ${name}`, 'success');
         renderPeople();
       } catch (e) {
