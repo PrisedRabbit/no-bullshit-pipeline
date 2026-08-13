@@ -1,4 +1,4 @@
-//! Compatibility shim over rubato 3.0's rewritten API.
+//! Compatibility shim over rubato's rewritten (3.0+) API.
 //!
 //! rubato 3.0 replaced the old `SincFixedIn` / `FftFixedInOut` resamplers
 //! (which took `&[AsRef<[f32]>]` and returned `Vec<Vec<f32>>`) with a buffer-
@@ -89,16 +89,10 @@ impl FftFixedInOut<f32> {
         chunk_size: usize,
         channels: usize,
     ) -> Result<Self, String> {
-        // sub_chunks = 2 matches rubato's own default tradeoff for delay/quality.
-        let inner = Fft::<f32>::new(
-            src_rate,
-            dst_rate,
-            chunk_size,
-            2,
-            channels,
-            FixedSync::Input,
-        )
-        .map_err(|e| format!("FFT resampler init: {e}"))?;
+        // rubato 5.0's `Fft::new` derives the sub-chunk count internally from
+        // `chunk_size`; the explicit `sub_chunks` argument is gone.
+        let inner = Fft::<f32>::new(src_rate, dst_rate, chunk_size, channels, FixedSync::Input)
+            .map_err(|e| format!("FFT resampler init: {e}"))?;
         Ok(Self {
             inner,
             channels,

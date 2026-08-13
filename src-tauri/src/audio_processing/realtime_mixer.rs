@@ -172,7 +172,7 @@ fn run_realtime_mixer(output_path: PathBuf, should_stop: Arc<AtomicBool>) -> Res
     let transcription_chunk_size = 1024usize;
     let transcription_params = SincInterpolationParameters {
         sinc_len: 256,
-        f_cutoff: 0.95,
+        f_cutoff: None,
         interpolation: SincInterpolationType::Linear,
         oversampling_factor: 256,
         window: WindowFunction::BlackmanHarris2,
