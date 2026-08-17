@@ -48,6 +48,7 @@ mod fn_hotkey;
 mod hud;
 pub mod local_llm;
 mod mic_audio;
+mod parakeet_worker;
 mod permissions;
 mod pipeline_engine;
 pub mod pipelines;
@@ -228,6 +229,7 @@ pub fn run() {
         .manage(AudioState::new())
         .manage(TranscriptionState::new())
         .manage(dictation::DictationState::new())
+        .manage(parakeet_worker::ParakeetWorkerState::new())
         .manage(permissions::PermissionsStateCache(std::sync::Arc::new(
             std::sync::Mutex::new(permissions::PermissionsState::default()),
         )))
@@ -395,9 +397,9 @@ pub fn run() {
                 }
             }
 
-            // Streaming pre-warm is disabled while streaming itself is off.
-            // Instead, prewarm the batch sidecar models so the user's first
-            // dictation doesn't pay the CoreML compile + cold-disk penalty.
+            // Start the resident Parakeet supervisor when configured. The
+            // one-shot prewarm returns immediately in resident mode.
+            parakeet_worker::reconcile(app.handle());
             dictation::prewarm_models(app.handle());
 
             // Re-prewarm after the laptop wakes from sleep. macOS evicts
@@ -551,6 +553,7 @@ pub fn run() {
 /// RunEvent::ExitRequested handler), so audio is released cleanly instead of
 /// relying on Drop, which may not run at process exit.
 fn graceful_audio_shutdown(app: &tauri::AppHandle) {
+    tauri::async_runtime::block_on(parakeet_worker::shutdown(app));
     // Stop the tray-icon blink on every quit path (Cmd+Q / tray Quit / Exit) so
     // a pulse thread isn't left scheduling icon swaps into a tearing-down app.
     stop_tray_pulse();

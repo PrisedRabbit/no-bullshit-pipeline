@@ -205,6 +205,9 @@ pub fn prewarm_models(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let settings = load_settings();
+        if crate::parakeet_worker::configured(&settings) {
+            return;
+        }
         if !settings.dictation.enabled {
             return;
         }
@@ -1233,6 +1236,15 @@ async fn transcribe(app: &AppHandle, mono_16k: &[f32]) -> Result<String, String>
     match settings.transcription.provider {
         TranscriptionProvider::AppleSpeech => {
             run_apple_speech(app, mono_16k, Some(&settings.transcription.apple_locale)).await
+        }
+        TranscriptionProvider::FluidAudio if settings.transcription.keep_model_ready => {
+            match crate::parakeet_worker::transcribe(app, mono_16k, &settings).await {
+                Ok(text) => Ok(text),
+                Err(error) => {
+                    log::warn!("dictation: resident Parakeet failed, using one-shot: {error}");
+                    run_fluidaudio(app, mono_16k, &settings).await
+                }
+            }
         }
         // FluidAudio, Qwen3, and `Unknown` (old settings.json referencing dead
         // cloud providers) all run FluidAudio — matches the config.rs contract
