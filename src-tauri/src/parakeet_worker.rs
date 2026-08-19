@@ -1,14 +1,22 @@
+mod cancellation;
 mod protocol;
+#[cfg(test)]
+mod protocol_tests;
+mod request;
 mod supervisor;
+pub(crate) mod warmup;
+
+pub(crate) use warmup::{install_timer, request as request_warmup};
 
 use crate::config::{AppSettings, TranscriptionProvider};
-use protocol::{OwnedTempPath, ResidentRequest, WorkerCommand};
-use std::path::Path;
+use protocol::{ResidentRequest, WorkerCommand};
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use tokio::sync::{mpsc, oneshot, watch};
 use uuid::Uuid;
+
+pub(crate) const TRANSCRIPTION_TIMEOUT_ERROR: &str = "resident Parakeet transcription timed out";
 
 pub struct ParakeetWorkerState {
     runtime: Mutex<RuntimeSlot>,
@@ -69,71 +77,58 @@ pub async fn transcribe(
     samples_16k: &[f32],
     settings: &AppSettings,
 ) -> Result<String, String> {
-    let path = std::env::temp_dir().join(format!("nbp-dict-{}.wav", Uuid::new_v4().simple()));
-    let temp_path = OwnedTempPath::new(path);
-    write_mono_wav(temp_path.path(), samples_16k)?;
-    let vocab_path = if settings.transcription.translit_lang != "off" {
-        let path = crate::vocab::vocab_path();
-        path.exists().then(|| path.to_string_lossy().into_owned())
-    } else {
-        None
-    };
-    let request = ResidentRequest::transcribe(
-        Uuid::new_v4().to_string(),
-        temp_path.path().to_string_lossy().into_owned(),
-        vocab_path,
-        settings.transcription.translit_threshold,
-        settings.transcription.translit_min_len,
-    );
-    let tx = running_tx(app).ok_or("resident Parakeet is not running")?;
-    let (reply, receiver) = oneshot::channel();
-    tx.send(WorkerCommand::Transcribe {
-        request,
-        temp_path,
-        reply,
-    })
-    .map_err(|_| "resident Parakeet stopped".to_string())?;
-    receiver
-        .await
-        .map_err(|_| "resident Parakeet stopped".to_string())?
+    request::transcribe_user(app, samples_16k, settings).await
 }
 
 pub async fn verify_after_wake(app: &AppHandle) {
     let Some(tx) = running_tx(app) else {
         reconcile(app);
+        let _ = warmup::run(app, "wake").await;
         return;
     };
     let (reply, receiver) = oneshot::channel();
-    let healthy = tx.send(WorkerCommand::Health { reply }).is_ok()
-        && matches!(
-            tokio::time::timeout(Duration::from_secs(5), receiver).await,
-            Ok(Ok(Ok(())))
-        );
-    if healthy {
+    let request = ResidentRequest::ping(Uuid::new_v4().to_string());
+    if tx.send(WorkerCommand::Health { request, reply }).is_err() {
+        reconcile(app);
+        let _ = warmup::run(app, "wake").await;
         return;
     }
-    let state = app.state::<ParakeetWorkerState>();
-    let completion = {
-        let mut slot = state
-            .runtime
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        if matches!(&*slot, RuntimeSlot::Running(runtime) if runtime.tx.same_channel(&tx)) {
-            match std::mem::replace(&mut *slot, RuntimeSlot::Stopped) {
-                RuntimeSlot::Running(runtime) => {
-                    let completion = spawn_stop(app.clone(), runtime);
-                    *slot = RuntimeSlot::Stopping(completion.clone());
-                    Some(completion)
-                }
-                _ => unreachable!(),
-            }
-        } else {
-            None
-        }
-    };
-    if let Some(completion) = completion {
-        wait_for_stop(completion).await;
+    let health = tokio::time::timeout(Duration::from_secs(5), receiver).await;
+    let healthy = matches!(&health, Ok(Ok(Ok(()))));
+    // A child that is still loading is not dead. Queueing the real warmup lets
+    // it prove inference as soon as Ready arrives without paying a second load.
+    if matches!(
+        &health,
+        Ok(Ok(Err(error))) if error == "resident Parakeet is not ready"
+    ) {
+        let _ = warmup::run(app, "wake").await;
+        return;
     }
+    if !healthy {
+        let state = app.state::<ParakeetWorkerState>();
+        let completion = {
+            let mut slot = state
+                .runtime
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if matches!(&*slot, RuntimeSlot::Running(runtime) if runtime.tx.same_channel(&tx)) {
+                match std::mem::replace(&mut *slot, RuntimeSlot::Stopped) {
+                    RuntimeSlot::Running(runtime) => {
+                        let completion = spawn_stop(app.clone(), runtime);
+                        *slot = RuntimeSlot::Stopping(completion.clone());
+                        Some(completion)
+                    }
+                    _ => unreachable!(),
+                }
+            } else {
+                None
+            }
+        };
+        if let Some(completion) = completion {
+            wait_for_stop(completion).await;
+        }
+    }
+    let _ = warmup::run(app, "wake").await;
 }
 
 pub async fn shutdown(app: &AppHandle) {
@@ -225,22 +220,6 @@ fn finish_stop(app: &AppHandle) {
         }
         _ => {}
     }
-}
-
-fn write_mono_wav(path: &Path, samples: &[f32]) -> Result<(), String> {
-    let spec = hound::WavSpec {
-        channels: 1,
-        sample_rate: 16_000,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
-    let mut writer = hound::WavWriter::create(path, spec).map_err(|error| error.to_string())?;
-    for &sample in samples {
-        writer
-            .write_sample((sample * 32768.0).clamp(-32768.0, 32767.0) as i16)
-            .map_err(|error| error.to_string())?;
-    }
-    writer.finalize().map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

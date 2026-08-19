@@ -69,6 +69,13 @@ private func transcribeResidentRequest(_ request: ResidentRequest, manager: AsrM
         return
     }
 
+    let started = Date()
+    defer {
+        let elapsed = Date().timeIntervalSince(started)
+        let line = String(format: "TIMING:resident.transcribe:%.3fs\n", elapsed)
+        FileHandle.standardError.write(Data(line.utf8))
+    }
+
     do {
         var decoderState = TdtDecoderState.make(decoderLayers: await manager.decoderLayerCount)
         let result = try await manager.transcribe(

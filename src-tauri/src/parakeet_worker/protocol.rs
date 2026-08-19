@@ -8,16 +8,23 @@ pub(super) enum WorkerCommand {
     Transcribe {
         request: ResidentRequest,
         temp_path: OwnedTempPath,
+        dispatched: oneshot::Sender<()>,
         reply: oneshot::Sender<Result<String, String>>,
     },
     Health {
+        request: ResidentRequest,
         reply: oneshot::Sender<Result<(), String>>,
+    },
+    Cancel {
+        id: String,
+        restart_if_queued: bool,
     },
     Shutdown,
 }
 
 pub(super) enum ControlResult {
     Handled,
+    Cancel { id: String, restart_if_queued: bool },
     Shutdown,
     Forward(WorkerCommand),
 }
@@ -36,6 +43,21 @@ pub(super) struct ResidentRequest {
 }
 
 impl ResidentRequest {
+    pub(super) fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub(super) fn ping(id: String) -> Self {
+        Self {
+            id,
+            operation: "ping".into(),
+            wav_path: None,
+            vocab_path: None,
+            translit_threshold: 0.0,
+            translit_min_len: 0,
+        }
+    }
+
     pub(super) fn transcribe(
         id: String,
         wav_path: String,
@@ -80,6 +102,9 @@ pub(super) enum PendingReply {
         _temp_path: OwnedTempPath,
         reply: oneshot::Sender<Result<String, String>>,
     },
+    Health {
+        reply: oneshot::Sender<Result<(), String>>,
+    },
 }
 
 pub(super) struct OwnedTempPath(PathBuf);
@@ -100,6 +125,22 @@ impl Drop for OwnedTempPath {
     }
 }
 
+pub(super) fn write_mono_wav(path: &Path, samples: &[f32]) -> Result<(), String> {
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: 16_000,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut writer = hound::WavWriter::create(path, spec).map_err(|error| error.to_string())?;
+    for &sample in samples {
+        writer
+            .write_sample((sample * 32768.0).clamp(-32768.0, 32767.0) as i16)
+            .map_err(|error| error.to_string())?;
+    }
+    writer.finalize().map_err(|error| error.to_string())
+}
+
 #[derive(Default)]
 pub(super) struct NdjsonBuffer(Vec<u8>);
 
@@ -118,47 +159,63 @@ impl NdjsonBuffer {
     }
 }
 
-pub(super) fn handle_control(command: WorkerCommand, ready: bool) -> ControlResult {
+pub(super) fn handle_control(command: WorkerCommand, ready: bool, busy: bool) -> ControlResult {
     match command {
-        WorkerCommand::Health { reply } => {
-            let result = if ready {
-                Ok(())
-            } else {
-                Err("resident Parakeet is not ready".into())
-            };
-            let _ = reply.send(result);
+        WorkerCommand::Health { reply, .. } if !ready => {
+            let _ = reply.send(Err("resident Parakeet is not ready".into()));
             ControlResult::Handled
         }
+        WorkerCommand::Health { reply, .. } if busy => {
+            let _ = reply.send(Ok(()));
+            ControlResult::Handled
+        }
+        WorkerCommand::Cancel {
+            id,
+            restart_if_queued,
+        } => ControlResult::Cancel {
+            id,
+            restart_if_queued,
+        },
         WorkerCommand::Shutdown => ControlResult::Shutdown,
         command => ControlResult::Forward(command),
     }
 }
 
-pub(super) fn handle_transcribe(
+pub(super) fn handle_request(
     command: WorkerCommand,
     child: &mut CommandChild,
     pending: &mut HashMap<String, PendingReply>,
 ) {
-    let WorkerCommand::Transcribe {
-        request,
-        temp_path,
-        reply,
-    } = command
-    else {
-        return;
+    let (request, pending_reply, dispatched) = match command {
+        WorkerCommand::Transcribe {
+            request,
+            temp_path,
+            dispatched,
+            reply,
+        } => (
+            request,
+            PendingReply::Transcribe {
+                _temp_path: temp_path,
+                reply,
+            },
+            Some(dispatched),
+        ),
+        WorkerCommand::Health { request, reply } => (request, PendingReply::Health { reply }, None),
+        _ => return,
     };
     let id = request.id.clone();
-    pending.insert(
-        id.clone(),
-        PendingReply::Transcribe {
-            _temp_path: temp_path,
-            reply,
-        },
-    );
-    if let Err(error) = write_request(child, &request)
-        && let Some(reply) = pending.remove(&id)
-    {
-        fail_reply(reply, error);
+    pending.insert(id.clone(), pending_reply);
+    match write_request(child, &request) {
+        Ok(()) => {
+            if let Some(dispatched) = dispatched {
+                let _ = dispatched.send(());
+            }
+        }
+        Err(error) => {
+            if let Some(reply) = pending.remove(&id) {
+                fail_reply(reply, error);
+            }
+        }
     }
 }
 
@@ -189,7 +246,9 @@ pub(super) fn handle_event(
             return true;
         }
         ResidentEvent::Pong { id } => {
-            log::debug!("resident Parakeet unsolicited pong: {id}");
+            if let Some(PendingReply::Health { reply }) = pending.remove(&id) {
+                let _ = reply.send(Ok(()));
+            }
         }
         ResidentEvent::Ready => {}
     }
@@ -202,9 +261,24 @@ pub(super) fn fail_all(pending: &mut HashMap<String, PendingReply>, message: &st
     }
 }
 
-pub(super) fn reject_transcribe(command: WorkerCommand, message: &str) {
-    if let WorkerCommand::Transcribe { reply, .. } = command {
-        let _ = reply.send(Err(message.into()));
+pub(super) fn cancel_pending(pending: &mut HashMap<String, PendingReply>, id: &str) -> bool {
+    if let Some(reply) = pending.remove(id) {
+        fail_reply(reply, "resident Parakeet request cancelled".into());
+        true
+    } else {
+        false
+    }
+}
+
+pub(super) fn reject_command(command: WorkerCommand, message: &str) {
+    match command {
+        WorkerCommand::Transcribe { reply, .. } => {
+            let _ = reply.send(Err(message.into()));
+        }
+        WorkerCommand::Health { reply, .. } => {
+            let _ = reply.send(Err(message.into()));
+        }
+        _ => {}
     }
 }
 
@@ -215,51 +289,12 @@ fn write_request(child: &mut CommandChild, request: &ResidentRequest) -> Result<
 }
 
 fn fail_reply(reply: PendingReply, message: String) {
-    let PendingReply::Transcribe { reply, .. } = reply;
-    let _ = reply.send(Err(message));
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn local_health_is_ready_during_serve() {
-        let (reply, mut receiver) = oneshot::channel();
-        assert!(matches!(
-            handle_control(WorkerCommand::Health { reply }, true),
-            ControlResult::Handled
-        ));
-        assert!(matches!(receiver.try_recv(), Ok(Ok(()))));
-    }
-
-    #[test]
-    fn local_health_is_not_ready_without_a_ready_child() {
-        let (reply, mut receiver) = oneshot::channel();
-        assert!(matches!(
-            handle_control(WorkerCommand::Health { reply }, false),
-            ControlResult::Handled
-        ));
-        assert!(matches!(receiver.try_recv(), Ok(Err(_))));
-    }
-
-    #[test]
-    fn ndjson_buffer_preserves_fragmented_event() {
-        let mut buffer = NdjsonBuffer::default();
-        assert!(buffer.push(b"{\"type\":\"res").is_empty());
-        let events =
-            buffer.push(b"ult\",\"id\":\"a\",\"text\":\"hello\",\"model\":\"parakeet\"}\n");
-        assert_eq!(events.len(), 1);
-        assert!(matches!(events.into_iter().next().unwrap().unwrap(),
-            ResidentEvent::Result { id, text, .. } if id == "a" && text == "hello"));
-    }
-
-    #[test]
-    fn ndjson_buffer_returns_multiple_events_from_one_chunk() {
-        let mut buffer = NdjsonBuffer::default();
-        let events = buffer.push(b"{\"type\":\"ready\"}\n{\"type\":\"pong\",\"id\":\"b\"}\n");
-        assert_eq!(events.len(), 2);
-        assert!(matches!(&events[0], Ok(ResidentEvent::Ready)));
-        assert!(matches!(&events[1], Ok(ResidentEvent::Pong { id }) if id == "b"));
+    match reply {
+        PendingReply::Transcribe { reply, .. } => {
+            let _ = reply.send(Err(message));
+        }
+        PendingReply::Health { reply } => {
+            let _ = reply.send(Err(message));
+        }
     }
 }

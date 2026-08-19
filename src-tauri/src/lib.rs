@@ -397,10 +397,11 @@ pub fn run() {
                 }
             }
 
-            // Start the resident Parakeet supervisor when configured. The
-            // one-shot prewarm returns immediately in resident mode.
+            // Start the resident Parakeet supervisor when configured, then
+            // queue a real inference warmup on that same worker.
             parakeet_worker::reconcile(app.handle());
             dictation::prewarm_models(app.handle());
+            parakeet_worker::install_timer(app.handle().clone());
 
             // Re-prewarm after the laptop wakes from sleep. macOS evicts
             // CoreML's per-process specialization cache during sleep, which

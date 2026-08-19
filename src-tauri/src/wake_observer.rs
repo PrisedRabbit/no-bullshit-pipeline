@@ -81,7 +81,7 @@ pub fn install(app_handle: tauri::AppHandle) {
         LAST_WAKE_PREWARM_AT.store(now, Ordering::Release);
         let settings = crate::config::load_settings();
         if crate::parakeet_worker::configured(&settings) {
-            log::info!("wake_observer: didWake — verifying resident Parakeet");
+            log::info!("wake_observer: didWake — verifying and warming resident Parakeet");
             let app = handle_for_block.clone();
             tauri::async_runtime::spawn(async move {
                 crate::parakeet_worker::verify_after_wake(&app).await;
